@@ -3,7 +3,6 @@
 # Maintainer: Frederik Schwan <freswa at archlinux dot org>
 # Contributor: Mirco Tischler <mt-ml at gmx dot de>
 
-pkgbase=fwupd
 pkgname=(fwupd fwupd-docs)
 pkgver=1.9.8
 pkgrel=2
