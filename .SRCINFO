@@ -1,7 +1,7 @@
 pkgbase = fwupd
 	pkgdesc = Simple daemon to allow session software to update firmware
 	pkgver = 1.9.8
-	pkgrel = 2
+	pkgrel = 3
 	url = https://github.com/fwupd/fwupd
 	arch = x86_64
 	license = LGPL
@@ -58,7 +58,6 @@ pkgname = fwupd
 	optdepends = udisks2: UEFI firmware upgrade support
 	provides = libfwupd.so
 	backup = etc/fwupd/fwupd.conf
-	backup = etc/fwupd/remotes.d/dell-esrt.conf
 	backup = etc/fwupd/remotes.d/fwupd-tests.conf
 	backup = etc/fwupd/remotes.d/lvfs-testing.conf
 	backup = etc/fwupd/remotes.d/lvfs.conf
@@ -67,5 +66,4 @@ pkgname = fwupd
 
 pkgname = fwupd-docs
 	pkgdesc = Simple daemon to allow session software to update firmware - documentation
-	arch = any
 	depends = 

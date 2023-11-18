@@ -5,7 +5,7 @@
 
 pkgname=(fwupd fwupd-docs)
 pkgver=1.9.8
-pkgrel=2
+pkgrel=3
 pkgdesc="Simple daemon to allow session software to update firmware"
 arch=(x86_64)
 url='https://github.com/fwupd/fwupd'
@@ -98,7 +98,6 @@ package_fwupd() {
   provides=(libfwupd.so)
   backup=(
     'etc/fwupd/fwupd.conf'
-    'etc/fwupd/remotes.d/dell-esrt.conf'
     'etc/fwupd/remotes.d/fwupd-tests.conf'
     'etc/fwupd/remotes.d/lvfs-testing.conf'
     'etc/fwupd/remotes.d/lvfs.conf'
@@ -124,7 +123,6 @@ package_fwupd() {
 
 package_fwupd-docs() {
   pkgdesc="Simple daemon to allow session software to update firmware - documentation"
-  arch=(any)
   depends=()
   mv docs/* "${pkgdir}"
 }
