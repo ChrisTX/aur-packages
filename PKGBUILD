@@ -3,12 +3,13 @@
 # Maintainer: Frederik Schwan <freswa at archlinux dot org>
 # Contributor: Mirco Tischler <mt-ml at gmx dot de>
 
-pkgname=fwupd
+pkgbase=fwupd
+pkgname=(fwupd fwupd-docs)
 pkgver=1.9.8
-pkgrel=1
+pkgrel=2
 pkgdesc="Simple daemon to allow session software to update firmware"
 arch=(x86_64)
-url="https://github.com/fwupd/fwupd"
+url='https://github.com/fwupd/fwupd'
 license=(LGPL)
 depends=(
   bluez
@@ -36,9 +37,6 @@ depends=(
   shared-mime-info
   tpm2-tss
 )
-optdepends=(
-  'udisks2: UEFI firmware upgrade support'
-)
 makedepends=(
   bash-completion
   gi-docgen
@@ -55,16 +53,6 @@ makedepends=(
   valgrind
 )
 checkdepends=(umockdev)
-provides=(libfwupd.so)
-backup=(
-  'etc/fwupd/fwupd.conf'
-  'etc/fwupd/remotes.d/dell-esrt.conf'
-  'etc/fwupd/remotes.d/fwupd-tests.conf'
-  'etc/fwupd/remotes.d/lvfs-testing.conf'
-  'etc/fwupd/remotes.d/lvfs.conf'
-  'etc/fwupd/remotes.d/vendor-directory.conf'
-  'etc/fwupd/remotes.d/vendor.conf'
-)
 source=(
   "https://github.com/fwupd/fwupd/releases/download/${pkgver}/${pkgname}-${pkgver}.tar.xz"{,.asc}
   fwupd.sysusers
@@ -94,7 +82,31 @@ check() {
   meson test -C build
 }
 
-package() {
+_pick() {
+  local p="$1" f d; shift
+  for f; do
+    d="$srcdir/$p/${f#$pkgdir/}"
+    mkdir -p "$(dirname "$d")"
+    mv "$f" "$d"
+    rmdir -p --ignore-fail-on-non-empty "$(dirname "$f")"
+  done
+}
+
+package_fwupd() {
+  optdepends=(
+    'udisks2: UEFI firmware upgrade support'
+  )
+  provides=(libfwupd.so)
+  backup=(
+    'etc/fwupd/fwupd.conf'
+    'etc/fwupd/remotes.d/dell-esrt.conf'
+    'etc/fwupd/remotes.d/fwupd-tests.conf'
+    'etc/fwupd/remotes.d/lvfs-testing.conf'
+    'etc/fwupd/remotes.d/lvfs.conf'
+    'etc/fwupd/remotes.d/vendor-directory.conf'
+    'etc/fwupd/remotes.d/vendor.conf'
+  )
+
   DESTDIR="${pkgdir}" meson install -C build
   # Add fwupd user https://bugs.archlinux.org/task/79653
   install -D -m644 fwupd.sysusers "${pkgdir}"/usr/lib/sysusers.d/fwupd.conf
@@ -107,4 +119,13 @@ package() {
   # Remove msr module-load config as it is built-in
   rm "${pkgdir}"/usr/lib/modules-load.d/fwupd-msr.conf
   rmdir "${pkgdir}"/usr/lib/modules-load.d
+
+  _pick docs "${pkgdir}"/usr/share/doc/{,fwupd/}{libfwupdplugin,libfwupd}
+}
+
+package_fwupd-docs() {
+  pkgdesc="Simple daemon to allow session software to update firmware - documentation"
+  arch=(any)
+  depends=()
+  mv docs/* "${pkgdir}"
 }
