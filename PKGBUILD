@@ -109,7 +109,7 @@ package_fwupd() {
   # Add fwupd user https://bugs.archlinux.org/task/79653
   install -D -m644 fwupd.sysusers "${pkgdir}"/usr/lib/sysusers.d/fwupd.conf
   # Fixup mode to match polkit
-  install -d -o root -g 102 -m 750 "${pkgdir}"/usr/share/polkit-1/rules.d
+  install -d -o root -g 102 -m 755 "${pkgdir}"/usr/share/polkit-1/rules.d
   # Remove the tests
   rm -r "${pkgdir}"/usr/share/installed-tests/
   mv "${pkgdir}"/usr/bin/{,fwupd-}dbxtool
