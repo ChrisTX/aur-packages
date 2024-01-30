@@ -1,6 +1,6 @@
 pkgbase = ghidra
 	pkgdesc = Software reverse engineering framework
-	pkgver = 11.0
+	pkgver = 11.0.1
 	pkgrel = 1
 	url = https://ghidra-sre.org/
 	arch = x86_64
@@ -15,13 +15,13 @@ pkgbase = ghidra
 	noextract = AXMLPrinter2.jar
 	noextract = yajsw-beta-13.09.zip
 	options = !strip
-	source = https://github.com/NationalSecurityAgency/ghidra/archive/Ghidra_11.0_build.tar.gz
-	source = git+https://github.com/NationalSecurityAgency/ghidra-data#tag=Ghidra_11.0
+	source = https://github.com/NationalSecurityAgency/ghidra/archive/Ghidra_11.0.1_build.tar.gz
+	source = git+https://github.com/NationalSecurityAgency/ghidra-data#tag=Ghidra_11.0.1
 	source = https://github.com/pxb1988/dex2jar/releases/download/v2.1/dex2jar-2.1.zip
 	source = https://storage.googleapis.com/google-code-archive-downloads/v2/code.google.com/android4me/AXMLPrinter2.jar
 	source = https://sourceforge.net/projects/yajsw/files/yajsw/yajsw-stable-13.09/yajsw-stable-13.09.zip
-	source = https://github.com/NationalSecurityAgency/ghidra-data/raw/Ghidra_11.0/lib/java-sarif-2.1-modified.jar
-	sha512sums = 9c6ad91a71ea49ce90bff422f45d2ad076898d618614b7aded6dfabf8660ccf05fc6579e4f41d50e49ea6c1dc88c03260ff63210d411e405f88aa78bb2cce29b
+	source = https://github.com/NationalSecurityAgency/ghidra-data/raw/Ghidra_11.0.1/lib/java-sarif-2.1-modified.jar
+	sha512sums = 14a555c8bc6b66c02a92192f20abda1c8c82119894529bd7d14d40ae0bf22449d3a608102f641d282528ee070d069395092e02a3029468cfdcea7a9b6dbd5223
 	sha512sums = SKIP
 	sha512sums = 44b4a51043ef608158e16f70d9a448ae0a37896da19bd9837e1124e197b7b41a7c37f074386b0cc03edd4f385066bf5ef04c553f6dec0b0cc2a11ecbf299b16f
 	sha512sums = c1168ec913f1fbb0675915d4fd865ec9a8e8573f6c8aedcb6e68166f61f11aeaececc7548d54d78134843c0102c57d6350973f6d3027d0ffdae52a5c57a7f601
