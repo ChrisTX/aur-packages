@@ -12,26 +12,26 @@ url='https://github.com/fwupd/fwupd'
 license=(LGPL-2.1-or-later)
 depends=(
   bluez
+  curl
   efivar
   flashrom
   fwupd-efi
   gcab
   gnutls
   hicolor-icon-theme
-  libarchive.so
-  libcbor.so
-  libcurl.so
-  libgudev-1.0.so
+  libarchive
+  libcbor
+  libgudev
   libgusb
   libjcat
-  libjson-glib-1.0.so
-  libmm-glib.so
-  libpassim.so
-  libprotobuf-c.so
-  libqmi-glib.so
+  libjson-glib
+  libmm-glib
+  libqmi
   libsmbios
   libxmlb
+  passim
   polkit
+  protobuf-c
   python
   shared-mime-info
   tpm2-tss
@@ -92,6 +92,17 @@ _pick() {
 }
 
 package_fwupd() {
+  depends+=(
+    libarchive.so
+    libcbor.so
+    libcurl.so
+    libgudev-1.0.so
+    libjson-glib-1.0.so
+    libmm-glib.so
+    libpassim.so
+    libprotobuf-c.so
+    libqmi-glib.so
+  )
   optdepends=(
     'udisks2: UEFI firmware upgrade support'
   )
