@@ -10,7 +10,7 @@ pkgrel=1
 pkgdesc='Software reverse engineering framework'
 url='https://ghidra-sre.org/'
 arch=('x86_64')
-license=('Apache')
+license=('Apache-2.0')
 depends=('java-environment>=17' 'bash')
 makedepends=('git' 'gradle' 'unzip' 'java-environment=17')
 optdepends=('pam: GhidraServer support')
