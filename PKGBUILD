@@ -2,11 +2,11 @@
 # Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
 
 pkgname=ghidra
-pkgver=11.0.2
+pkgver=11.0.3
+pkgrel=1
 _d2j=2.1
 _yajsw=13.09
 _jserif=2.1
-pkgrel=2
 pkgdesc='Software reverse engineering framework'
 url='https://ghidra-sre.org/'
 arch=('x86_64')
@@ -25,7 +25,7 @@ source=(
 )
 noextract=(AXMLPrinter2.jar
            yajsw-beta-${_yajsw}.zip)
-sha512sums=('9dc13d22a69286d13e8690a09ea4ce645268762ee6f2a0b613574257b576d2b419a8ccad6760ef100e1b77f5f137c5d52776e16f94feb2995639245aea9f55de'
+sha512sums=('4805c0508c2781f3b05697aa7930b044241d749341b2ba5087d50ff0839d08052c8d526f9898215fa35666721cbdbd0f63400966587d32e2b0d1a91c5b97c213'
             'cf8a52af6d8c932ef00e73be5d58f9d5cd3cfa79928ddf1c37ced5ad9f8b49452e447be4928d469ee25a6cdfc1a36efb07bf74d0483450ed4d5474864a0751aa'
             '44b4a51043ef608158e16f70d9a448ae0a37896da19bd9837e1124e197b7b41a7c37f074386b0cc03edd4f385066bf5ef04c553f6dec0b0cc2a11ecbf299b16f'
             'c1168ec913f1fbb0675915d4fd865ec9a8e8573f6c8aedcb6e68166f61f11aeaececc7548d54d78134843c0102c57d6350973f6d3027d0ffdae52a5c57a7f601'
