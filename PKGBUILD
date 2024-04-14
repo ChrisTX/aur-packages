@@ -118,7 +118,7 @@ package_fwupd() {
   # Add fwupd user https://bugs.archlinux.org/task/79653
   install -D -m644 fwupd.sysusers "${pkgdir}"/usr/lib/sysusers.d/fwupd.conf
   # Remove the tests
-  rm -r "${pkgdir}"/usr/share/installed-tests/
+  rm -r "${pkgdir}"/usr/{lib,share}/installed-tests/
   mv "${pkgdir}"/usr/bin/{,fwupd-}dbxtool
   mv "${pkgdir}"/usr/share/man/man1/{,fwupd-}dbxtool.1
   # Remove msr module-load config as it is built-in
