@@ -3,7 +3,11 @@
 # Maintainer: Frederik Schwan <freswa at archlinux dot org>
 # Contributor: Mirco Tischler <mt-ml at gmx dot de>
 
-pkgname=(fwupd fwupd-docs)
+pkgbase=fwupd
+pkgname=(
+  fwupd
+  fwupd-docs
+)
 pkgver=1.9.17
 pkgrel=1
 pkgdesc="Simple daemon to allow session software to update firmware"
@@ -75,15 +79,17 @@ b2sums=('2fb5b8c058bdee887fd5fe74451bb08923a4b2f906073c714cd7d9e9b2c45872334f1e2
 validpgpkeys=(163EB50119225DB3DF8F49EA17ACBA8DFA970E17) # Richard Hughes <richard@hughsie.com>
 
 build() {
-  arch-meson ${pkgname}-${pkgver} build \
-    -D b_lto=false \
-    -D docs=enabled \
-    -D plugin_amdgpu=disabled \
-    -D launchd=disabled \
-    -D plugin_intel_spi=true \
-    -D supported_build=enabled \
-    -D efi_binary=false \
+  local meson_options=(
+    -D docs=enabled
+    -D efi_binary=false
+    -D launchd=disabled
+    -D plugin_amdgpu=disabled
+    -D plugin_intel_spi=true
+    -D supported_build=enabled
     -D systemd_unit_user=fwupd
+  )
+
+  arch-meson ${pkgname}-${pkgver} build "${meson_options[@]}"
   meson compile -C build
 }
 
@@ -131,6 +137,7 @@ package_fwupd() {
   install -D -m644 fwupd.sysusers "${pkgdir}"/usr/lib/sysusers.d/fwupd.conf
   # Remove the tests
   rm -r "${pkgdir}"/usr/{lib,share}/installed-tests/
+  # Conflicts with the dbxtool package
   mv "${pkgdir}"/usr/bin/{,fwupd-}dbxtool
   mv "${pkgdir}"/usr/share/man/man1/{,fwupd-}dbxtool.1
   # Remove msr module-load config as it is built-in
