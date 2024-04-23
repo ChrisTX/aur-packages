@@ -11,20 +11,25 @@ arch=(x86_64)
 url='https://github.com/fwupd/fwupd'
 license=(LGPL-2.1-or-later)
 depends=(
+  bash
   bluez
   curl
   efivar
   flashrom
   fwupd-efi
   gcab
+  gcc-libs
+  glib2
+  glibc
   gnutls
   hicolor-icon-theme
+  json-glib
   libarchive
   libcbor
   libgudev
   libgusb
   libjcat
-  json-glib
+  libmbim
   libmm-glib
   libqmi
   libsmbios
@@ -34,7 +39,11 @@ depends=(
   protobuf-c
   python
   shared-mime-info
+  sqlite
+  systemd-libs
   tpm2-tss
+  xz
+  zlib
 )
 makedepends=(
   bash-completion
@@ -46,6 +55,7 @@ makedepends=(
   noto-fonts-cjk
   pandoc
   python-cairo
+  python-dbus
   python-gobject
   python-pillow
   vala
@@ -104,6 +114,8 @@ package_fwupd() {
     libqmi-glib.so
   )
   optdepends=(
+    'python-dbus: Firmware packaging tools'
+    'python-gobject: Firmware packaging tools'
     'udisks2: UEFI firmware upgrade support'
   )
   provides=(libfwupd.so)
