@@ -9,7 +9,7 @@ pkgname=(
   fwupd-docs
 )
 pkgver=1.9.17
-pkgrel=1
+pkgrel=2
 pkgdesc="Simple daemon to allow session software to update firmware"
 arch=(x86_64)
 url='https://github.com/fwupd/fwupd'
@@ -69,14 +69,26 @@ checkdepends=(umockdev)
 source=(
   "https://github.com/fwupd/fwupd/releases/download/${pkgver}/${pkgname}-${pkgver}.tar.xz"{,.asc}
   fwupd.sysusers
+  0001-Use-simple-allow-listing-for-the-syscall-filter.patch
 )
 sha512sums=('7aa0e24915d51858e1fcd3f04b9c2162d084654991809ce7c19154c8e392a97a4012a967083c171c123b77d0c6174331b8763f1668f499b767c05abdd4a5578d'
             'SKIP'
-            '637203080b55eda74a659f58c853a9a723a2dad5da70915b2b0e036c6145a649468ebec700cc83975d9cb5378b9dced8b3a3b26bdbcc75ddc774837355e75deb')
+            '637203080b55eda74a659f58c853a9a723a2dad5da70915b2b0e036c6145a649468ebec700cc83975d9cb5378b9dced8b3a3b26bdbcc75ddc774837355e75deb'
+            '2fcec451c4e48ffaeb880668ea916dc55066da9574c9f44c6b731cfd7365a77605e25543c67202adaac7fb466c5060cdb636e81d9b6248903de6c4c5dfd255c2')
 b2sums=('2fb5b8c058bdee887fd5fe74451bb08923a4b2f906073c714cd7d9e9b2c45872334f1e2729135f5fe016b459c1440dd084f39ffdf4f45fa14df669c7cbf349b7'
         'SKIP'
-        'e65ca7da22a20a40882cfc1fe4479643f9a38c90a4f2c3e71e6e5e3de1d6db212a0f17d600097619fe3cdb0a9b860422f8b0b9a9d45441518e51a7eb12a918bb')
+        'e65ca7da22a20a40882cfc1fe4479643f9a38c90a4f2c3e71e6e5e3de1d6db212a0f17d600097619fe3cdb0a9b860422f8b0b9a9d45441518e51a7eb12a918bb'
+        '0fd942b3dcb9ee720c2dad647e942fe57e61d7e8d06ee891cc3de773c0de01d80c96bdd146c9e5faaf70e9dcf74118e788033910e3b3c9e5818d23b6b2256b20')
 validpgpkeys=(163EB50119225DB3DF8F49EA17ACBA8DFA970E17) # Richard Hughes <richard@hughsie.com>
+
+prepare() {
+  cd ${pkgname}-${pkgver}
+
+  # Unbreak syscall filtering check
+  # https://gitlab.archlinux.org/archlinux/packaging/packages/fwupd/-/issues/1
+  # https://github.com/fwupd/fwupd/issues/7144#issuecomment-2070886920
+  patch -Np1 -i ../0001-Use-simple-allow-listing-for-the-syscall-filter.patch
+}
 
 build() {
   local meson_options=(
