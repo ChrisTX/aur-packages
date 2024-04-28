@@ -18,10 +18,8 @@ depends=(
   bash
   bluez
   curl
-  efivar
   flashrom
   fwupd-efi
-  gcab
   gcc-libs
   glib2
   glibc
@@ -36,7 +34,6 @@ depends=(
   libmbim
   libmm-glib
   libqmi
-  libsmbios
   libxmlb
   passim
   polkit
