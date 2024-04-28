@@ -51,6 +51,7 @@ makedepends=(
   gi-docgen
   gnu-efi-libs
   gobject-introspection
+  libdrm
   meson
   noto-fonts
   noto-fonts-cjk
@@ -91,8 +92,6 @@ build() {
     -D docs=enabled
     -D efi_binary=false
     -D launchd=disabled
-    -D plugin_amdgpu=disabled
-    -D plugin_intel_spi=true
     -D supported_build=enabled
     -D systemd_unit_user=fwupd
   )
