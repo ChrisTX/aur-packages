@@ -24,7 +24,6 @@ depends=(
   glib2
   glibc
   gnutls
-  gsettings-desktop-schemas
   hicolor-icon-theme
   json-glib
   libarchive
