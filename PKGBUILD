@@ -57,14 +57,12 @@ makedepends=(
   pandoc
   python-cairo
   python-dbus
+  python-dbusmock
   python-gobject
   python-pillow
+  umockdev
   vala
   valgrind
-)
-checkdepends=(
-  umockdev
-  python-dbusmock
 )
 source=(
   "https://github.com/fwupd/fwupd/releases/download/${pkgver}/${pkgname}-${pkgver}.tar.xz"{,.asc}
