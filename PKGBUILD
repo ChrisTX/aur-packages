@@ -28,6 +28,7 @@ depends=(
   json-glib
   libarchive
   libcbor
+  libdrm
   libjcat
   libmbim
   libmm-glib
@@ -50,7 +51,6 @@ makedepends=(
   gi-docgen
   gnu-efi-libs
   gobject-introspection
-  libdrm
   meson
   noto-fonts
   noto-fonts-cjk
