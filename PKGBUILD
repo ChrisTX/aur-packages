@@ -49,6 +49,7 @@ depends=(
 makedepends=(
   bash-completion
   gi-docgen
+  git
   gnu-efi-libs
   gobject-introspection
   meson
@@ -65,14 +66,12 @@ makedepends=(
   valgrind
 )
 source=(
-  "https://github.com/fwupd/fwupd/releases/download/${pkgver}/${pkgname}-${pkgver}.tar.xz"{,.asc}
+  "git+https://github.com/fwupd/fwupd.git#tag=${pkgver}?signed"
   fwupd.sysusers
 )
-sha512sums=('c3598434ea6c70dda49eb681cd71d856ba755654ae4ea6263e4a2da0ecbcedeaaf3edcc46583a358b2942f3c5ea4308edfeafededc0abd06d824b90d3e77d0b4'
-            'SKIP'
+sha512sums=('034422b26da89953430fca20c730cb5be1304dca9bce45aa6180f8ddb1c6d02ba03d9a7c16c01c0893f3043770cfa750adf485699eba21e6652302433925dbf1'
             'f9a99c60786a2b98e0de439a9288af61b2c0716f8339a4c93e2df7108d2a7f9ef8128967dcaa1e12022ffa647945bf5eb3749e38cac83e00a28cbc5b015fbee9')
-b2sums=('3f2aac8b3d42a15c0d203199a368a7982eb1edc6241538052eba92a3114e038649b1dfd6a2bc82903516ca83ebf4b35f9e90bbd58ab0efa4cce6ef5b1f0db615'
-        'SKIP'
+b2sums=('7e383963d9635f2335b97f00733e6234db6ba003cd1f93b20cb5c7d815e90a049e1c5d121ac8a312494fea4af39d70f4f188fe312abc97d2b389d318f32c5c7e'
         'c294c6dd324c0ad0d752affdc459d427d34f4bf865def099ac0e25db6b5dfbfcf645ca325e4e7732d1256e75c624ff27094d5c814726909c7e348128a9dd93f9')
 validpgpkeys=(163EB50119225DB3DF8F49EA17ACBA8DFA970E17) # Richard Hughes <richard@hughsie.com>
 
@@ -84,7 +83,7 @@ build() {
     -D systemd_unit_user=fwupd
   )
 
-  arch-meson ${pkgname}-${pkgver} build "${meson_options[@]}"
+  arch-meson ${pkgname} build "${meson_options[@]}"
   meson compile -C build
 }
 
