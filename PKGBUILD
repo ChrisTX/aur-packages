@@ -8,7 +8,7 @@ pkgname=(
   fwupd
   fwupd-docs
 )
-pkgver=2.0.8
+pkgver=2.0.9
 pkgrel=1
 pkgdesc="Simple daemon to allow session software to update firmware"
 arch=(x86_64)
@@ -69,9 +69,9 @@ source=(
   "git+https://github.com/fwupd/fwupd.git#tag=${pkgver}?signed"
   fwupd.sysusers
 )
-sha512sums=('034422b26da89953430fca20c730cb5be1304dca9bce45aa6180f8ddb1c6d02ba03d9a7c16c01c0893f3043770cfa750adf485699eba21e6652302433925dbf1'
+sha512sums=('0a0e00f294b333d2695437ded1ebb4efc9c6c7b520d25097e54587657274ccecf20b0385257e50ff81865fc9639f8f8013f31fa9e23ffd8dc9f98eb4ad24501f'
             'f9a99c60786a2b98e0de439a9288af61b2c0716f8339a4c93e2df7108d2a7f9ef8128967dcaa1e12022ffa647945bf5eb3749e38cac83e00a28cbc5b015fbee9')
-b2sums=('7e383963d9635f2335b97f00733e6234db6ba003cd1f93b20cb5c7d815e90a049e1c5d121ac8a312494fea4af39d70f4f188fe312abc97d2b389d318f32c5c7e'
+b2sums=('00d0810260f4ac208d739dafde83f89d1aaf3d258d3c6cce61fea8608e98c481f4a89ef658bdea03feaa836a0109eb7ca41857d22ea6550c6ce74e8ed222d8bf'
         'c294c6dd324c0ad0d752affdc459d427d34f4bf865def099ac0e25db6b5dfbfcf645ca325e4e7732d1256e75c624ff27094d5c814726909c7e348128a9dd93f9')
 validpgpkeys=(163EB50119225DB3DF8F49EA17ACBA8DFA970E17) # Richard Hughes <richard@hughsie.com>
 
