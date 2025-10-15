@@ -12,11 +12,27 @@ _setuptools=68.0.0
 _wheel=0.37.1
 pkgdesc='Software reverse engineering framework'
 url='https://ghidra-sre.org/'
-arch=('x86_64')
-license=('Apache-2.0')
-depends=('java-environment>=21' 'bash')
-makedepends=('git' 'gradle' 'unzip' 'java-environment=21')
-optdepends=('pam: GhidraServer support')
+arch=(x86_64)
+license=(
+  Apache-2.0
+)
+depends=(
+  'java-environment>=21'
+  bash
+)
+makedepends=(
+  'java-environment=21'
+  git
+  gradle
+  python-build
+  python-flit-core
+  python-installer
+  python-pip
+  python-setuptools
+)
+optdepends=(
+  'pam: GhidraServer support'
+)
 options=('!strip')
 source=(
   https://github.com/NationalSecurityAgency/ghidra/archive/Ghidra_${pkgver}_build.tar.gz
@@ -44,13 +60,13 @@ sha512sums=('d86dc44214bb269732c56da8fdf4e13439e1d4927354f8b8b3d3c9bc364ff56e77a
             'c977a740c17abd1fa4b4c2382a33f3ff887baa4231c36990d988cb8531496074e39744786ef6ac0da9c9af4977bce5b2da145377a3ac15eea918f8125bff66ec')
 
 prepare() {
-  export PATH="/usr/lib/jvm/java-21-openjdk/bin:${PATH}"
   cd ghidra-Ghidra_${pkgver}_build
 
   # Copy needed libraries into flat repo folder
   install -Dm 644 \
     ../AXMLPrinter2.jar ../java-sarif-${_jserif}-modified.jar \
     -t dependencies/flatRepo
+  install -Dm 644 ../psutil-${_psutil}.tar.gz -t dependencies/Debugger-rmi-trace
 
   # YAJSW expects this symlink
   ln -sf ghidra-Ghidra_${pkgver}_build ../ghidra.bin
@@ -59,36 +75,41 @@ prepare() {
   # Add FID datasets
   install -Dm 644 ../ghidra-data/FunctionID/*.fidb -t Ghidra/Features/FunctionID/src/main/fidb
 
-  # Debugger-rmi-trace dependencies
-  cd ../protobuf-${_protobuf}
-  python setup.py bdist_wheel
-  install -Dm 644 dist/protobuf-${_protobuf}-py2.py3-none-any.whl -t ../ghidra-Ghidra_${pkgver}_build/dependencies/Debugger-rmi-trace
-
-  cd ../setuptools-${_setuptools}
-  python3 setup.py bdist_wheel
-  install -Dm 644 dist/setuptools-${_setuptools}-py3-none-any.whl -t ../ghidra-Ghidra_${pkgver}_build/dependencies/Debugger-rmi-trace
-
-  cd ../wheel-${_wheel}
-  python setup.py bdist_wheel
-  install -Dm 644 dist/wheel-${_wheel}-py2.py3-none-any.whl -t ../ghidra-Ghidra_${pkgver}_build/dependencies/Debugger-rmi-trace
-
-  cd ../ghidra-Ghidra_${pkgver}_build
-  install -Dm 644 \
-    ../psutil-${_psutil}.tar.gz \
-    -t dependencies/Debugger-rmi-trace
-
   # Ignore lack of licensing for YAJSW zip, packed FID datasets, and the native binaries
   sed -i '/FileTree tree/a\\t\texclude "yajsw-stable-**.zip"\n\t\texclude "src/main/fidb/**.fidb"\n\t\texclude "os/linux64/**"' gradle/support/ip.gradle
 }
 
 build() {
-  export GRADLE_HOME="$(pwd)/usr/share/java/gradle/"
-  export PATH="$(pwd)/usr/share/java/gradle/bin/:${PATH}"
   cd ghidra-Ghidra_${pkgver}_build
+
+  export GRADLE_HOME="$(pwd)/usr/share/java/gradle/"
+  export PATH="/usr/lib/jvm/java-21-openjdk/bin:${PATH}"
+  export PATH="$(pwd)/usr/share/java/gradle/bin/:${PATH}"
+
+  # Build dependencies
+  _build_python_dependency protobuf-${_protobuf} Debugger-rmi-trace
+  _build_python_dependency setuptools-${_setuptools} Debugger-rmi-trace
+  _build_python_dependency wheel-${_wheel} Debugger-rmi-trace
+
+  # Ghidra build
   gradle yajswDevUnpack
   gradle buildNatives_linux_x86_64
   gradle sleighCompile
   gradle buildGhidra
+}
+
+_build_python_dependency() {
+  local folder=$1; shift
+  local targets=("$@")
+  local target
+
+  msg "Building python dependency ${folder} for ${targets[*]}"
+  pushd "../${folder}"
+  python -m build --wheel --no-isolation
+  for target in "${targets[@]}"; do
+    install -Dm 644 dist/*.whl -t "../ghidra-Ghidra_${pkgver}_build/dependencies/${target}"
+  done
+  popd
 }
 
 package() {
