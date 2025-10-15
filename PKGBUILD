@@ -27,6 +27,7 @@ makedepends=(
   'java-environment=21'
   git
   gradle
+  grep
   python-build
   python-flit-core
   python-installer
@@ -68,6 +69,16 @@ sha512sums=('c7a5fb9eae00418f2efcd03c43640e061750ee3324fc247299531670ebb54474719
 prepare() {
   cd ghidra-Ghidra_${pkgver}_build
 
+  # Check dependency expectations
+  _check_dep "yajsw-stable-${_yajsw}.zip"
+  _check_dep "java-sarif-${_jsarif}-modified.jar"
+  _check_dep "protobuf-${_protobuf}-"
+  _check_dep "psutil-${_psutil}.tar.gz"
+  _check_dep "setuptools-${_setuptools}-"
+  _check_dep "wheel-${_wheel}-"
+  _check_dep "jpype1-${_jpype1}-"
+  _check_dep "packaging-${_packaging}-"
+
   # Copy needed libraries into flat repo folder
   install -Dm 644 \
     ../AXMLPrinter2.jar ../ghidra-data/lib/java-sarif-${_jsarif}-modified.jar \
@@ -87,6 +98,14 @@ prepare() {
 
   # Ignore lack of licensing for YAJSW zip, packed FID datasets, and the native binaries
   sed -i '/FileTree tree/a\\t\texclude "yajsw-stable-**.zip"\n\t\texclude "src/main/fidb/**.fidb"\n\t\texclude "os/linux64/**"' gradle/support/ip.gradle
+}
+
+_check_dep() {
+  local dep=$1
+  if ! grep -m1 "${dep}" --quiet gradle/support/fetchDependencies.gradle; then
+    error "Dependency expectation failed: ${dep}"
+    return 1
+  fi
 }
 
 build() {

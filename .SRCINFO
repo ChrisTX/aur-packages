@@ -8,6 +8,7 @@ pkgbase = ghidra
 	makedepends = java-environment=21
 	makedepends = git
 	makedepends = gradle
+	makedepends = grep
 	makedepends = python-build
 	makedepends = python-flit-core
 	makedepends = python-installer
