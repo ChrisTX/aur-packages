@@ -1,6 +1,6 @@
 pkgbase = ghidra
 	pkgdesc = Software reverse engineering framework
-	pkgver = 11.3.2
+	pkgver = 11.4.2
 	pkgrel = 1
 	url = https://ghidra-sre.org/
 	arch = x86_64
@@ -20,16 +20,16 @@ pkgbase = ghidra
 	noextract = yajsw-stable-13.12.zip
 	noextract = psutil-5.9.8.tar.gz
 	options = !strip
-	source = https://github.com/NationalSecurityAgency/ghidra/archive/Ghidra_11.3.2_build.tar.gz
-	source = git+https://github.com/NationalSecurityAgency/ghidra-data#tag=Ghidra_11.3.2
+	source = https://github.com/NationalSecurityAgency/ghidra/archive/Ghidra_11.4.2_build.tar.gz
+	source = git+https://github.com/NationalSecurityAgency/ghidra-data#tag=Ghidra_11.4.2
 	source = https://storage.googleapis.com/google-code-archive-downloads/v2/code.google.com/android4me/AXMLPrinter2.jar
 	source = https://sourceforge.net/projects/yajsw/files/yajsw/yajsw-stable-13.12/yajsw-stable-13.12.zip
 	source = https://files.pythonhosted.org/packages/source/p/protobuf/protobuf-3.20.3.tar.gz
 	source = https://files.pythonhosted.org/packages/source/p/psutil/psutil-5.9.8.tar.gz
 	source = https://files.pythonhosted.org/packages/source/s/setuptools/setuptools-68.0.0.tar.gz
 	source = https://files.pythonhosted.org/packages/source/w/wheel/wheel-0.37.1.tar.gz
-	sha512sums = d86dc44214bb269732c56da8fdf4e13439e1d4927354f8b8b3d3c9bc364ff56e77a53f1355b8a12e93e1916942d6fe43c08a37d371f91533085904506d733a4c
-	sha512sums = eaf5187894f63016352d4a4bd6276a7df07282b3a64b8ff2d06705148beca09f69d7072c711fe2cebae42f6c53aef0cc0397490ecf3384fa6b8b02b86051c724
+	sha512sums = c7a5fb9eae00418f2efcd03c43640e061750ee3324fc247299531670ebb54474719536c1e8789e1e4758ff3f193a6725f3743b3d52ab97cfdde9c7b9e9310062
+	sha512sums = b2dfe009e30bb89f84cbc5693c696e523882af1682a14f001570d89d475e72b399ab540a6cb8b027ed1f2358dc47a3bb5c7270237f03bf6f25b761b5dc9b1865
 	sha512sums = c1168ec913f1fbb0675915d4fd865ec9a8e8573f6c8aedcb6e68166f61f11aeaececc7548d54d78134843c0102c57d6350973f6d3027d0ffdae52a5c57a7f601
 	sha512sums = ce942efe3e4f45280913122dab121b583ce20d9a86369de8148daf100fa2f4695f59acd79087519c5ce6ac65803ffa068607430760b556abb31e60558c0085e9
 	sha512sums = ae3ca199e7aa0b98634dd89b00fd5e8b04e9b8a840b76406730f14743ef71afdc4e84ade2730dae7958bf82e7b8bb884280394a81c7f9607edb1455df3fee4f6
