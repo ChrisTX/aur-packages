@@ -5,7 +5,7 @@ pkgname=ghidra
 pkgver=11.3.2
 pkgrel=1
 _yajsw=13.12
-_jserif=2.1
+_jsarif=2.1
 _protobuf=3.20.3
 _psutil=5.9.8
 _setuptools=68.0.0
@@ -39,21 +39,20 @@ source=(
   "git+https://github.com/NationalSecurityAgency/ghidra-data#tag=Ghidra_${pkgver}"
   https://storage.googleapis.com/google-code-archive-downloads/v2/code.google.com/android4me/AXMLPrinter2.jar
   https://sourceforge.net/projects/yajsw/files/yajsw/yajsw-stable-${_yajsw}/yajsw-stable-${_yajsw}.zip
-  https://github.com/NationalSecurityAgency/ghidra-data/raw/Ghidra_${pkgver}/lib/java-sarif-${_jserif}-modified.jar
   https://files.pythonhosted.org/packages/source/p/protobuf/protobuf-${_protobuf}.tar.gz
   https://files.pythonhosted.org/packages/source/p/psutil/psutil-${_psutil}.tar.gz
   https://files.pythonhosted.org/packages/source/s/setuptools/setuptools-${_setuptools}.tar.gz
   https://files.pythonhosted.org/packages/source/w/wheel/wheel-${_wheel}.tar.gz
 )
-noextract=(AXMLPrinter2.jar
-           yajsw-stable-${_yajsw}.zip
-           java-sarif-${_jserif}-modified.jar
-           psutil-${_psutil}.tar.gz)
+noextract=(
+  AXMLPrinter2.jar
+  yajsw-stable-${_yajsw}.zip
+  psutil-${_psutil}.tar.gz
+)
 sha512sums=('d86dc44214bb269732c56da8fdf4e13439e1d4927354f8b8b3d3c9bc364ff56e77a53f1355b8a12e93e1916942d6fe43c08a37d371f91533085904506d733a4c'
             'eaf5187894f63016352d4a4bd6276a7df07282b3a64b8ff2d06705148beca09f69d7072c711fe2cebae42f6c53aef0cc0397490ecf3384fa6b8b02b86051c724'
             'c1168ec913f1fbb0675915d4fd865ec9a8e8573f6c8aedcb6e68166f61f11aeaececc7548d54d78134843c0102c57d6350973f6d3027d0ffdae52a5c57a7f601'
             'ce942efe3e4f45280913122dab121b583ce20d9a86369de8148daf100fa2f4695f59acd79087519c5ce6ac65803ffa068607430760b556abb31e60558c0085e9'
-            '04d1f895f87a8f0a653ee5c2b18ed0b6d158f1b7de4e16de2e50ed5a3087b1e83ca01f6c4c8c53d1788942e29d2f41528c910f224c41e27098cb5c2838a8ddf3'
             'ae3ca199e7aa0b98634dd89b00fd5e8b04e9b8a840b76406730f14743ef71afdc4e84ade2730dae7958bf82e7b8bb884280394a81c7f9607edb1455df3fee4f6'
             '6ddeed937119a930bb7b9556ff329f054e9429b8457c9a15d99cb105271297117abba587a974d02760bb8b6b244734973a676bdff6b533a53ce587858e48f337'
             'da6d535a0db6eaf477c8c2148efbc2100fd88a14f3adad44d20e22bf52bee3f00fe86547ea650fe653519bd6ff5f9ef033a55bb3a05fed041e88e78cdfb81d7e'
@@ -64,7 +63,7 @@ prepare() {
 
   # Copy needed libraries into flat repo folder
   install -Dm 644 \
-    ../AXMLPrinter2.jar ../java-sarif-${_jserif}-modified.jar \
+    ../AXMLPrinter2.jar ../ghidra-data/lib/java-sarif-${_jsarif}-modified.jar \
     -t dependencies/flatRepo
   install -Dm 644 ../psutil-${_psutil}.tar.gz -t dependencies/Debugger-rmi-trace
 
