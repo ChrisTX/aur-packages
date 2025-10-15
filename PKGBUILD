@@ -10,6 +10,8 @@ _protobuf=3.20.3
 _psutil=5.9.8
 _setuptools=68.0.0
 _wheel=0.37.1
+_jpype1=1.5.2
+_packaging=23.2
 pkgdesc='Software reverse engineering framework'
 url='https://ghidra-sre.org/'
 arch=(x86_64)
@@ -19,6 +21,7 @@ license=(
 depends=(
   'java-environment>=21'
   bash
+  python
 )
 makedepends=(
   'java-environment=21'
@@ -43,6 +46,8 @@ source=(
   https://files.pythonhosted.org/packages/source/p/psutil/psutil-${_psutil}.tar.gz
   https://files.pythonhosted.org/packages/source/s/setuptools/setuptools-${_setuptools}.tar.gz
   https://files.pythonhosted.org/packages/source/w/wheel/wheel-${_wheel}.tar.gz
+  https://files.pythonhosted.org/packages/source/j/jpype1/jpype1-${_jpype1}.tar.gz
+  https://files.pythonhosted.org/packages/source/p/packaging/packaging-${_packaging}.tar.gz
 )
 noextract=(
   AXMLPrinter2.jar
@@ -56,7 +61,9 @@ sha512sums=('c7a5fb9eae00418f2efcd03c43640e061750ee3324fc247299531670ebb54474719
             'ae3ca199e7aa0b98634dd89b00fd5e8b04e9b8a840b76406730f14743ef71afdc4e84ade2730dae7958bf82e7b8bb884280394a81c7f9607edb1455df3fee4f6'
             '6ddeed937119a930bb7b9556ff329f054e9429b8457c9a15d99cb105271297117abba587a974d02760bb8b6b244734973a676bdff6b533a53ce587858e48f337'
             'da6d535a0db6eaf477c8c2148efbc2100fd88a14f3adad44d20e22bf52bee3f00fe86547ea650fe653519bd6ff5f9ef033a55bb3a05fed041e88e78cdfb81d7e'
-            'c977a740c17abd1fa4b4c2382a33f3ff887baa4231c36990d988cb8531496074e39744786ef6ac0da9c9af4977bce5b2da145377a3ac15eea918f8125bff66ec')
+            'c977a740c17abd1fa4b4c2382a33f3ff887baa4231c36990d988cb8531496074e39744786ef6ac0da9c9af4977bce5b2da145377a3ac15eea918f8125bff66ec'
+            'b02c294ee2ef7a206fcd80827f790bcad73bf857ab8a473a795752431eacfda85dc53ec5451545b24d9d5c80c71fa10355ba232916c2c1d52534ec54c7d0bb3b'
+            '8ab5e9bc4feef2fac1c9044dc8a6f2d41aaf9fe2dae671de8b98c0b1a19dca2169588b87d85a8c990d808b1e76faee65984ce970eaa3282b75e107ca82cc2863')
 
 prepare() {
   cd ghidra-Ghidra_${pkgver}_build
@@ -66,6 +73,7 @@ prepare() {
     ../AXMLPrinter2.jar ../ghidra-data/lib/java-sarif-${_jsarif}-modified.jar \
     -t dependencies/flatRepo
   install -Dm 644 ../psutil-${_psutil}.tar.gz -t dependencies/Debugger-rmi-trace
+  install -Dm 644 ../jpype1-${_jpype1}.tar.gz -t dependencies/PyGhidra/
 
   # Debugger model
   install -Dm 644 ../ghidra-data/Debugger/dbgmodel.tlb -t dependencies/Debugger-agent-dbgeng/
@@ -90,8 +98,10 @@ build() {
 
   # Build dependencies
   _build_python_dependency protobuf-${_protobuf} Debugger-rmi-trace
-  _build_python_dependency setuptools-${_setuptools} Debugger-rmi-trace
-  _build_python_dependency wheel-${_wheel} Debugger-rmi-trace
+  _build_python_dependency setuptools-${_setuptools} Debugger-rmi-trace PyGhidra
+  _build_python_dependency wheel-${_wheel} Debugger-rmi-trace PyGhidra
+  _build_python_dependency packaging-${_packaging} PyGhidra
+  _build_python_dependency jpype1-${_jpype1} PyGhidra
 
   # Ghidra build
   gradle yajswDevUnpack
@@ -126,6 +136,7 @@ package() {
   # Simplify some directory and binary names
   mv "${pkgdir}"/opt/ghidra{_*,}
   ln -s /opt/ghidra/ghidraRun "${pkgdir}"/usr/bin/ghidra
+  ln -s /opt/ghidra/support/pyghidraRun "${pkgdir}"/usr/bin/pyghidra
   ln -s /opt/ghidra/support/analyzeHeadless "${pkgdir}"/usr/bin/ghidra-analyzeHeadless
 }
 
