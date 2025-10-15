@@ -24,10 +24,10 @@ source=(
   https://storage.googleapis.com/google-code-archive-downloads/v2/code.google.com/android4me/AXMLPrinter2.jar
   https://sourceforge.net/projects/yajsw/files/yajsw/yajsw-stable-${_yajsw}/yajsw-stable-${_yajsw}.zip
   https://github.com/NationalSecurityAgency/ghidra-data/raw/Ghidra_${pkgver}/lib/java-sarif-${_jserif}-modified.jar
-  https://files.pythonhosted.org/packages/55/5b/e3d951e34f8356e5feecacd12a8e3b258a1da6d9a03ad1770f28925f29bc/protobuf-${_protobuf}.tar.gz
-  https://files.pythonhosted.org/packages/90/c7/6dc0a455d111f68ee43f27793971cf03fe29b6ef972042549db29eec39a2/psutil-${_psutil}.tar.gz
-  https://files.pythonhosted.org/packages/dc/98/5f896af066c128669229ff1aa81553ac14cfb3e5e74b6b44594132b8540e/setuptools-${_setuptools}.tar.gz
-  https://files.pythonhosted.org/packages/c0/6c/9f840c2e55b67b90745af06a540964b73589256cb10cc10057c87ac78fc2/wheel-${_wheel}.tar.gz
+  https://files.pythonhosted.org/packages/source/p/protobuf/protobuf-${_protobuf}.tar.gz
+  https://files.pythonhosted.org/packages/source/p/psutil/psutil-${_psutil}.tar.gz
+  https://files.pythonhosted.org/packages/source/s/setuptools/setuptools-${_setuptools}.tar.gz
+  https://files.pythonhosted.org/packages/source/w/wheel/wheel-${_wheel}.tar.gz
 )
 noextract=(AXMLPrinter2.jar
            yajsw-stable-${_yajsw}.zip
