@@ -67,6 +67,9 @@ prepare() {
     -t dependencies/flatRepo
   install -Dm 644 ../psutil-${_psutil}.tar.gz -t dependencies/Debugger-rmi-trace
 
+  # Debugger model
+  install -Dm 644 ../ghidra-data/Debugger/dbgmodel.tlb -t dependencies/Debugger-agent-dbgeng/
+
   # YAJSW expects this symlink
   ln -sf ghidra-Ghidra_${pkgver}_build ../ghidra.bin
   install -Dm 644 ../yajsw-stable-${_yajsw}.zip -t dependencies/GhidraServer
