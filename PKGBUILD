@@ -2,16 +2,16 @@
 # Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
 
 pkgname=ghidra
-pkgver=11.4.2
+pkgver=12.0.1
 pkgrel=1
 _yajsw=13.12
 _jsarif=2.1
-_protobuf=3.20.3
+_protobuf=6.31.0
 _psutil=5.9.8
-_setuptools=68.0.0
-_wheel=0.37.1
+_setuptools=80.9.0
+_wheel=0.45.1
 _jpype1=1.5.2
-_packaging=23.2
+_packaging=25.0
 pkgdesc='Software reverse engineering framework'
 url='https://ghidra-sre.org/'
 arch=(x86_64)
@@ -33,6 +33,8 @@ makedepends=(
   python-installer
   python-pip
   python-setuptools
+  z3
+  z3-java
 )
 optdepends=(
   'pam: GhidraServer support'
@@ -55,16 +57,16 @@ noextract=(
   yajsw-stable-${_yajsw}.zip
   psutil-${_psutil}.tar.gz
 )
-sha512sums=('c7a5fb9eae00418f2efcd03c43640e061750ee3324fc247299531670ebb54474719536c1e8789e1e4758ff3f193a6725f3743b3d52ab97cfdde9c7b9e9310062'
+sha512sums=('1685c68418c0dfa92a64096e16a379d967d9756ed22171eab2b5366b114a56564501808708ba7a65cdd60cec75194eff204b5b9d1bde5965c84edc8135bb4336'
             'b2dfe009e30bb89f84cbc5693c696e523882af1682a14f001570d89d475e72b399ab540a6cb8b027ed1f2358dc47a3bb5c7270237f03bf6f25b761b5dc9b1865'
             'c1168ec913f1fbb0675915d4fd865ec9a8e8573f6c8aedcb6e68166f61f11aeaececc7548d54d78134843c0102c57d6350973f6d3027d0ffdae52a5c57a7f601'
             'ce942efe3e4f45280913122dab121b583ce20d9a86369de8148daf100fa2f4695f59acd79087519c5ce6ac65803ffa068607430760b556abb31e60558c0085e9'
-            'ae3ca199e7aa0b98634dd89b00fd5e8b04e9b8a840b76406730f14743ef71afdc4e84ade2730dae7958bf82e7b8bb884280394a81c7f9607edb1455df3fee4f6'
+            'ad1b61e7cd9dacbcc5dfa181ed7ed55325eb582e5c104102977e4051c02293c163e16deb6593c8b7cc65ff7b1ee3a636c324c1b05eb6eec9960391b0499a04e0'
             '6ddeed937119a930bb7b9556ff329f054e9429b8457c9a15d99cb105271297117abba587a974d02760bb8b6b244734973a676bdff6b533a53ce587858e48f337'
-            'da6d535a0db6eaf477c8c2148efbc2100fd88a14f3adad44d20e22bf52bee3f00fe86547ea650fe653519bd6ff5f9ef033a55bb3a05fed041e88e78cdfb81d7e'
-            'c977a740c17abd1fa4b4c2382a33f3ff887baa4231c36990d988cb8531496074e39744786ef6ac0da9c9af4977bce5b2da145377a3ac15eea918f8125bff66ec'
+            '36eb1f219d29c6b9e135936bde2001ad70a971c8069cd0175d3a5325b450e6843a903d3f70043c9f534768ebeab8ab0c544b8f44456555d333f1ed72daa5c18b'
+            'df45f00e9eaeae2f27f813f31591590c961da2f6bff15bba6fb2a14d529c221f39b29894b8da408fe49cd4b760840a0e05c4baef377ccfacd9983c0bba83d6d8'
             'b02c294ee2ef7a206fcd80827f790bcad73bf857ab8a473a795752431eacfda85dc53ec5451545b24d9d5c80c71fa10355ba232916c2c1d52534ec54c7d0bb3b'
-            '8ab5e9bc4feef2fac1c9044dc8a6f2d41aaf9fe2dae671de8b98c0b1a19dca2169588b87d85a8c990d808b1e76faee65984ce970eaa3282b75e107ca82cc2863')
+            '0672602d2e18c3aee71b3e567b0de572bc8613ee3d24a79a655ded23ac08ec4582193225bc0c0ea390ed81cf5efbb46e8afbe0798d14f2235f811f263c25728c')
 
 prepare() {
   cd ghidra-Ghidra_${pkgver}_build
@@ -98,6 +100,10 @@ prepare() {
 
   # Ignore lack of licensing for YAJSW zip, packed FID datasets, and the native binaries
   sed -i '/FileTree tree/a\\t\texclude "yajsw-stable-**.zip"\n\t\texclude "src/main/fidb/**.fidb"\n\t\texclude "os/linux64/**"' gradle/support/ip.gradle
+
+  # z3 dependencies
+  install -Dm 644 /usr/lib/libz3* -t dependencies/SymbolicSummaryZ3/os/linux_x86_64
+  install -Dm 644 /usr/share/java/com.microsoft.z3.jar -t dependencies/flatRepo
 }
 
 _check_dep() {
