@@ -20,7 +20,6 @@ depends=(
   curl
   flashrom
   fwupd-efi
-  gcc-libs
   glib2
   glibc
   gnutls
@@ -29,6 +28,7 @@ depends=(
   libarchive
   libcbor
   libdrm
+  libgcc
   libjcat
   libmbim
   libmm-glib
