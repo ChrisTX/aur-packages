@@ -2,9 +2,9 @@
 # Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
 
 pkgname=ghidra
-pkgver=12.0.1
+pkgver=12.0.3
 pkgrel=1
-_yajsw=13.12
+_yajsw=13.18
 _jsarif=2.1
 _protobuf=6.31.0
 _psutil=5.9.8
@@ -21,7 +21,11 @@ license=(
 depends=(
   'java-environment>=21'
   bash
+  glibc
+  libgcc
+  libstdc++
   python
+  python-packaging
 )
 makedepends=(
   'java-environment=21'
@@ -57,10 +61,10 @@ noextract=(
   yajsw-stable-${_yajsw}.zip
   psutil-${_psutil}.tar.gz
 )
-sha512sums=('1685c68418c0dfa92a64096e16a379d967d9756ed22171eab2b5366b114a56564501808708ba7a65cdd60cec75194eff204b5b9d1bde5965c84edc8135bb4336'
+sha512sums=('7aaeab93d819018f669f6afc23c6ffa5a8b452f898db94a541cb6aeb3f51f5a9c71f1d0c9e23d9f2f600f573423e969c7baeb67d744f1e038d4e805d0d06a8d0'
             'b2dfe009e30bb89f84cbc5693c696e523882af1682a14f001570d89d475e72b399ab540a6cb8b027ed1f2358dc47a3bb5c7270237f03bf6f25b761b5dc9b1865'
             'c1168ec913f1fbb0675915d4fd865ec9a8e8573f6c8aedcb6e68166f61f11aeaececc7548d54d78134843c0102c57d6350973f6d3027d0ffdae52a5c57a7f601'
-            'ce942efe3e4f45280913122dab121b583ce20d9a86369de8148daf100fa2f4695f59acd79087519c5ce6ac65803ffa068607430760b556abb31e60558c0085e9'
+            'a128c724769f938658826789593616a8a2e68835f0624a15ea6f6551a84b8218e4ad6dcfc263a6a0c730c21ef911362d46d61e1ad02ec3857fe24bb4ea7130cd'
             'ad1b61e7cd9dacbcc5dfa181ed7ed55325eb582e5c104102977e4051c02293c163e16deb6593c8b7cc65ff7b1ee3a636c324c1b05eb6eec9960391b0499a04e0'
             '6ddeed937119a930bb7b9556ff329f054e9429b8457c9a15d99cb105271297117abba587a974d02760bb8b6b244734973a676bdff6b533a53ce587858e48f337'
             '36eb1f219d29c6b9e135936bde2001ad70a971c8069cd0175d3a5325b450e6843a903d3f70043c9f534768ebeab8ab0c544b8f44456555d333f1ed72daa5c18b'
