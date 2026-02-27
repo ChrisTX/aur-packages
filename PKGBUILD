@@ -2,13 +2,14 @@
 # Maintainer: Frederik Schwan <freswa@archlinux.org>
 pkgname=dracut
 pkgver=110
-pkgrel=1
+pkgrel=2
 pkgdesc="An event driven initramfs infrastructure"
 arch=('x86_64')
 url="https://github.com/dracut-ng/dracut-ng"
 license=('GPL-2.0-or-later')
 depends=(
   'bash'
+  'cpio'
   'coreutils'
   'filesystem'
   'findutils'
@@ -36,7 +37,6 @@ optdepends=(
   'bzip2: bzip2 compression'
   'cifs-utils: support CIFS'
   'connman: support for connman networking'
-  'cpio: support cpio archive generation'
   'cryptsetup: support for encrypted with LUKS filesystems'
   'dash: allows use of dash (on your own risk)'
   'dbus: dbus-daemon dracut module'
