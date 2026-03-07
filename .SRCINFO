@@ -1,6 +1,6 @@
 pkgbase = ghidra
 	pkgdesc = Software reverse engineering framework
-	pkgver = 12.0.3
+	pkgver = 12.0.4
 	pkgrel = 1
 	url = https://ghidra-sre.org/
 	arch = x86_64
@@ -28,8 +28,8 @@ pkgbase = ghidra
 	noextract = yajsw-stable-13.18.zip
 	noextract = psutil-5.9.8.tar.gz
 	options = !strip
-	source = https://github.com/NationalSecurityAgency/ghidra/archive/Ghidra_12.0.3_build.tar.gz
-	source = git+https://github.com/NationalSecurityAgency/ghidra-data#tag=Ghidra_12.0.3
+	source = https://github.com/NationalSecurityAgency/ghidra/archive/Ghidra_12.0.4_build.tar.gz
+	source = git+https://github.com/NationalSecurityAgency/ghidra-data#tag=Ghidra_12.0.4
 	source = https://storage.googleapis.com/google-code-archive-downloads/v2/code.google.com/android4me/AXMLPrinter2.jar
 	source = https://sourceforge.net/projects/yajsw/files/yajsw/yajsw-stable-13.18/yajsw-stable-13.18.zip
 	source = https://files.pythonhosted.org/packages/source/p/protobuf/protobuf-6.31.0.tar.gz
@@ -38,7 +38,7 @@ pkgbase = ghidra
 	source = https://files.pythonhosted.org/packages/source/w/wheel/wheel-0.45.1.tar.gz
 	source = https://files.pythonhosted.org/packages/source/j/jpype1/jpype1-1.5.2.tar.gz
 	source = https://files.pythonhosted.org/packages/source/p/packaging/packaging-25.0.tar.gz
-	sha512sums = 7aaeab93d819018f669f6afc23c6ffa5a8b452f898db94a541cb6aeb3f51f5a9c71f1d0c9e23d9f2f600f573423e969c7baeb67d744f1e038d4e805d0d06a8d0
+	sha512sums = cb675b3064eb594ae2678d159e0623e40bac0d7ed1e403ac735b5484f32967ebe82ac734a543187fd91c8c41fcdf047f8baf2e4fedc00fb0b9616611a0c1b3e0
 	sha512sums = b2dfe009e30bb89f84cbc5693c696e523882af1682a14f001570d89d475e72b399ab540a6cb8b027ed1f2358dc47a3bb5c7270237f03bf6f25b761b5dc9b1865
 	sha512sums = c1168ec913f1fbb0675915d4fd865ec9a8e8573f6c8aedcb6e68166f61f11aeaececc7548d54d78134843c0102c57d6350973f6d3027d0ffdae52a5c57a7f601
 	sha512sums = a128c724769f938658826789593616a8a2e68835f0624a15ea6f6551a84b8218e4ad6dcfc263a6a0c730c21ef911362d46d61e1ad02ec3857fe24bb4ea7130cd
