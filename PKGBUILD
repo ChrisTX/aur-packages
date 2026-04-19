@@ -9,7 +9,7 @@ pkgname=(
   fwupd-docs
 )
 pkgver=2.1.1
-pkgrel=4
+pkgrel=5
 pkgdesc="Simple daemon to allow session software to update firmware"
 arch=(x86_64)
 url='https://github.com/fwupd/fwupd'
@@ -57,6 +57,7 @@ makedepends=(
   noto-fonts
   noto-fonts-cjk
   pandoc
+  python
   python-cairo
   python-dbus
   python-dbusmock
@@ -137,6 +138,9 @@ package_fwupd() {
   mv "${pkgdir}"/usr/share/man/man1/{,fwupd-}dbxtool.1
   # Remove msr module-load config as it is built-in
   rm "${pkgdir}"/usr/lib/modules-load.d/fwupd-msr.conf
+  # Compile Python scripts
+  python -m compileall -d /usr/share "${pkgdir}"/usr/share
+  python -O -m compileall -d /usr/share "${pkgdir}"/usr/share
 
   _pick docs "${pkgdir}"/usr/share/doc/{,fwupd/}{libfwupdplugin,libfwupd}
 }
