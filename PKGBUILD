@@ -85,6 +85,11 @@ build() {
     -D systemd_unit_user=fwupd
   )
 
+  # HSI (Host Security ID) is x86-only in fwupd's meson.build;
+  # arch-meson uses --auto-features=enabled which turns it on and then
+  # the require(cpu in ['x86','x86_64']) check fails on other arches.
+  [[ "$CARCH" != x86_64 && "$CARCH" != i686 ]] && meson_options+=(-D hsi=disabled)
+
   arch-meson ${pkgname} build "${meson_options[@]}"
   meson compile -C build
 }
@@ -137,7 +142,7 @@ package_fwupd() {
   mv "${pkgdir}"/usr/bin/{,fwupd-}dbxtool
   mv "${pkgdir}"/usr/share/man/man1/{,fwupd-}dbxtool.1
   # Remove msr module-load config as it is built-in
-  rm "${pkgdir}"/usr/lib/modules-load.d/fwupd-msr.conf
+  rm -f "${pkgdir}"/usr/lib/modules-load.d/fwupd-msr.conf
   # Compile Python scripts
   python -m compileall -d /usr/share "${pkgdir}"/usr/share
   python -O -m compileall -d /usr/share "${pkgdir}"/usr/share
