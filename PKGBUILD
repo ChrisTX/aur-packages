@@ -2,7 +2,7 @@
 # Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
 
 pkgname=ghidra
-pkgver=12.0.4
+pkgver=12.1
 pkgrel=1
 _yajsw=13.18
 _jsarif=2.1
@@ -61,7 +61,7 @@ noextract=(
   yajsw-stable-${_yajsw}.zip
   psutil-${_psutil}.tar.gz
 )
-sha512sums=('cb675b3064eb594ae2678d159e0623e40bac0d7ed1e403ac735b5484f32967ebe82ac734a543187fd91c8c41fcdf047f8baf2e4fedc00fb0b9616611a0c1b3e0'
+sha512sums=('db49fea29c04a46db901bd8b39f991a8fa3b5e879e5aec5668d0370afd6dacf30c94afbbc541300709f21e25f64bd376781da2476cf07627c0b59a89f8a8895e'
             'b2dfe009e30bb89f84cbc5693c696e523882af1682a14f001570d89d475e72b399ab540a6cb8b027ed1f2358dc47a3bb5c7270237f03bf6f25b761b5dc9b1865'
             'c1168ec913f1fbb0675915d4fd865ec9a8e8573f6c8aedcb6e68166f61f11aeaececc7548d54d78134843c0102c57d6350973f6d3027d0ffdae52a5c57a7f601'
             'a128c724769f938658826789593616a8a2e68835f0624a15ea6f6551a84b8218e4ad6dcfc263a6a0c730c21ef911362d46d61e1ad02ec3857fe24bb4ea7130cd'
@@ -146,6 +146,7 @@ _build_python_dependency() {
 
   msg "Building python dependency ${folder} for ${targets[*]}"
   pushd "../${folder}"
+  [[ -f pyproject.toml ]] && sed 's/,<4//' -i pyproject.toml
   python -m build --wheel --no-isolation
   for target in "${targets[@]}"; do
     install -Dm 644 dist/*.whl -t "../ghidra-Ghidra_${pkgver}_build/dependencies/${target}"
