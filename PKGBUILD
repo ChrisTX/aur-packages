@@ -18,7 +18,6 @@ depends=(
   bash
   bluez
   curl
-  flashrom
   fwupd-efi
   glib2
   glibc
