@@ -1,7 +1,7 @@
 pkgbase = ghidra
 	pkgdesc = Software reverse engineering framework
 	pkgver = 12.1.2
-	pkgrel = 1
+	pkgrel = 2
 	url = https://ghidra-sre.org/
 	arch = x86_64
 	license = Apache-2.0
@@ -38,6 +38,7 @@ pkgbase = ghidra
 	source = https://files.pythonhosted.org/packages/source/w/wheel/wheel-0.45.1.tar.gz
 	source = https://files.pythonhosted.org/packages/source/j/jpype1/jpype1-1.5.2.tar.gz
 	source = https://files.pythonhosted.org/packages/source/p/packaging/packaging-25.0.tar.gz
+	source = ghidra.desktop
 	sha512sums = c0ad86b372b7252e6a13c9432c75215dba32f0e30c32c6a7d72bb2660762fed67549938b4dc369296dade9199c048e99e846d3cc17667f3ee5a0247174f40079
 	sha512sums = b2dfe009e30bb89f84cbc5693c696e523882af1682a14f001570d89d475e72b399ab540a6cb8b027ed1f2358dc47a3bb5c7270237f03bf6f25b761b5dc9b1865
 	sha512sums = c1168ec913f1fbb0675915d4fd865ec9a8e8573f6c8aedcb6e68166f61f11aeaececc7548d54d78134843c0102c57d6350973f6d3027d0ffdae52a5c57a7f601
@@ -48,5 +49,6 @@ pkgbase = ghidra
 	sha512sums = df45f00e9eaeae2f27f813f31591590c961da2f6bff15bba6fb2a14d529c221f39b29894b8da408fe49cd4b760840a0e05c4baef377ccfacd9983c0bba83d6d8
 	sha512sums = b02c294ee2ef7a206fcd80827f790bcad73bf857ab8a473a795752431eacfda85dc53ec5451545b24d9d5c80c71fa10355ba232916c2c1d52534ec54c7d0bb3b
 	sha512sums = 0672602d2e18c3aee71b3e567b0de572bc8613ee3d24a79a655ded23ac08ec4582193225bc0c0ea390ed81cf5efbb46e8afbe0798d14f2235f811f263c25728c
+	sha512sums = e611f0a84023aee72016a8bb73a627e4d3b3fc28201fe2b60ccc8d6628fc2e7005b9edc24e35e489311fd6fa9ed1a35d5e230e2657a77b331dbf7cd6773ae957
 
 pkgname = ghidra

@@ -3,7 +3,7 @@
 
 pkgname=ghidra
 pkgver=12.1.2
-pkgrel=1
+pkgrel=2
 _yajsw=13.18
 _jsarif=2.1
 _protobuf=6.31.0
@@ -55,6 +55,7 @@ source=(
   https://files.pythonhosted.org/packages/source/w/wheel/wheel-${_wheel}.tar.gz
   https://files.pythonhosted.org/packages/source/j/jpype1/jpype1-${_jpype1}.tar.gz
   https://files.pythonhosted.org/packages/source/p/packaging/packaging-${_packaging}.tar.gz
+  ghidra.desktop
 )
 noextract=(
   AXMLPrinter2.jar
@@ -70,7 +71,8 @@ sha512sums=('c0ad86b372b7252e6a13c9432c75215dba32f0e30c32c6a7d72bb2660762fed6754
             '36eb1f219d29c6b9e135936bde2001ad70a971c8069cd0175d3a5325b450e6843a903d3f70043c9f534768ebeab8ab0c544b8f44456555d333f1ed72daa5c18b'
             'df45f00e9eaeae2f27f813f31591590c961da2f6bff15bba6fb2a14d529c221f39b29894b8da408fe49cd4b760840a0e05c4baef377ccfacd9983c0bba83d6d8'
             'b02c294ee2ef7a206fcd80827f790bcad73bf857ab8a473a795752431eacfda85dc53ec5451545b24d9d5c80c71fa10355ba232916c2c1d52534ec54c7d0bb3b'
-            '0672602d2e18c3aee71b3e567b0de572bc8613ee3d24a79a655ded23ac08ec4582193225bc0c0ea390ed81cf5efbb46e8afbe0798d14f2235f811f263c25728c')
+            '0672602d2e18c3aee71b3e567b0de572bc8613ee3d24a79a655ded23ac08ec4582193225bc0c0ea390ed81cf5efbb46e8afbe0798d14f2235f811f263c25728c'
+            'e611f0a84023aee72016a8bb73a627e4d3b3fc28201fe2b60ccc8d6628fc2e7005b9edc24e35e489311fd6fa9ed1a35d5e230e2657a77b331dbf7cd6773ae957')
 
 prepare() {
   cd ghidra-Ghidra_${pkgver}_build
@@ -168,6 +170,15 @@ package() {
   ln -s /opt/ghidra/ghidraRun "${pkgdir}"/usr/bin/ghidra
   ln -s /opt/ghidra/support/pyghidraRun "${pkgdir}"/usr/bin/pyghidra
   ln -s /opt/ghidra/support/analyzeHeadless "${pkgdir}"/usr/bin/ghidra-analyzeHeadless
+
+  # Install desktop file
+  install -Dm644 ../ghidra.desktop "${pkgdir}"/usr/share/applications/$pkgname.desktop
+
+  # Install icons
+  for _size in 16 24 32 48 128 256; do
+    install -vDm 644 Ghidra/Framework/Gui/src/main/resources/images/GhidraIcon$_size.png \
+      "$pkgdir/usr/share/icons/hicolor/${_size}x${_size}/apps/${pkgname}.png"
+  done
 }
 
 # vim: ts=2 sw=2 et:
