@@ -43,6 +43,7 @@ depends=(
   sqlite
   systemd-libs
   tpm2-tss
+  udisks2
   xz
   zlib
 )

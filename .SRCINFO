@@ -51,6 +51,7 @@ pkgbase = fwupd
 	depends = sqlite
 	depends = systemd-libs
 	depends = tpm2-tss
+	depends = udisks2
 	depends = xz
 	depends = zlib
 	source = git+https://github.com/fwupd/fwupd.git#tag=2.1.6?signed
@@ -93,6 +94,7 @@ pkgname = fwupd
 	depends = sqlite
 	depends = systemd-libs
 	depends = tpm2-tss
+	depends = udisks2
 	depends = xz
 	depends = zlib
 	depends = libarchive.so
