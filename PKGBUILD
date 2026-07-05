@@ -23,22 +23,16 @@ depends=(
   glibc
   gnutls
   hicolor-icon-theme
-  json-glib
-  libarchive
-  libcbor
   libdrm
   libgcc
-  libjcat
+  libusb
   libmbim
   libmm-glib
   libmnl
   libqmi
-  libusb
   libxmlb
   passim
   polkit
-  protobuf-c
-  python
   shared-mime-info
   sqlite
   systemd-libs
@@ -53,16 +47,15 @@ makedepends=(
   git
   gnu-efi-libs
   gobject-introspection
+  libdrm
   meson
   noto-fonts
   noto-fonts-cjk
   pandoc
-  python
   python-cairo
   python-dbus
   python-dbusmock
   python-gobject
-  python-pillow
   umockdev
   vala
   valgrind
@@ -113,20 +106,14 @@ _pick() {
 
 package_fwupd() {
   depends+=(
-    libarchive.so
-    libblkid.so
-    libcbor.so
-    libcurl.so
-    libjson-glib-1.0.so
-    libmm-glib.so
-    libpassim.so
-    libprotobuf-c.so
-    libqmi-glib.so
+    curl libcurl.so
+    libmm-glib libmm-glib.so
+    passim libpassim.so
+    libqmi libqmi-glib.so
   )
   optdepends=(
     'python-dbus: Firmware packaging tools'
     'python-gobject: Firmware packaging tools'
-    'udisks2: UEFI firmware upgrade support'
   )
   provides=(libfwupd.so)
   backup=(
