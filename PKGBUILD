@@ -16,7 +16,6 @@ url='https://github.com/fwupd/fwupd'
 license=(LGPL-2.1-or-later)
 depends=(
   bash
-  bluez
   curl
   fwupd-efi
   glib2
@@ -59,6 +58,9 @@ makedepends=(
   umockdev
   vala
   valgrind
+)
+optdepends=(
+  "bluez: Update bluetooth devices"
 )
 source=(
   "git+https://github.com/fwupd/fwupd.git#tag=${pkgver}?signed"

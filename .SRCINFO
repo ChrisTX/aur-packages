@@ -23,7 +23,6 @@ pkgbase = fwupd
 	makedepends = vala
 	makedepends = valgrind
 	depends = bash
-	depends = bluez
 	depends = curl
 	depends = fwupd-efi
 	depends = glib2
@@ -47,6 +46,7 @@ pkgbase = fwupd
 	depends = udisks2
 	depends = xz
 	depends = zlib
+	optdepends = bluez: Update bluetooth devices
 	source = git+https://github.com/fwupd/fwupd.git#tag=2.1.7?signed
 	source = fwupd.sysusers
 	source = fwupd-refresh.rules
@@ -60,7 +60,6 @@ pkgbase = fwupd
 
 pkgname = fwupd
 	depends = bash
-	depends = bluez
 	depends = curl
 	depends = fwupd-efi
 	depends = glib2
