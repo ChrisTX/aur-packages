@@ -81,6 +81,7 @@ build() {
     -D efi_binary=false
     -D supported_build=enabled
     -D systemd_unit_user=fwupd
+    -D p2p_policy=none
   )
 
   # HSI (Host Security ID) is x86-only in fwupd's meson.build;
