@@ -1,0 +1,16 @@
+pkgbase = download-with-kget-native-git
+	pkgdesc = KGet extension native handler
+	pkgver = r9.dee199a
+	pkgrel = 1
+	url = https://github.com/Takios/download-with-kget
+	arch = any
+	license = MPL-2.0
+	makedepends = git
+	makedepends = jq
+	depends = python
+	depends = python-pydbus
+	provides = download-with-kget
+	source = git+https://github.com/Takios/download-with-kget
+	sha512sums = SKIP
+
+pkgname = download-with-kget-native-git
