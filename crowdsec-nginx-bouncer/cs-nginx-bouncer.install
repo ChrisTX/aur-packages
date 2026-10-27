@@ -1,0 +1,20 @@
+post_install() {
+	API_KEY=`cscli bouncers add crowdsec-nginx-bouncer -o raw`
+	export API_KEY
+	IFS=: read HOST PORT <<< `sudo cscli config show --key "Config.API.Server.ListenURI"`
+	echo "Bouncer registered to the CrowdSec Local API."
+
+	CROWDSEC_LAPI_URL="http://${HOST:-'127.0.0.1'}:${PORT:-'8080'}"
+	export CROWDSEC_LAPI_URL
+
+	TMP=$(mktemp -p /tmp/)
+	install -m600 /etc/crowdsec/bouncers/crowdsec-nginx-bouncer.conf "$TMP"
+	envsubst < "$TMP" | tee /etc/crowdsec/bouncers/crowdsec-nginx-bouncer.conf >/dev/null
+}
+
+post_remove() {
+	if ! cscli bouncers remove crowdsec-nginx-bouncer --error; then
+		echo -e "\nDon't forget to uninstall the plugin!"
+		cscli bouncers list
+	fi
+}
