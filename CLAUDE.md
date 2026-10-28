@@ -24,6 +24,8 @@ Each top-level directory is one AUR package, added via `git subtree` and publish
 - .NET packages build with the latest .NET SDK in the repositories (`dotnet-sdk`, versioned like `dotnet-sdk-10.0`), not the version upstream pins in `global.json`.
 - Take .NET runtime packages from `dotnet-source-built-artifacts` instead of nuget.org where they're available, so they match the source-built .NET they run on (see powershell's `prepare()`: package source mapping in a generated `nuget.config`, `arch-x64` RID).
 - Publish .NET assemblies with ReadyToRun wherever possible (`-p:PublishReadyToRun=true`).
+  - The SDK doesn't list `arch-x64` for crossgen2 packs, so ReadyToRun would use the `linux-x64` crossgen2 from nuget.org. Pass `-p:CustomAfterMicrosoftCommonTargets=$srcdir/crossgen2-pack.targets` (see powershell) to get the source-built one.
+  - `PublishReadyToRun` only works for .NET (Core) projects. Assemblies targeting netstandard or .NET Framework, like most PowerShell modules, are compiled with crossgen2 directly against the runtime and `$PSHOME` (see powershell's `Invoke-ReadyToRunCompiler`). Skip copies of assemblies the runtime or `$PSHOME` already provide, as those aren't loaded.
 
 ## Per-package files
 
