@@ -33,7 +33,7 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 
 - `LICENSE` (0BSD, "Arch Linux Contributors") and `LICENSES/0BSD.txt` as a symlink to `../LICENSE`
 - `REUSE.toml` annotating packaging files as 0BSD; patches derived from upstream are annotated with the upstream license
-- `.gitignore`: the toptal `archlinuxpackages` template, plus the checkout directory for git sources (e.g. `ergo/`)
+- `.gitignore`: the toptal `archlinuxpackages` template, plus the checkout directory for git sources (e.g. `ergo/`) and downloaded sources the template doesn't cover (e.g. `*.nupkg`)
 - `.nvchecker.toml` for update checks (except VCS `-git` packages and sources without a usable upstream repo)
 
 ## Commits and aurpublish
@@ -46,4 +46,6 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 
 - Every disabled, skipped or removed test gets a comment saying why. If it's an upstream bug, link the upstream issue (open one if there is none yet). Disable as little as possible: a single test or context rather than a whole file.
 - Lint: `shellcheck PKGBUILD`, `namcap PKGBUILD`, and `namcap` on the built package.
+- PKGBUILDs are shellcheck- and shellharden-clean (`shellharden --check PKGBUILD`). Where an unquoted variable relies on word splitting, e.g. to add nothing when it's empty, use an array instead.
+- PowerShell scripts (`.ps1`/`.psm1`) are PSScriptAnalyzer-clean with its default rules, information level included (`Invoke-ScriptAnalyzer -Path script.ps1`). Suppress a rule only where the code can't comply, with `[Diagnostics.CodeAnalysis.SuppressMessageAttribute('Rule', '', Justification = '…')]` saying why.
 - Clean-chroot builds: `pkgctl build`. A local `makepkg -fCd` is fine for a quick check, but may lack makedepends.
