@@ -1,0 +1,15 @@
+  # Only in the repository of the packages, appended to the hooks of templates/package by ./aur sync
+  - repo: local
+    hooks:
+      - id: templates
+        name: package files match templates/package
+        language: system
+        entry: ./aur sync --check
+        pass_filenames: false
+        always_run: true
+      - id: reuse-lint
+        name: reuse lint (reuse)
+        language: system
+        entry: reuse lint --quiet
+        pass_filenames: false
+        always_run: true

@@ -1,0 +1,178 @@
+#!/bin/bash
+# Manages the AUR packages of this repository, the top-level folders with a PKGBUILD. See ./aur help.
+
+set -euo pipefail
+
+cd "$(dirname "$(realpath "$0")")" || exit
+
+# prek, the faster reimplementation of pre-commit, where it's installed
+if command -v prek >/dev/null; then
+  hook_runner=prek
+else
+  hook_runner=pre-commit
+fi
+
+usage() {
+  cat <<'EOF'
+Usage: ./aur COMMAND [PACKAGE...]
+
+Commands work on all packages unless packages are given.
+
+  pull      Pull the packages from the AUR (aurpublish --pull)
+  push      Check, then push the packages to the AUR (aurpublish)
+  upgrade   Upgrade the packages to their latest upstream version with the .nvchecker.toml of each
+            (pkgctl version upgrade), then format the PKGBUILDs and regenerate .SRCINFO
+  check     Run the checks of .pre-commit-config.yaml on the packages' files with prek or
+            pre-commit, or with --manual
+            also the ones that only run on request (termux-language-server)
+  sync      Copy templates/package into the packages and write the configuration at the top level,
+            or with --check only report differences
+  setup     Install the git hook that runs the checks before each commit, replacing aurpublish's
+  help      Show this help
+EOF
+}
+
+# Sets $selected to the given packages, or all of them. Fails for folders that aren't packages.
+select_packages() {
+  local package
+  selected=()
+  if (($#)); then
+    for package; do
+      package=${package%/}
+      if [[ ! -f "$package/PKGBUILD" ]]; then
+        echo "Not a package: $package" >&2
+        return 1
+      fi
+      selected+=("$package")
+    done
+  else
+    for package in */PKGBUILD; do
+      selected+=("${package%/PKGBUILD}")
+    done
+  fi
+}
+
+cmd_pull() {
+  local package
+  local -a selected
+  select_packages "$@"
+  for package in "${selected[@]}"; do
+    aurpublish --pull "$package"
+  done
+}
+
+cmd_push() {
+  local package
+  local -a selected
+  select_packages "$@"
+  cmd_check "${selected[@]}"
+  for package in "${selected[@]}"; do
+    aurpublish "$package"
+  done
+}
+
+cmd_upgrade() {
+  local package
+  local -a selected checked=() changed=()
+  select_packages "$@"
+  # Only packages with update checks, VCS packages don't have them
+  for package in "${selected[@]}"; do
+    [[ -f "$package/.nvchecker.toml" ]] && checked+=("$package")
+  done
+  ((${#checked[@]})) || return 0
+  pkgctl version upgrade "${checked[@]}"
+
+  mapfile -t changed < <(git diff --name-only -- "${checked[@]/%//PKGBUILD}")
+  for package in "${changed[@]}"; do
+    package=${package%/PKGBUILD}
+    # updpkgsums aligns the checksums its own way
+    shfmt --write "$package/PKGBUILD"
+    (cd "$package" && makepkg --printsrcinfo >.SRCINFO)
+    echo "Upgraded $package"
+  done
+}
+
+cmd_check() {
+  local manual=false package
+  local -a selected files=()
+  if [[ "${1-}" == --manual ]]; then
+    manual=true
+    shift
+  fi
+  if (($#)); then
+    select_packages "$@"
+    for package in "${selected[@]}"; do
+      mapfile -t -O "${#files[@]}" files < <(git ls-files -- "$package")
+    done
+    "$hook_runner" run --files "${files[@]}"
+    if [[ "$manual" == true ]]; then
+      "$hook_runner" run --hook-stage manual --files "${files[@]}"
+    fi
+  else
+    "$hook_runner" run --all-files
+    if [[ "$manual" == true ]]; then
+      "$hook_runner" run --hook-stage manual --all-files
+    fi
+  fi
+}
+
+# Writes the given content ($2) to a file ($1), or with $check set only reports whether it differs
+sync_file() {
+  if [[ "$check" == true ]]; then
+    if ! cmp -s "$1" <(printf '%s' "$2"); then
+      echo "Differs from the template: $1" >&2
+      status=1
+    fi
+  elif ! cmp -s "$1" <(printf '%s' "$2"); then
+    printf '%s' "$2" >"$1"
+    echo "Updated $1"
+  fi
+}
+
+cmd_sync() {
+  local check=false status=0 package file
+  local -a selected
+  if [[ "${1-}" == --check ]]; then
+    check=true
+    shift
+  fi
+  select_packages "$@"
+  for package in "${selected[@]}"; do
+    for file in .editorconfig .pre-commit-config.yaml; do
+      sync_file "$package/$file" "$(cat "templates/package/$file")"$'\n'
+    done
+  done
+  sync_file .editorconfig "$(cat templates/package/.editorconfig)"$'\n'
+  sync_file .pre-commit-config.yaml "$(cat templates/package/.pre-commit-config.yaml templates/root-hooks.yaml)"$'\n'
+  return "$status"
+}
+
+cmd_setup() {
+  local hooks hook
+  hooks=$(git rev-parse --path-format=absolute --git-common-dir)/hooks
+  # aurpublish's hooks regenerate .SRCINFO, downloading the sources, and rewrite the commit message.
+  # The srcinfo hook checks it instead.
+  for hook in pre-commit prepare-commit-msg post-commit; do
+    if [[ "$(readlink "$hooks/$hook" || true)" == /usr/share/aurpublish/* ]]; then
+      rm "$hooks/$hook"
+      echo "Removed aurpublish's $hook hook"
+    fi
+  done
+  # Checkouts of branches from before the configuration are skipped
+  "$hook_runner" install --allow-missing-config
+}
+
+command=${1-help}
+(($#)) && shift
+case "$command" in
+  pull | push | upgrade | check | sync | setup)
+    "cmd_$command" "$@"
+    ;;
+  help | -h | --help)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

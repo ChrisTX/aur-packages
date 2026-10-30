@@ -2,6 +2,8 @@
 
 Each top-level directory is one AUR package, added via `git subtree` and published with aurpublish.
 
+`./aur` manages them all, or the packages given: `pull` and `push` (aurpublish), `upgrade` (`pkgctl version upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `sync` (copies `templates/package` into the packages) and `setup` (installs the git hook). See `./aur help`.
+
 ## PKGBUILD conventions
 
 - Maintainer line: `# Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>`
@@ -35,17 +37,20 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 - `REUSE.toml` annotating packaging files as 0BSD; patches derived from upstream are annotated with the upstream license
 - `.gitignore`: the toptal `archlinuxpackages` template, plus the checkout directory for git sources (e.g. `ergo/`) and downloaded sources the template doesn't cover (e.g. `*.nupkg`)
 - `.nvchecker.toml` for update checks (except VCS `-git` packages and sources without a usable upstream repo)
+- `.editorconfig` and `.pre-commit-config.yaml`, copies of `templates/package` (`./aur sync`), so the package can be formatted and checked on its own. Change the template, not the copies; `./aur sync` writes the top-level configuration from it as well.
 
 ## Commits and aurpublish
 
 - One commit per package.
 - Message: `upgpkg: <pkg> <ver>-<rel>` when pkgver/pkgrel changes, otherwise `<pkg>: <summary>`. The body lists the changes.
-- aurpublish's git hooks mainly regenerate .SRCINFO, and `prepare-commit-msg` prepends "upgpkg: … / upstream release" to every message. When you've regenerated .SRCINFO yourself (`makepkg --printsrcinfo > .SRCINFO`), commit with `git -c core.hooksPath=/dev/null commit …` so the message stays as written.
+- Regenerate .SRCINFO yourself (`makepkg --printsrcinfo > .SRCINFO`), the git hook only checks it. The hook (`./aur setup`, prek or pre-commit) runs the checks below on the staged files and replaces aurpublish's hooks, so commit normally; don't bypass it.
 
 ## Building and checking
 
 - Every disabled, skipped or removed test gets a comment saying why. If it's an upstream bug, link the upstream issue (open one if there is none yet). Disable as little as possible: a single test or context rather than a whole file.
-- Lint: `shellcheck PKGBUILD`, `namcap PKGBUILD`, and `namcap` on the built package.
-- PKGBUILDs are shellcheck- and shellharden-clean (`shellharden --check PKGBUILD`). Where an unquoted variable relies on word splitting, e.g. to add nothing when it's empty, use an array instead.
+- Everything passes `./aur check`, which runs the hooks of `.pre-commit-config.yaml`: formatting (shfmt, ruff, Biome, tombi, rumdl, settings in `.editorconfig`), linting (shellcheck, shellharden, ruff, Biome, tombi, rumdl, systemd-lsp, PSScriptAnalyzer, editorconfig-checker), `reuse lint` and up-to-date .SRCINFO files. Formatters fix files themselves; run the check again afterwards. After `updpkgsums`, which aligns the checksums its own way, run shfmt on the PKGBUILD (`./aur upgrade` does).
+- termux-language-server only runs on request (`./aur check --manual`): it crashes on apostrophes in optdepends (neomutt/lsp-tree-sitter#9) and has false positives.
+- Also lint with `namcap PKGBUILD` and `namcap` on the built package.
+- Where an unquoted variable relies on word splitting, e.g. to add nothing when it's empty, use an array instead of disabling shellharden.
 - PowerShell scripts (`.ps1`/`.psm1`) are PSScriptAnalyzer-clean with its default rules, information level included (`Invoke-ScriptAnalyzer -Path script.ps1`). Suppress a rule only where the code can't comply, with `[Diagnostics.CodeAnalysis.SuppressMessageAttribute('Rule', '', Justification = '…')]` saying why.
 - Clean-chroot builds: `pkgctl build`. A local `makepkg -fCd` is fine for a quick check, but may lack makedepends.
