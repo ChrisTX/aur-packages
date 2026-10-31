@@ -42,7 +42,10 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 ## Commits and aurpublish
 
 - One commit per package.
-- Message: `upgpkg: <pkg> <ver>-<rel>` when pkgver/pkgrel changes, otherwise `<pkg>: <summary>`. The body lists the changes.
+- Message summary, the Arch convention rather than Conventional Commits (versions come from upstream, and each package's commits become its AUR history):
+  - `upgpkg: <pkg> <ver>-<rel>` when pkgver/pkgrel changes, e.g. `upgpkg: powershell 7.6.9-22`.
+  - Otherwise `<scope>: <summary>`, where the scope is the package directory, or the top-level file or directory for changes outside packages (e.g. `CLAUDE.md:`, `aur:`, `templates:`). The summary is lowercase and imperative (`add …`, `fix …`, `drop …`), without a trailing period.
+- The body lists the changes.
 - Regenerate .SRCINFO yourself (`makepkg --printsrcinfo > .SRCINFO`), the git hook only checks it. The hook (`./aur setup`, prek or pre-commit) runs the checks below on the staged files and replaces aurpublish's hooks, so commit normally; don't bypass it.
 
 ## Building and checking
