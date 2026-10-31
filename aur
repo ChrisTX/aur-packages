@@ -19,7 +19,8 @@ Usage: ./aur COMMAND [PACKAGE...]
 Commands work on all packages unless packages are given.
 
   pull      Pull the packages from the AUR (aurpublish --pull)
-  push      Check, then push the packages to the AUR (aurpublish)
+  push      Check, then push the packages to the AUR (aurpublish), or with --nocheck without the
+            checks, e.g. while a linter isn't installed
   updates   Show which packages have a newer upstream version with the .nvchecker.toml of each
             (pkgctl version check), without changing anything
   upgrade   Upgrade the packages to their latest upstream version with the .nvchecker.toml of each
@@ -67,10 +68,16 @@ cmd_pull() {
 }
 
 cmd_push() {
-  local package
+  local nocheck=false package
   local -a selected
+  if [[ "${1-}" == --nocheck ]]; then
+    nocheck=true
+    shift
+  fi
   select_packages "$@"
-  cmd_check "${selected[@]}"
+  if [[ "$nocheck" == false ]]; then
+    cmd_check "${selected[@]}"
+  fi
   for package in "${selected[@]}"; do
     aurpublish "$package"
   done
