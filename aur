@@ -27,7 +27,10 @@ Commands work on all packages unless packages are given.
             also the ones that only run on request (termux-language-server)
   sync      Copy templates/package into the packages and write the configuration at the top level,
             or with --check only report differences
-  setup     Install the git hook that runs the checks before each commit, replacing aurpublish's
+  setup     Install the git hooks that run the checks before each commit, replacing aurpublish's,
+            and check the commit message
+  commit-msg FILE
+            Check a commit message against the convention in CLAUDE.md (run by the commit-msg hook)
   help      Show this help
 EOF
 }
@@ -160,6 +163,70 @@ cmd_setup() {
   done
   # Checkouts of branches from before the configuration are skipped
   "$hook_runner" install --allow-missing-config
+
+  # A plain hook instead of one of the configuration's: hooks without stages run in every installed
+  # stage, so the checks would run again for the commit message. Checkouts whose ./aur has no
+  # commit-msg command yet are skipped.
+  hook=$hooks/commit-msg
+  if [[ -e "$hook" ]] && ! grep -q '^# Installed by ./aur setup' "$hook"; then
+    echo "Not replacing the existing $hook" >&2
+    return 1
+  fi
+  cat >"$hook" <<'EOF'
+#!/bin/sh
+# Installed by ./aur setup: checks the commit message, see ./aur commit-msg
+aur=$(git rev-parse --show-toplevel)/aur
+grep -q '^cmd_commit_msg()' "$aur" 2>/dev/null || exit 0
+exec "$aur" commit-msg "$(realpath "$1")"
+EOF
+  chmod +x "$hook"
+  echo "Installed $hook"
+}
+
+# Checks the summary of a commit message ($1): upgpkg: <pkg> <ver>-<rel> with the version of the
+# package's staged .SRCINFO, or <scope>: <summary> with a top-level file or folder as scope
+cmd_commit_msg() {
+  local summary scope version srcinfo expected epoch pkgver pkgrel
+  local upgpkg_pattern='^upgpkg: ([^ ]+) ([^ ]+)$' scope_pattern='^([^ :]+): [^ ]'
+  # The first line that isn't empty or a comment, git strips those afterwards
+  summary=$(grep -v -m1 -e '^#' -e '^[[:space:]]*$' "$1" || true)
+  case "$summary" in
+    # Written by git, git subtree (aurpublish) or the AUR
+    'Merge '* | 'Revert "'* | 'fixup! '* | 'squash! '* | 'amend! '* | 'Initial upload'* | \
+      "Add '"*"/' from commit '"* | "Squashed '"*)
+      return 0
+      ;;
+  esac
+  if [[ "$summary" =~ $upgpkg_pattern ]]; then
+    scope=${BASH_REMATCH[1]}
+    version=${BASH_REMATCH[2]}
+    if ! srcinfo=$(git show ":$scope/.SRCINFO" 2>/dev/null); then
+      echo "Not a package with a staged .SRCINFO: $scope" >&2
+      return 1
+    fi
+    epoch=$(sed -n -E 's/^\tepoch = //p' <<<"$srcinfo")
+    pkgver=$(sed -n -E 's/^\tpkgver = //p' <<<"$srcinfo")
+    pkgrel=$(sed -n -E 's/^\tpkgrel = //p' <<<"$srcinfo")
+    expected=${epoch:+$epoch:}$pkgver-$pkgrel
+    if [[ "$version" != "$expected" ]]; then
+      echo "The version in the summary is $version, but $scope/.SRCINFO has $expected" >&2
+      return 1
+    fi
+  elif [[ "$summary" =~ $scope_pattern ]]; then
+    scope=${BASH_REMATCH[1]}
+    # Removed packages and files exist only in HEAD
+    if [[ ! -e "$scope" ]] && ! git cat-file -e "HEAD:$scope" 2>/dev/null; then
+      echo "The scope '$scope' is neither a package nor a top-level file or folder" >&2
+      return 1
+    fi
+    if [[ "$summary" == *. ]]; then
+      echo "The summary ends with a period: $summary" >&2
+      return 1
+    fi
+  else
+    echo "The summary has to be 'upgpkg: <pkg> <ver>-<rel>' or '<scope>: <summary>', see CLAUDE.md: $summary" >&2
+    return 1
+  fi
 }
 
 command=${1-help}
@@ -167,6 +234,9 @@ command=${1-help}
 case "$command" in
   pull | push | upgrade | check | sync | setup)
     "cmd_$command" "$@"
+    ;;
+  commit-msg)
+    cmd_commit_msg "$@"
     ;;
   help | -h | --help)
     usage

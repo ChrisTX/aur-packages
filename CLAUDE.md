@@ -2,7 +2,7 @@
 
 Each top-level directory is one AUR package, added via `git subtree` and published with aurpublish.
 
-`./aur` manages them all, or the packages given: `pull` and `push` (aurpublish), `upgrade` (`pkgctl version upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `sync` (copies `templates/package` into the packages) and `setup` (installs the git hook). See `./aur help`.
+`./aur` manages them all, or the packages given: `pull` and `push` (aurpublish), `upgrade` (`pkgctl version upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `sync` (copies `templates/package` into the packages) and `setup` (installs the git hooks). See `./aur help`.
 
 ## PKGBUILD conventions
 
@@ -45,7 +45,7 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 - Message summary, the Arch convention rather than Conventional Commits (versions come from upstream, and each package's commits become its AUR history):
   - `upgpkg: <pkg> <ver>-<rel>` when pkgver/pkgrel changes, e.g. `upgpkg: powershell 7.6.9-22`.
   - Otherwise `<scope>: <summary>`, where the scope is the package directory, or the top-level file or directory for changes outside packages (e.g. `CLAUDE.md:`, `aur:`, `templates:`). The summary is lowercase and imperative (`add …`, `fix …`, `drop …`), without a trailing period.
-- The body lists the changes.
+- The body lists the changes. The commit-msg hook (`./aur commit-msg`) checks the summary: the scope has to exist, and the version in `upgpkg:` has to match the staged .SRCINFO.
 - Regenerate .SRCINFO yourself (`makepkg --printsrcinfo > .SRCINFO`), the git hook only checks it. The hook (`./aur setup`, prek or pre-commit) runs the checks below on the staged files and replaces aurpublish's hooks, so commit normally; don't bypass it.
 
 ## Building and checking
