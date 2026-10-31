@@ -109,7 +109,7 @@ cmd_updates() {
 }
 
 cmd_upgrade() {
-  local package
+  local package cur new
   local -a checked changed=()
   select_checked_packages "$@"
   ((${#checked[@]})) || return 0
@@ -118,6 +118,20 @@ cmd_upgrade() {
   mapfile -t changed < <(git diff --name-only -- "${checked[@]/%//PKGBUILD}")
   for package in "${changed[@]}"; do
     package=${package%/PKGBUILD}
+    # pkgctl bumps pkgver but leaves _commit at the old release, so for a package that pins one, move
+    # it to the commit the new version was published from (see cmd_commits) before the checksums are
+    # taken, so the source and sums match the new version rather than the old commit
+    cur=$(sed -n -E 's/^_commit="?([0-9a-f]{7,40})"?$/\1/p' "$package/PKGBUILD" | head -1)
+    if [[ -n "$cur" ]]; then
+      new=$(resolve_commit "$package") || new=''
+      if [[ -n "$new" && "$new" != "$cur" ]]; then
+        sed -i -E "s/^(_commit=\"?)[0-9a-f]{7,40}(\"?)\$/\1$new\2/" "$package/PKGBUILD"
+        (cd "$package" && updpkgsums)
+        echo "  _commit ${cur:0:12} -> ${new:0:12}"
+      elif [[ -z "$new" ]]; then
+        echo "  warning: couldn't resolve the commit of $package's new version; _commit left at ${cur:0:12}, set it by hand" >&2
+      fi
+    fi
     # updpkgsums aligns the checksums its own way
     shfmt --write "$package/PKGBUILD"
     (cd "$package" && makepkg --printsrcinfo >.SRCINFO)
