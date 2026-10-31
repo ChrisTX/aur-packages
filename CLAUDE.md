@@ -51,7 +51,7 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 ## Building and checking
 
 - Every disabled, skipped or removed test gets a comment saying why. If it's an upstream bug, link the upstream issue (open one if there is none yet). Disable as little as possible: a single test or context rather than a whole file.
-- Everything passes `./aur check`, which runs the hooks of `.pre-commit-config.yaml`: formatting (shfmt, ruff, Biome, tombi, rumdl, settings in `.editorconfig`), linting (shellcheck, shellharden, ruff, Biome, tombi, rumdl, systemd-lsp, PSScriptAnalyzer, editorconfig-checker), `reuse lint` and up-to-date .SRCINFO files. Formatters fix files themselves; run the check again afterwards. After `updpkgsums`, which aligns the checksums its own way, run shfmt on the PKGBUILD (`./aur upgrade` does).
+- Everything passes `./aur check`, which runs the hooks of `.pre-commit-config.yaml`: formatting (shfmt, ruff, Biome, tombi, rumdl, settings in `.editorconfig`), linting (shellcheck, shellharden, ruff, Biome, tombi, rumdl, systemd-lsp, PSScriptAnalyzer, editorconfig-checker), `reuse lint`, up-to-date .SRCINFO files and checksums of the local sources, which a formatter may have changed (run `updpkgsums` then). Formatters fix files themselves; run the check again afterwards. After `updpkgsums`, which aligns the checksums its own way, run shfmt on the PKGBUILD (`./aur upgrade` does).
 - termux-language-server only runs on request (`./aur check --manual`): it crashes on apostrophes in optdepends (neomutt/lsp-tree-sitter#9) and has false positives.
 - Also lint with `namcap PKGBUILD` and `namcap` on the built package.
 - Where an unquoted variable relies on word splitting, e.g. to add nothing when it's empty, use an array instead of disabling shellharden.
