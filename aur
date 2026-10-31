@@ -28,6 +28,9 @@ Commands work on all packages unless packages are given.
   check     Run the checks of .pre-commit-config.yaml on the packages' files with prek or
             pre-commit, or with --manual
             also the ones that only run on request (termux-language-server)
+  commits   Show, for each package that pins a _commit, the upstream commit its current pkgver was
+            published from (the NuGet nuspec's repository commit), flagging stale ones; --update
+            rewrites _commit and refreshes the checksums and .SRCINFO
   build     Build packages or a template (powershell-core, powershell-full) and their
             dependencies in order, in a clean chroot into a private throwaway repo (default), or
             --local (makepkg -fCd, --install to install each result). --dry-run prints the plan,
@@ -433,10 +436,73 @@ cmd_build() {
   fi
 }
 
+# Prints the upstream commit a package's current pkgver was published from, best effort, empty if it
+# can't be determined. Option B: the <repository commit> of the published NuGet nuspec, found from
+# the package's NuGet id (_nugetid, else the first of _packages, else the .nvchecker.toml packageid).
+# A PKGBUILD may define a _commit_lookup function to override this (e.g. VMR packages not on NuGet).
+resolve_commit() {
+  (
+    local id ver lid base out tmp
+    # shellcheck disable=SC1090,SC1091 # the package's PKGBUILD, sourced like makepkg reads it
+    source "$1/PKGBUILD" >/dev/null 2>&1 || exit 1
+    if declare -F _commit_lookup >/dev/null; then
+      _commit_lookup
+      exit
+    fi
+    id=${_nugetid:-}
+    if [[ -z "$id" && -n "${_packages+x}" && ${#_packages[@]} -gt 0 ]]; then id=${_packages[0]}; fi
+    if [[ -z "$id" && -f "$1/.nvchecker.toml" ]]; then
+      id=$(sed -n -E 's/.*packageid:([^&"]+).*/\1/p' "$1/.nvchecker.toml" | head -1)
+    fi
+    [[ -n "$id" ]] || exit 1
+    ver=$pkgver
+    lid=${id,,}
+    base="https://api.nuget.org/v3-flatcontainer/$lid/$ver"
+    # The flat container serves the nuspec on its own; fall back to the whole package if it doesn't
+    out=$(curl -fsSL "$base/$lid.nuspec" 2>/dev/null) || out=''
+    if [[ -z "$out" ]]; then
+      tmp=$(mktemp) || exit 1
+      if curl -fsSL "$base/$lid.$ver.nupkg" -o "$tmp" 2>/dev/null; then
+        out=$(bsdtar -xOf "$tmp" '*.nuspec' 2>/dev/null)
+      fi
+      rm -f "$tmp"
+    fi
+    printf '%s' "$out" | grep -oiE 'commit="[0-9a-f]{40}"' | grep -oiE '[0-9a-f]{40}' | head -1
+  )
+}
+
+cmd_commits() {
+  local update=false pkg cur new
+  local -a selected
+  if [[ "${1-}" == --update ]]; then
+    update=true
+    shift
+  fi
+  select_packages "$@"
+  for pkg in "${selected[@]}"; do
+    cur=$(sed -n -E 's/^_commit="?([0-9a-f]{7,40})"?$/\1/p' "$pkg/PKGBUILD" | head -1)
+    # Only packages that pin a plain _commit
+    [[ -n "$cur" ]] || continue
+    new=$(resolve_commit "$pkg") || new=''
+    if [[ -z "$new" ]]; then
+      printf '%-38s unresolved (current %s)\n' "$pkg" "${cur:0:12}"
+    elif [[ "$new" == "$cur" ]]; then
+      printf '%-38s ok %s\n' "$pkg" "${cur:0:12}"
+    elif [[ "$update" == true ]]; then
+      sed -i -E "s/^(_commit=\"?)[0-9a-f]{7,40}(\"?)\$/\1$new\2/" "$pkg/PKGBUILD"
+      (cd "$pkg" && updpkgsums && makepkg --printsrcinfo >.SRCINFO)
+      shfmt --write "$pkg/PKGBUILD"
+      printf '%-38s updated %s -> %s\n' "$pkg" "${cur:0:12}" "${new:0:12}"
+    else
+      printf '%-38s STALE %s -> %s\n' "$pkg" "${cur:0:12}" "${new:0:12}"
+    fi
+  done
+}
+
 command=${1-help}
 (($#)) && shift
 case "$command" in
-  pull | push | updates | upgrade | check | sync | setup | build)
+  pull | push | updates | upgrade | check | sync | setup | build | commits)
     "cmd_$command" "$@"
     ;;
   commit-msg)
