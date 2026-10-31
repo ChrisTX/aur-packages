@@ -20,6 +20,8 @@ Commands work on all packages unless packages are given.
 
   pull      Pull the packages from the AUR (aurpublish --pull)
   push      Check, then push the packages to the AUR (aurpublish)
+  updates   Show which packages have a newer upstream version with the .nvchecker.toml of each
+            (pkgctl version check), without changing anything
   upgrade   Upgrade the packages to their latest upstream version with the .nvchecker.toml of each
             (pkgctl version upgrade), then format the PKGBUILDs and regenerate .SRCINFO
   check     Run the checks of .pre-commit-config.yaml on the packages' files with prek or
@@ -74,14 +76,28 @@ cmd_push() {
   done
 }
 
-cmd_upgrade() {
+# Sets $checked to the selected packages with update checks, VCS packages don't have them
+select_checked_packages() {
   local package
-  local -a selected checked=() changed=()
+  local -a selected
   select_packages "$@"
-  # Only packages with update checks, VCS packages don't have them
+  checked=()
   for package in "${selected[@]}"; do
     [[ -f "$package/.nvchecker.toml" ]] && checked+=("$package")
   done
+}
+
+cmd_updates() {
+  local -a checked
+  select_checked_packages "$@"
+  ((${#checked[@]})) || return 0
+  pkgctl version check "${checked[@]}"
+}
+
+cmd_upgrade() {
+  local package
+  local -a checked changed=()
+  select_checked_packages "$@"
   ((${#checked[@]})) || return 0
   pkgctl version upgrade "${checked[@]}"
 
@@ -232,7 +248,7 @@ cmd_commit_msg() {
 command=${1-help}
 (($#)) && shift
 case "$command" in
-  pull | push | upgrade | check | sync | setup)
+  pull | push | updates | upgrade | check | sync | setup)
     "cmd_$command" "$@"
     ;;
   commit-msg)

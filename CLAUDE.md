@@ -2,7 +2,7 @@
 
 Each top-level directory is one AUR package, added via `git subtree` and published with aurpublish.
 
-`./aur` manages them all, or the packages given: `pull` and `push` (aurpublish), `upgrade` (`pkgctl version upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `sync` (copies `templates/package` into the packages) and `setup` (installs the git hooks). See `./aur help`.
+`./aur` manages them all, or the packages given: `pull` and `push` (aurpublish), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `sync` (copies `templates/package` into the packages) and `setup` (installs the git hooks). See `./aur help`.
 
 ## PKGBUILD conventions
 
