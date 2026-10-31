@@ -28,6 +28,10 @@ Commands work on all packages unless packages are given.
   check     Run the checks of .pre-commit-config.yaml on the packages' files with prek or
             pre-commit, or with --manual
             also the ones that only run on request (termux-language-server)
+  build     Build packages or a template (powershell-core, powershell-full) and their
+            dependencies in order, in a clean chroot into a private throwaway repo (default), or
+            --local (makepkg -fCd, --install to install each result). --dry-run prints the plan,
+            --keep keeps the chroot repo
   sync      Copy templates/package into the packages and write the configuration at the top level,
             or with --check only report differences
   setup     Install the git hooks that run the checks before each commit, replacing aurpublish's,
@@ -252,10 +256,187 @@ cmd_commit_msg() {
   fi
 }
 
+# Prints "depdir<TAB>pkgdir" for every build dependency (depends/makedepends/checkdepends) that
+# resolves to another package in this repository, from the .SRCINFO files
+build_edges() {
+  local s d line key name
+  local -A name2dir=()
+  for s in */.SRCINFO; do
+    d=${s%/.SRCINFO}
+    while IFS= read -r line; do
+      [[ "$line" == *" = "* ]] || continue
+      key=${line%% = *}
+      key=${key//[[:space:]]/}
+      [[ "$key" == pkgname || "$key" == provides ]] || continue
+      name=${line#* = }
+      name=${name%%[<>=:]*}
+      if [[ -n "$name" ]]; then name2dir[$name]=$d; fi
+    done <"$s"
+  done
+  for s in */.SRCINFO; do
+    d=${s%/.SRCINFO}
+    while IFS= read -r line; do
+      [[ "$line" == *" = "* ]] || continue
+      key=${line%% = *}
+      key=${key//[[:space:]]/}
+      case "$key" in
+        depends | makedepends | checkdepends) ;;
+        *) continue ;;
+      esac
+      name=${line#* = }
+      name=${name%%[<>=:]*}
+      [[ -n "$name" ]] || continue
+      if [[ -n "${name2dir[$name]:-}" && "${name2dir[$name]}" != "$d" ]]; then
+        printf '%s\t%s\n' "${name2dir[$name]}" "$d"
+      fi
+    done <"$s"
+  done | sort -u
+}
+
+# Prints the given root packages and all their repo-local dependencies, dependencies first
+build_order() {
+  local edges a b n d induced ordered
+  local -a dlist queue
+  local -A deps=() seen=()
+  edges=$(build_edges)
+  while IFS=$'\t' read -r a b; do
+    if [[ -n "$b" ]]; then deps[$b]+="$a "; fi
+  done <<<"$edges"
+  queue=("$@")
+  while ((${#queue[@]})); do
+    n=${queue[0]}
+    queue=("${queue[@]:1}")
+    [[ -n "${seen[$n]:-}" ]] && continue
+    seen[$n]=1
+    read -ra dlist <<<"${deps[$n]:-}" || true
+    for d in "${dlist[@]}"; do
+      [[ -n "${seen[$d]:-}" ]] || queue+=("$d")
+    done
+  done
+  induced=$(while IFS=$'\t' read -r a b; do
+    if [[ -n "${seen[$a]:-}" && -n "${seen[$b]:-}" ]]; then printf '%s\t%s\n' "$a" "$b"; fi
+  done <<<"$edges")
+  ordered=$(tsort <<<"$induced")
+  if [[ -n "$ordered" ]]; then printf '%s\n' "$ordered"; fi
+  # Packages with no repo-local dependency edges don't appear above; their order is free
+  for n in "${!seen[@]}"; do
+    grep -qxF "$n" <<<"$ordered" || printf '%s\n' "$n"
+  done
+}
+
+# Prints the root packages of a build template, or returns 1 if the name isn't one
+build_template() {
+  case "$1" in
+    powershell-core)
+      printf '%s\n' powershell
+      ;;
+    powershell-full)
+      printf '%s\n' powershell powershell-editor-services powershell-dsc vscode-powershell \
+        powershell-mmi powershell-pester-4 powershell-powershellget-v3
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+cmd_build() {
+  local method=chroot install=false dryrun=false keep=false arg pkg repo='' conf='' reponame=aur-build
+  local -a roots=() order=() expand cmd
+  while (($#)); do
+    case "$1" in
+      --chroot) method=chroot ;;
+      --local) method=local ;;
+      --install) install=true ;;
+      --dry-run | -n) dryrun=true ;;
+      --keep) keep=true ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo "Unknown option: $1" >&2
+        return 1
+        ;;
+      *) break ;;
+    esac
+    shift
+  done
+  if (($# == 0)); then
+    echo "Usage: ./aur build [--chroot|--local] [--install] [--dry-run] [--keep] <template|package>..." >&2
+    return 1
+  fi
+
+  # Each argument is a template, expanded to its root packages, or a package directory itself
+  for arg in "$@"; do
+    arg=${arg%/}
+    mapfile -t expand < <(build_template "$arg")
+    if ((${#expand[@]})); then
+      roots+=("${expand[@]}")
+    elif [[ -f "$arg/PKGBUILD" ]]; then
+      roots+=("$arg")
+    else
+      echo "Not a template or package: $arg" >&2
+      return 1
+    fi
+  done
+
+  mapfile -t order < <(build_order "${roots[@]}")
+  if ((${#order[@]} == 0)); then
+    echo "Nothing to build" >&2
+    return 1
+  fi
+
+  # Clean-chroot builds go into a private repository, so they don't touch the system's aurutils
+  # repository; each build resolves the packages built before it from there.
+  if [[ "$method" == chroot && "$dryrun" == true ]]; then
+    repo='<repo>'
+    conf='<repo>/pacman.conf'
+  elif [[ "$method" == chroot ]]; then
+    repo=$(mktemp -d --tmpdir aur-build.XXXXXX)
+    conf="$repo/pacman.conf"
+    if [[ "$keep" == false ]]; then
+      # shellcheck disable=SC2064 # expand $repo now, when the trap is set, not when it runs
+      trap "rm -rf '$repo'" RETURN
+    fi
+    # The system's pacman.conf with the private repository added first, so its freshly built
+    # packages take precedence over the same ones in other repositories (e.g. the aurutils repo)
+    awk -v name="$reponame" -v root="$repo" '
+      /^\[/ && $0 != "[options]" && !inserted {
+        printf "[%s]\nSigLevel = Never\nServer = file://%s\n\n", name, root
+        inserted = 1
+      }
+      { print }
+    ' /etc/pacman.conf >"$conf"
+    # An empty database, so the first build can sync the repository before it has any packages
+    tar -czf "$repo/$reponame.db.tar.gz" -T /dev/null
+    ln -sf "$reponame.db.tar.gz" "$repo/$reponame.db"
+  fi
+
+  for pkg in "${order[@]}"; do
+    if [[ "$method" == chroot ]]; then
+      cmd=(aur build --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" --force)
+    else
+      cmd=(makepkg --force --cleanbuild --nodeps)
+      if [[ "$install" == true ]]; then cmd+=(--install); fi
+    fi
+    if [[ "$dryrun" == true ]]; then
+      printf '(cd %s && %s)\n' "$pkg" "${cmd[*]}"
+      continue
+    fi
+    echo ">>> Building $pkg" >&2
+    (cd "$pkg" && "${cmd[@]}")
+  done
+
+  if [[ "$method" == chroot && "$keep" == true && "$dryrun" == false ]]; then
+    echo "Repository kept at $repo" >&2
+  fi
+}
+
 command=${1-help}
 (($#)) && shift
 case "$command" in
-  pull | push | updates | upgrade | check | sync | setup)
+  pull | push | updates | upgrade | check | sync | setup | build)
     "cmd_$command" "$@"
     ;;
   commit-msg)
