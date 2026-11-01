@@ -110,7 +110,8 @@ makepkg -si
 ## Repository layout
 
 - `<package>/`: one AUR package each, added with `git subtree` and published with [aurpublish](https://github.com/eli-schwartz/aurpublish). Each one has its own `.editorconfig` and `.pre-commit-config.yaml` (copies of `templates/package`), so its AUR repository can be formatted and checked on its own.
-- `aur`: manages the packages: pulling and pushing them, update checks and upgrades with each `.nvchecker.toml`, the checks and clean-chroot builds of packages with their dependencies from this repository (`./aur build powershell-full`, also cross-built or under QEMU for `aarch64`). See `./aur help`.
+- `aur`: manages the packages: pulling and pushing them, update checks and upgrades with each `.nvchecker.toml`, the checks and clean-chroot builds of packages with their dependencies from this repository (`./aur build powershell-full`, also cross-built or under QEMU for `aarch64`). It can go on PATH as `aur-packages`, with completions for bash, zsh, fish and PowerShell (see [CONTRIBUTING.md](CONTRIBUTING.md#aur-packages-in-your-shell)). See `./aur help`.
+- `completions/`: the shell completions of `aur-packages` and `./aur`.
 - `templates/`: the files shared by all packages.
 - `LICENSES/` and `REUSE.toml`: the licenses, in the [REUSE](https://reuse.software/) format.
 

@@ -8,6 +8,7 @@ path = [
   "CODE_OF_CONDUCT.md",
   "CLAUDE.md",
   "aur",
+  "completions/**",
   ".gitignore",
   ".gitattributes",
   ".github/**",

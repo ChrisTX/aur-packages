@@ -1,9 +1,45 @@
 #!/bin/bash
-# Manages the AUR packages of this repository, the top-level folders with a PKGBUILD. See ./aur help.
+# Manages the AUR packages of this repository, the top-level folders with a PKGBUILD, also on PATH as
+# aur-packages. See ./aur help.
 
 set -euo pipefail
 
-cd "$(dirname "$(realpath "$0")")" || exit
+# A checkout of this repository: a folder with this script and the package template
+is_checkout() {
+  [[ -f "$1/aur" && -d "$1/templates/package" ]]
+}
+
+# The checkout to work on. As ./aur, the script's own. Under another name, e.g. as aur-packages on
+# PATH (a symlink or a copy), the checkout of the current directory, else $AUR_PACKAGES_HOME, else
+# the one the symlink points into; then that checkout's own script runs, so the commands always
+# match the checkout's version.
+self=$(realpath "$0")
+if [[ "${0##*/}" == aur ]]; then
+  root=$(dirname "$self")
+else
+  if top=$(git rev-parse --show-toplevel 2>/dev/null) && is_checkout "$top"; then
+    root=$top
+  elif [[ -n "${AUR_PACKAGES_HOME:-}" ]]; then
+    if ! is_checkout "$AUR_PACKAGES_HOME"; then
+      echo "${0##*/}: AUR_PACKAGES_HOME isn't a checkout of the AUR packages: $AUR_PACKAGES_HOME" >&2
+      exit 1
+    fi
+    root=$AUR_PACKAGES_HOME
+  elif is_checkout "$(dirname "$self")"; then
+    root=$(dirname "$self")
+  else
+    echo "${0##*/}: not in a checkout of the AUR packages, set AUR_PACKAGES_HOME to one" >&2
+    exit 1
+  fi
+  root=$(realpath "$root")
+  # Relative paths in the arguments (--repo, commit-msg's file) are relative to where it was called
+  export AUR_PACKAGES_CWD=$PWD
+  exec "$root/aur" "$@"
+fi
+# Where relative paths in the arguments start from
+cwd=${AUR_PACKAGES_CWD:-$PWD}
+unset AUR_PACKAGES_CWD
+cd "$root" || exit
 
 # prek, the faster reimplementation of pre-commit, where it's installed
 if command -v prek >/dev/null; then
@@ -19,8 +55,12 @@ declare -A build_alias=()
 usage() {
   cat <<'EOF'
 Usage: ./aur COMMAND [PACKAGE...]
+       aur-packages COMMAND [PACKAGE...]
 
 Commands work on all packages unless packages are given.
+
+As aur-packages (a symlink to this script or a copy, on PATH), it works on the checkout of the
+current directory, else the one $AUR_PACKAGES_HOME names, else the one the symlink points into.
 
   pull      Pull the packages from the AUR (aurpublish --pull)
   push      Check, then push the packages to the AUR (aurpublish), or with --nocheck without the
@@ -53,6 +93,9 @@ Commands work on all packages unless packages are given.
             and check the commit message
   commit-msg FILE
             Check a commit message against the convention in CONTRIBUTING.md (run by the commit-msg hook)
+  list      List the packages, or with --templates the build templates
+  completion bash|zsh|fish|pwsh
+            Print the completion script of aur-packages and ./aur for a shell, see CONTRIBUTING.md
   help      Show this help
 EOF
 }
@@ -242,10 +285,11 @@ EOF
 # Checks the summary of a commit message ($1): upgpkg: <pkg> <ver>-<rel> with the version of the
 # package's staged .SRCINFO, or <scope>: <summary> with a top-level file or folder as scope
 cmd_commit_msg() {
-  local summary scope version srcinfo expected epoch pkgver pkgrel
+  local summary scope version srcinfo expected epoch pkgver pkgrel file=$1
   local upgpkg_pattern='^upgpkg: ([^ ]+) ([^ ]+)$' scope_pattern='^([^ :]+): [^ ]'
+  [[ "$file" == /* ]] || file=$cwd/$file
   # The first line that isn't empty or a comment, git strips those afterwards
-  summary=$(grep -v -m1 -e '^#' -e '^[[:space:]]*$' "$1" || true)
+  summary=$(grep -v -m1 -e '^#' -e '^[[:space:]]*$' "$file" || true)
   case "$summary" in
     # Written by git, git subtree (aurpublish) or the AUR
     'Merge '* | 'Revert "'* | 'fixup! '* | 'squash! '* | 'amend! '* | 'Initial upload'* | \
@@ -364,6 +408,9 @@ build_order() {
     grep -qxF "$n" <<<"$ordered" || printf '%s\n' "$n"
   done
 }
+
+# The names of the build templates of build_template
+build_templates=(powershell-core powershell-full)
 
 # Prints the root packages of a build template, or returns 1 if the name isn't one
 build_template() {
@@ -630,7 +677,7 @@ cmd_build() {
       alarm_root "$alarmdir"
     fi
     if [[ -n "$reuse" ]]; then
-      repo=$(realpath "$reuse")
+      repo=$(cd "$cwd" && realpath "$reuse")
       conf=$repo/pacman.conf
       keep=true
       if [[ ! -f "$conf" ]]; then
@@ -849,10 +896,33 @@ cmd_commits() {
   done
 }
 
+cmd_list() {
+  local -a selected
+  if [[ "${1-}" == --templates ]]; then
+    printf '%s\n' "${build_templates[@]}"
+    return
+  fi
+  select_packages
+  printf '%s\n' "${selected[@]}"
+}
+
+cmd_completion() {
+  case "${1-}" in
+    bash) cat completions/aur-packages.bash ;;
+    zsh) cat completions/_aur-packages ;;
+    fish) cat completions/aur-packages.fish ;;
+    pwsh) cat completions/aur-packages.ps1 ;;
+    *)
+      echo "Usage: ./aur completion bash|zsh|fish|pwsh" >&2
+      return 1
+      ;;
+  esac
+}
+
 command=${1-help}
 (($#)) && shift
 case "$command" in
-  pull | push | updates | upgrade | check | sync | setup | build | commits)
+  pull | push | updates | upgrade | check | sync | setup | build | commits | list | completion)
     "cmd_$command" "$@"
     ;;
   commit-msg)

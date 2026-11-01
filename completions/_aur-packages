@@ -1,0 +1,104 @@
+#compdef aur-packages -p */aur
+# Completion of aur-packages and ./aur for zsh, not for aur, which is aurutils'. Either in ~/.zshrc,
+# after compinit: source <(aur-packages completion zsh)
+# or saved as _aur-packages in a folder of $fpath.
+
+# The packages and the build templates of the checkout the command works on, from the command itself
+# ($_aur_packages_program of _aur-packages)
+_aur-packages_packages() {
+  local -a packages=(${(f)"$(_call_program packages $_aur_packages_program list 2>/dev/null)"})
+  _wanted packages expl package compadd "$@" -a packages
+}
+_aur-packages_templates() {
+  local -a templates=(${(f)"$(_call_program templates $_aur_packages_program list --templates 2>/dev/null)"})
+  _wanted templates expl 'build template' compadd "$@" -a templates
+}
+# The packages and the build templates, for build
+_aur-packages_buildables() {
+  _alternative 'packages:package:_aur-packages_packages' 'templates:build template:_aur-packages_templates'
+}
+
+_aur-packages() {
+  local curcontext=$curcontext state line ret=1
+  local _aur_packages_program=${(Q)words[1]}
+  # zsh looks up ./aur as aur, which is aurutils', so this one is registered for the paths ending in
+  # /aur as well: it only takes those in a checkout of the AUR packages, and then only it completes
+  if [[ $_aur_packages_program == */aur ]]; then
+    [[ -d ${_aur_packages_program:h}/templates/package ]] || return 1
+    _compskip=all
+  fi
+  local -a commands=(
+    'pull:pull the packages from the AUR'
+    'push:check, then push the packages to the AUR'
+    'updates:show which packages have a newer upstream version'
+    'upgrade:upgrade the packages to their latest upstream version'
+    'check:run the checks of .pre-commit-config.yaml'
+    'commits:show the upstream commits of the pinned _commit values'
+    'build:build packages or a template with their dependencies'
+    'sync:copy templates/package into the packages'
+    'setup:install the git hooks'
+    'commit-msg:check a commit message'
+    'list:list the packages or the build templates'
+    'completion:print the completion script of a shell'
+    'help:show the help'
+  )
+  _arguments -C '1:command:->command' '*::argument:->argument' && ret=0
+  case $state in
+    command)
+      _describe -t commands command commands && ret=0
+      ;;
+    argument)
+      curcontext=${curcontext%:*:*}:aur-packages-$words[1]:
+      case $words[1] in
+        pull | updates | upgrade)
+          _arguments '*:package:_aur-packages_packages' && ret=0
+          ;;
+        push)
+          _arguments '--nocheck[push without running the checks]' '*:package:_aur-packages_packages' && ret=0
+          ;;
+        check)
+          _arguments '--manual[also run the checks that only run on request]' \
+            '*:package:_aur-packages_packages' && ret=0
+          ;;
+        commits)
+          _arguments '--update[rewrite stale _commit values]' '*:package:_aur-packages_packages' && ret=0
+          ;;
+        sync)
+          _arguments '--check[only report differences]' '*:package:_aur-packages_packages' && ret=0
+          ;;
+        build)
+          _arguments \
+            '(--local)--chroot[build in a clean chroot (default)]' \
+            '(--chroot)--local[build with makepkg -fCd]' \
+            '--install[install each result of a local build]' \
+            '(-n --dry-run)'{-n,--dry-run}'[print the plan]' \
+            '--keep[keep the chroot repo]' \
+            "--dotnet-bin[build with Microsoft's .NET]" \
+            '--libs-bin[build with the libraries from nuget.org]' \
+            '--target=[build for another architecture]:target:((aarch64\:"cross-build for aarch64" aarch64-native\:"build for aarch64 under QEMU"))' \
+            '--repo=[continue in the repo of an earlier --keep]:repo:_directories' \
+            '*:package or template:_aur-packages_buildables' &&
+            ret=0
+          ;;
+        list)
+          _arguments '--templates[list the build templates]' && ret=0
+          ;;
+        commit-msg)
+          _arguments '1:commit message file:_files' && ret=0
+          ;;
+        completion)
+          _arguments '1:shell:(bash zsh fish pwsh)' && ret=0
+          ;;
+      esac
+      ;;
+  esac
+  return ret
+}
+
+# Loaded from $fpath, the function is called; sourced, it's registered
+if [[ $zsh_eval_context[-1] == loadautofunc ]]; then
+  _aur-packages "$@"
+else
+  compdef _aur-packages aur-packages
+  compdef -p _aur-packages '*/aur'
+fi

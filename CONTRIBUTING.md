@@ -20,7 +20,32 @@ sudo pacman -S --needed base-devel devtools pacman-contrib namcap nvchecker jq \
 ./aur setup
 ```
 
-`./aur` manages all packages, or the packages given: `pull` and `push` (aurpublish), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `build` (clean-chroot builds of packages and their dependencies from this repository, with aurutils), `sync` (copies `templates/package` into the packages) and `setup` (installs the git hooks). See `./aur help`.
+`./aur` manages all packages, or the packages given: `pull` and `push` (aurpublish), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `build` (clean-chroot builds of packages and their dependencies from this repository, with aurutils), `sync` (copies `templates/package` into the packages), `setup` (installs the git hooks) and `list` (the packages). See `./aur help`.
+
+### `aur-packages` in your shell
+
+To use it from anywhere, put it on PATH as `aur-packages` (`aur` is aurutils'):
+
+```bash
+ln -s "$PWD/aur" ~/.local/bin/aur-packages
+```
+
+It works on the checkout of the current directory, so worktrees and other clones just work; elsewhere on the checkout `AUR_PACKAGES_HOME` names, or without it on the one the symlink points into (a copy instead of a symlink needs `AUR_PACKAGES_HOME`). It always runs that checkout's own `./aur`.
+
+```bash
+export AUR_PACKAGES_HOME=~/Projects/AUR
+```
+
+The completions cover `aur-packages` and `./aur`, with the commands, their options and the packages. Load them in your shell's configuration:
+
+| Shell | Configuration | Line |
+| --- | --- | --- |
+| bash | `~/.bashrc` | `source <(aur-packages completion bash)` |
+| zsh | `~/.zshrc`, after `compinit` | `source <(aur-packages completion zsh)` |
+| fish | `~/.config/fish/config.fish` | `aur-packages completion fish \| source` |
+| PowerShell | `$PROFILE` | `aur-packages completion pwsh \| Out-String \| Invoke-Expression` |
+
+Or save them where the shell loads completions from: `aur-packages completion zsh > _aur-packages` in a folder of `$fpath`, `aur-packages completion fish > ~/.config/fish/completions/aur-packages.fish`.
 
 A typical change:
 
