@@ -52,7 +52,7 @@ Commands work on all packages unless packages are given.
   setup     Install the git hooks that run the checks before each commit, replacing aurpublish's,
             and check the commit message
   commit-msg FILE
-            Check a commit message against the convention in CLAUDE.md (run by the commit-msg hook)
+            Check a commit message against the convention in CONTRIBUTING.md (run by the commit-msg hook)
   help      Show this help
 EOF
 }
@@ -280,7 +280,7 @@ cmd_commit_msg() {
       return 1
     fi
   else
-    echo "The summary has to be 'upgpkg: <pkg> <ver>-<rel>' or '<scope>: <summary>', see CLAUDE.md: $summary" >&2
+    echo "The summary has to be 'upgpkg: <pkg> <ver>-<rel>' or '<scope>: <summary>', see CONTRIBUTING.md: $summary" >&2
     return 1
   fi
 }
