@@ -67,6 +67,7 @@ The conventions below apply to every package. GitHub Actions runs `./aur-package
   ```
 
 - Never disable SC2164. Write `cd … || exit` instead, even where makepkg's errexit makes it redundant.
+- Quoting in the metadata arrays (`arch`, `license`, `depends`, `optdepends`, `options`, `backup`, …): plain words stay bare (`arch=(x86_64 aarch64)`, `options=(!debug)`), literal text that needs quotes gets single quotes (`'powershell>=7.6.9-3'`, `'git: for git sources'`), double quotes only where something expands or the text has an apostrophe (`"dotnet-runtime-$_dotnetsdkver"`), around the whole word. Scalars like `pkgdesc` and `url` are left as they are.
 - Checksums: always both `sha512sums` and `b2sums` (per-arch variants too), never sha256-only or b2-only. Before running `updpkgsums`, seed both arrays (e.g. `'SKIP'`); with empty arrays it falls back to sha256.
 - Bump pkgrel when the built package changes (files, depends, license, other metadata). Style-only or packaging-only changes don't get a bump.
 - Go packages keep `GOPATH` inside `$srcdir`.
