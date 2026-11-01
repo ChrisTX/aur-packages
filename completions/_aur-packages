@@ -32,6 +32,7 @@ _aur-packages() {
     'sync:copy templates/package into the packages'
     'setup:install the git hooks'
     'commit-msg:check a commit message'
+    'quoting:check the quoting of the metadata arrays'
     'list:list the packages or the build templates'
     'completion:print the completion script of a shell'
     'help:show the help'
@@ -44,7 +45,7 @@ _aur-packages() {
     argument)
       curcontext=${curcontext%:*:*}:aur-packages-$words[1]:
       case $words[1] in
-        pull | updates | upgrade)
+        pull | updates | upgrade | quoting)
           _arguments '*:package:_aur-packages_packages' && ret=0
           ;;
         push)

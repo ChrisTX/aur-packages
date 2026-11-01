@@ -9,7 +9,7 @@ function __aur_packages_list
     $program list $argv 2>/dev/null
 end
 
-set -l commands pull push updates upgrade check commits build sync setup commit-msg list completion help
+set -l commands pull push updates upgrade check commits build sync setup commit-msg quoting list completion help
 set -l none "not __fish_seen_subcommand_from $commands"
 
 complete -c aur-packages -f
@@ -23,11 +23,12 @@ complete -c aur-packages -n $none -a build -d 'Build packages or a template with
 complete -c aur-packages -n $none -a sync -d 'Copy templates/package into the packages'
 complete -c aur-packages -n $none -a setup -d 'Install the git hooks'
 complete -c aur-packages -n $none -a commit-msg -d 'Check a commit message'
+complete -c aur-packages -n $none -a quoting -d 'Check the quoting of the metadata arrays'
 complete -c aur-packages -n $none -a list -d 'List the packages or the build templates'
 complete -c aur-packages -n $none -a completion -d 'Print the completion script of a shell'
 complete -c aur-packages -n $none -a help -d 'Show the help'
 
-complete -c aur-packages -n '__fish_seen_subcommand_from pull push updates upgrade check commits build sync' \
+complete -c aur-packages -n '__fish_seen_subcommand_from pull push updates upgrade check commits build sync quoting' \
     -a '(__aur_packages_list)' -d Package
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l nocheck -d 'Push without running the checks'
 complete -c aur-packages -n '__fish_seen_subcommand_from check' -l manual -d 'Also run the checks that only run on request'

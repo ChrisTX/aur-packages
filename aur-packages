@@ -94,6 +94,8 @@ else the one the symlink points into.
   commit-msg FILE
             Check a commit message against the convention in CONTRIBUTING.md (run by the
             commit-msg hook)
+  quoting   Check the quoting of the metadata arrays (depends, optdepends, …) of the PKGBUILDs
+            against the convention in CONTRIBUTING.md (run by the quoting hook)
   list      List the packages, or with --templates the build templates
   completion bash|zsh|fish|pwsh
             Print the completion script for a shell, see CONTRIBUTING.md
@@ -331,6 +333,48 @@ cmd_commit_msg() {
     echo "The summary has to be 'upgpkg: <pkg> <ver>-<rel>' or '<scope>: <summary>', see CONTRIBUTING.md: $summary" >&2
     return 1
   fi
+}
+
+# Checks the quoting of the metadata arrays of the PKGBUILDs against CONTRIBUTING.md: plain words bare,
+# single quotes for literal text that needs quotes, double quotes only for expansions (or apostrophes),
+# around the whole word. From the syntax tree of shfmt, so package functions and per-arch arrays count
+# as well. Takes packages or their PKGBUILDs, as the hook passes them.
+cmd_quoting() {
+  local status=0 package findings
+  local -a selected
+  # shellcheck disable=SC2016 # a jq program, jq expands $name and the others
+  local program='
+    def bare: test("^!?[A-Za-z0-9._+@/=:,-]+$");
+    def literal: all(.Parts[]?; .Type == "Lit");
+    def text: [.Parts[]?.Value] | join("");
+    .. | objects | .Assigns? // empty | .[]
+    | select(.Array != null and (.Name.Value | test($names)))
+    | .Name.Value as $name | .Array.Elems[] | .Pos as $pos | .Value.Parts as $parts
+    | if ($parts | length) > 1 then
+        if any($parts[]; .Type == "SglQuoted" or .Type == "DblQuoted") then
+          "a word quoted in part, double-quote it as a whole" else empty end
+      elif $parts[0].Type == "SglQuoted" then
+        if ($parts[0].Value | bare) then "\u0027\($parts[0].Value)\u0027 is a plain word, write it unquoted"
+        else empty end
+      elif $parts[0].Type == "DblQuoted" and ($parts[0] | literal) then
+        ($parts[0] | text) as $text
+        | if ($text | bare) then "\"\($text)\" is a plain word, write it unquoted"
+          elif ($text | contains("\u0027")) then empty
+          else "\"\($text)\" has nothing that expands, single-quote it" end
+      else empty end
+    | "\($file):\($pos.Line):\($pos.Col): \($name): \(.)"'
+  local names='^(arch|license|groups|depends|makedepends|checkdepends|optdepends|provides|conflicts|replaces|options|backup|noextract|validpgpkeys)(_.+)?$'
+  select_packages "${@%/PKGBUILD}"
+  for package in "${selected[@]}"; do
+    # shellcheck disable=SC2094 # jq only gets the file's name, for its messages
+    findings=$(shfmt -ln bash --to-json <"$package/PKGBUILD" |
+      jq -r --arg file "$package/PKGBUILD" --arg names "$names" "$program")
+    if [[ -n "$findings" ]]; then
+      printf '%s\n' "$findings" >&2
+      status=1
+    fi
+  done
+  return "$status"
 }
 
 # Prints "depdir<TAB>pkgdir" for every build dependency (depends/makedepends/checkdepends) that
@@ -931,6 +975,9 @@ case "$command" in
     ;;
   commit-msg)
     cmd_commit_msg "$@"
+    ;;
+  quoting)
+    cmd_quoting "$@"
     ;;
   help | -h | --help)
     usage

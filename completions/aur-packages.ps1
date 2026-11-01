@@ -15,6 +15,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'sync'       = 'Copy templates/package into the packages'
         'setup'      = 'Install the git hooks'
         'commit-msg' = 'Check a commit message'
+        'quoting'    = 'Check the quoting of the metadata arrays'
         'list'       = 'List the packages or the build templates'
         'completion' = 'Print the completion script of a shell'
         'help'       = 'Show the help'
@@ -28,7 +29,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'build'   = @('--chroot', '--local', '--install', '--dry-run', '-n', '--keep', '--dotnet-bin', '--libs-bin',
             '--target', '--repo')
     }
-    $withPackages = @('pull', 'push', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync')
+    $withPackages = @('pull', 'push', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting')
 
     # The packages (or with --templates the build templates) of the checkout the command works on, from
     # the command itself

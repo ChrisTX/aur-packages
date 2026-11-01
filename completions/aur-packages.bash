@@ -15,11 +15,11 @@ _aur_packages_complete() {
   done
   if [[ -z "$command" ]]; then
     mapfile -t COMPREPLY < <(compgen -W 'pull push updates upgrade check commits build sync setup
-      commit-msg list completion help' -- "$cur")
+      commit-msg quoting list completion help' -- "$cur")
     return
   fi
   case "$command" in
-    pull | updates | upgrade) packages=true ;;
+    pull | updates | upgrade | quoting) packages=true ;;
     push) options=--nocheck packages=true ;;
     check) options=--manual packages=true ;;
     commits) options=--update packages=true ;;

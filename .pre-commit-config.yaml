@@ -172,6 +172,11 @@ repos:
         entry: ./aur-packages sync --check
         pass_filenames: false
         always_run: true
+      - id: quoting
+        name: quoting of the metadata arrays (shfmt, jq)
+        language: system
+        entry: ./aur-packages quoting
+        files: (^|/)PKGBUILD$
       - id: reuse-lint
         name: reuse lint (reuse)
         language: system
