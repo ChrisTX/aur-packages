@@ -1,7 +1,7 @@
-# Completion of aur-packages and ./aur for PowerShell, not for aur, which is aurutils'. In $PROFILE:
+# Completion of aur-packages and ./aur-packages for PowerShell. In $PROFILE:
 # aur-packages completion pwsh | Out-String | Invoke-Expression
 
-Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur' -ScriptBlock {
+Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages' -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
 
     $commands = [ordered]@{

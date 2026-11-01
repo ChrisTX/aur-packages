@@ -14,29 +14,29 @@ sudo pacman -S --needed base-devel devtools pacman-contrib namcap nvchecker jq \
   editorconfig-checker reuse
 ```
 
-`./aur build` also needs aurutils, and the aarch64 builds `qemu-user-static-binfmt`; publishing to the AUR (`./aur pull` and `push`) needs aurpublish. Then install the git hooks, which run the checks on the staged files before each commit and check the commit message:
+`./aur-packages build` also needs aurutils, and the aarch64 builds `qemu-user-static-binfmt`; publishing to the AUR (`./aur-packages pull` and `push`) needs aurpublish. Then install the git hooks, which run the checks on the staged files before each commit and check the commit message:
 
 ```bash
-./aur setup
+./aur-packages setup
 ```
 
-`./aur` manages all packages, or the packages given: `pull` and `push` (aurpublish), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `build` (clean-chroot builds of packages and their dependencies from this repository, with aurutils), `sync` (copies `templates/package` into the packages), `setup` (installs the git hooks) and `list` (the packages). See `./aur help`.
+`./aur-packages` manages all packages, or the packages given: `pull` and `push` (aurpublish), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `build` (clean-chroot builds of packages and their dependencies from this repository, with aurutils), `sync` (copies `templates/package` into the packages), `setup` (installs the git hooks) and `list` (the packages). See `./aur-packages help`.
 
 ### `aur-packages` in your shell
 
-To use it from anywhere, put it on PATH as `aur-packages` (`aur` is aurutils'):
+To use it from anywhere, put it on PATH:
 
 ```bash
-ln -s "$PWD/aur" ~/.local/bin/aur-packages
+ln -s "$PWD/aur-packages" ~/.local/bin/aur-packages
 ```
 
-It works on the checkout of the current directory, so worktrees and other clones just work; elsewhere on the checkout `AUR_PACKAGES_HOME` names, or without it on the one the symlink points into (a copy instead of a symlink needs `AUR_PACKAGES_HOME`). It always runs that checkout's own `./aur`.
+Run from PATH, it works on the checkout of the current directory, so worktrees and other clones just work; elsewhere on the checkout `AUR_PACKAGES_HOME` names, or without it on the one the symlink points into (a copy instead of a symlink needs `AUR_PACKAGES_HOME`). It always runs that checkout's own `aur-packages`, and `./aur-packages` in a checkout always works on that one.
 
 ```bash
 export AUR_PACKAGES_HOME=~/Projects/AUR
 ```
 
-The completions cover `aur-packages` and `./aur`, with the commands, their options and the packages. Load them in your shell's configuration:
+The completions cover `aur-packages` and `./aur-packages`, with the commands, their options and the packages. Load them in your shell's configuration:
 
 | Shell | Configuration | Line |
 | --- | --- | --- |
@@ -50,11 +50,11 @@ Or save them where the shell loads completions from: `aur-packages completion zs
 A typical change:
 
 1. Edit the PKGBUILD (and its sources), then regenerate `.SRCINFO` with `makepkg --printsrcinfo > .SRCINFO`.
-2. Build it in a clean chroot: `./aur build <package>` builds it with its dependencies from this repository, `pkgctl build` works for a single package.
-3. Run `./aur check <package>` and `namcap` on the PKGBUILD and the built package.
+2. Build it in a clean chroot: `./aur-packages build <package>` builds it with its dependencies from this repository, `pkgctl build` works for a single package.
+3. Run `./aur-packages check <package>` and `namcap` on the PKGBUILD and the built package.
 4. Commit each package on its own, with a message as described in [Commits](#commits-and-aurpublish).
 
-The conventions below apply to every package. GitHub Actions runs `./aur check` on every push and pull request.
+The conventions below apply to every package. GitHub Actions runs `./aur-packages check` on every push and pull request.
 
 ## PKGBUILD conventions
 
@@ -94,23 +94,23 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 - `REUSE.toml` annotating packaging files as 0BSD; patches derived from upstream are annotated with the upstream license
 - `.gitignore`: the toptal `archlinuxpackages` template, plus the checkout directory for git sources (e.g. `ergo/`) and downloaded sources the template doesn't cover (e.g. `*.nupkg`)
 - `.nvchecker.toml` for update checks (except VCS `-git` packages and sources without a usable upstream repo)
-- `.editorconfig` and `.pre-commit-config.yaml`, copies of `templates/package` (`./aur sync`), so the package can be formatted and checked on its own. Change the template, not the copies; `./aur sync` writes the top-level configuration from it as well.
+- `.editorconfig` and `.pre-commit-config.yaml`, copies of `templates/package` (`./aur-packages sync`), so the package can be formatted and checked on its own. Change the template, not the copies; `./aur-packages sync` writes the top-level configuration from it as well.
 
 ## Commits and aurpublish
 
 - One commit per package.
 - Message summary, the Arch convention rather than Conventional Commits (versions come from upstream, and each package's commits become its AUR history):
   - `upgpkg: <pkg> <ver>-<rel>` when pkgver/pkgrel changes, e.g. `upgpkg: powershell 7.6.9-22`.
-  - Otherwise `<scope>: <summary>`, where the scope is the package directory, or the top-level file or directory for changes outside packages (e.g. `README.md:`, `aur:`, `templates:`, `.github:`). The summary is lowercase and imperative (`add …`, `fix …`, `drop …`), without a trailing period.
-- The body lists the changes. The commit-msg hook (`./aur commit-msg`) checks the summary: the scope has to exist, and the version in `upgpkg:` has to match the staged .SRCINFO.
-- Regenerate .SRCINFO yourself (`makepkg --printsrcinfo > .SRCINFO`), the git hook only checks it. The hook (`./aur setup`, prek or pre-commit) runs the checks below on the staged files and replaces aurpublish's hooks, so commit normally; don't bypass it.
+  - Otherwise `<scope>: <summary>`, where the scope is the package directory, or the top-level file or directory for changes outside packages (e.g. `README.md:`, `aur-packages:`, `templates:`, `.github:`). The summary is lowercase and imperative (`add …`, `fix …`, `drop …`), without a trailing period.
+- The body lists the changes. The commit-msg hook (`./aur-packages commit-msg`) checks the summary: the scope has to exist, and the version in `upgpkg:` has to match the staged .SRCINFO.
+- Regenerate .SRCINFO yourself (`makepkg --printsrcinfo > .SRCINFO`), the git hook only checks it. The hook (`./aur-packages setup`, prek or pre-commit) runs the checks below on the staged files and replaces aurpublish's hooks, so commit normally; don't bypass it.
 
 ## Building and checking
 
 - Every disabled, skipped or removed test gets a comment saying why. If it's an upstream bug, link the upstream issue (open one if there is none yet). Disable as little as possible: a single test or context rather than a whole file.
-- Everything passes `./aur check`, which runs the hooks of `.pre-commit-config.yaml`: formatting (shfmt, ruff, Biome, tombi, rumdl, settings in `.editorconfig`), linting (shellcheck, shellharden, ruff, Biome, tombi, rumdl, systemd-lsp, PSScriptAnalyzer, editorconfig-checker), `reuse lint`, up-to-date .SRCINFO files and checksums of the local sources, which a formatter may have changed (run `updpkgsums` then). Formatters fix files themselves; run the check again afterwards. After `updpkgsums`, which aligns the checksums its own way, run shfmt on the PKGBUILD (`./aur upgrade` does).
-- termux-language-server only runs on request (`./aur check --manual`): it crashes on apostrophes in optdepends (neomutt/lsp-tree-sitter#9) and has false positives.
+- Everything passes `./aur-packages check`, which runs the hooks of `.pre-commit-config.yaml`: formatting (shfmt, ruff, Biome, tombi, rumdl, settings in `.editorconfig`), linting (shellcheck, shellharden, ruff, Biome, tombi, rumdl, systemd-lsp, PSScriptAnalyzer, editorconfig-checker), `reuse lint`, up-to-date .SRCINFO files and checksums of the local sources, which a formatter may have changed (run `updpkgsums` then). Formatters fix files themselves; run the check again afterwards. After `updpkgsums`, which aligns the checksums its own way, run shfmt on the PKGBUILD (`./aur-packages upgrade` does).
+- termux-language-server only runs on request (`./aur-packages check --manual`): it crashes on apostrophes in optdepends (neomutt/lsp-tree-sitter#9) and has false positives.
 - Also lint with `namcap PKGBUILD` and `namcap` on the built package.
 - Where an unquoted variable relies on word splitting, e.g. to add nothing when it's empty, use an array instead of disabling shellharden.
 - PowerShell scripts (`.ps1`/`.psm1`) are PSScriptAnalyzer-clean with its default rules, information level included (`Invoke-ScriptAnalyzer -Path script.ps1`). Suppress a rule only where the code can't comply, with `[Diagnostics.CodeAnalysis.SuppressMessageAttribute('Rule', '', Justification = '…')]` saying why.
-- Clean-chroot builds: `pkgctl build`, or `./aur build` for a package with its dependencies from this repository. A local `makepkg -fCd` is fine for a quick check, but may lack makedepends.
+- Clean-chroot builds: `pkgctl build`, or `./aur-packages build` for a package with its dependencies from this repository. A local `makepkg -fCd` is fine for a quick check, but may lack makedepends.

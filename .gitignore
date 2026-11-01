@@ -1,5 +1,5 @@
 # The packages have their own .gitignore files, this covers the top level
-# Caches of the linters and formatters of ./aur check
+# Caches of the linters and formatters of ./aur-packages check
 .ruff_cache/
 .rumdl_cache/
 # Local files of Claude Code

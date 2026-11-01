@@ -7,7 +7,7 @@ path = [
   "SECURITY.md",
   "CODE_OF_CONDUCT.md",
   "CLAUDE.md",
-  "aur",
+  "aur-packages",
   "completions/**",
   ".gitignore",
   ".gitattributes",

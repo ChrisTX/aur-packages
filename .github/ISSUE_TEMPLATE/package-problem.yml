@@ -34,7 +34,7 @@ body:
         - AUR helper (paru, yay, …)
         - makepkg
         - Clean chroot (pkgctl build, extra-x86_64-build, …)
-        - ./aur build from this repository
+        - ./aur-packages build from this repository
     validations:
       required: true
   - type: textarea

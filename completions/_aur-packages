@@ -1,5 +1,5 @@
-#compdef aur-packages -p */aur
-# Completion of aur-packages and ./aur for zsh, not for aur, which is aurutils'. Either in ~/.zshrc,
+#compdef aur-packages
+# Completion of aur-packages for zsh, which takes it for ./aur-packages as well. Either in ~/.zshrc,
 # after compinit: source <(aur-packages completion zsh)
 # or saved as _aur-packages in a folder of $fpath.
 
@@ -21,12 +21,6 @@ _aur-packages_buildables() {
 _aur-packages() {
   local curcontext=$curcontext state line ret=1
   local _aur_packages_program=${(Q)words[1]}
-  # zsh looks up ./aur as aur, which is aurutils', so this one is registered for the paths ending in
-  # /aur as well: it only takes those in a checkout of the AUR packages, and then only it completes
-  if [[ $_aur_packages_program == */aur ]]; then
-    [[ -d ${_aur_packages_program:h}/templates/package ]] || return 1
-    _compskip=all
-  fi
   local -a commands=(
     'pull:pull the packages from the AUR'
     'push:check, then push the packages to the AUR'
@@ -100,5 +94,4 @@ if [[ $zsh_eval_context[-1] == loadautofunc ]]; then
   _aur-packages "$@"
 else
   compdef _aur-packages aur-packages
-  compdef -p _aur-packages '*/aur'
 fi

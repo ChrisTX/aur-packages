@@ -9,5 +9,5 @@
 
 - [ ] One commit per package, with a message like `upgpkg: <pkg> <ver>-<rel>` or `<pkg>: <summary>` (see [CONTRIBUTING.md](https://github.com/ChrisTX/aur-packages/blob/master/CONTRIBUTING.md#commits-and-aurpublish))
 - [ ] pkgrel bumped if the built package changes, `.SRCINFO` regenerated
-- [ ] `./aur check` passes
-- [ ] Built in a clean chroot (`pkgctl build` or `./aur build`), and checked with `namcap`
+- [ ] `./aur-packages check` passes
+- [ ] Built in a clean chroot (`pkgctl build` or `./aur-packages build`), and checked with `namcap`

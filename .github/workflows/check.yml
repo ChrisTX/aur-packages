@@ -1,4 +1,4 @@
-# Runs the checks of .pre-commit-config.yaml (./aur check), which the git hooks run before each commit
+# Runs the checks of .pre-commit-config.yaml (./aur-packages check), which the git hooks run before each commit
 name: Checks
 
 on:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   check:
-    name: ./aur check
+    name: ./aur-packages check
     runs-on: ubuntu-latest
     container: archlinux:base-devel
     timeout-minutes: 30
@@ -36,7 +36,7 @@ jobs:
           chown -R builder: .
       # PSScriptAnalyzer comes with powershell-editor-services, an AUR package: the next job runs it
       - name: Run the checks
-        run: sudo -H -u builder env SKIP=psscriptanalyzer ./aur check
+        run: sudo -H -u builder env SKIP=psscriptanalyzer ./aur-packages check
 
   psscriptanalyzer:
     name: PSScriptAnalyzer

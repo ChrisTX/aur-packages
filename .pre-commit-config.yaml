@@ -163,13 +163,13 @@ repos:
         language: system
         entry: reuse lint-file
         types: [file]
-  # Only in the repository of the packages, appended to the hooks of templates/package by ./aur sync
+  # Only in the repository of the packages, appended to the hooks of templates/package by ./aur-packages sync
   - repo: local
     hooks:
       - id: templates
         name: package files match templates/package
         language: system
-        entry: ./aur sync --check
+        entry: ./aur-packages sync --check
         pass_filenames: false
         always_run: true
       - id: reuse-lint

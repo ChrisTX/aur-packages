@@ -1,20 +1,20 @@
 #!/bin/bash
-# Manages the AUR packages of this repository, the top-level folders with a PKGBUILD, also on PATH as
-# aur-packages. See ./aur help.
+# Manages the AUR packages of this repository, the top-level folders with a PKGBUILD: as
+# ./aur-packages in a checkout, or as aur-packages on PATH. See ./aur-packages help.
 
 set -euo pipefail
 
 # A checkout of this repository: a folder with this script and the package template
 is_checkout() {
-  [[ -f "$1/aur" && -d "$1/templates/package" ]]
+  [[ -f "$1/aur-packages" && -d "$1/templates/package" ]]
 }
 
-# The checkout to work on. As ./aur, the script's own. Under another name, e.g. as aur-packages on
-# PATH (a symlink or a copy), the checkout of the current directory, else $AUR_PACKAGES_HOME, else
-# the one the symlink points into; then that checkout's own script runs, so the commands always
-# match the checkout's version.
+# The checkout to work on. Run from a checkout (./aur-packages, or its path), that one. Run from
+# elsewhere, e.g. from a symlink or a copy on PATH, the checkout of the current directory, else
+# $AUR_PACKAGES_HOME, else the one the symlink points into; then that checkout's own script runs, so
+# the commands always match the checkout's version.
 self=$(realpath "$0")
-if [[ "${0##*/}" == aur ]]; then
+if is_checkout "$(dirname "$0")"; then
   root=$(dirname "$self")
 else
   if top=$(git rev-parse --show-toplevel 2>/dev/null) && is_checkout "$top"; then
@@ -34,7 +34,7 @@ else
   root=$(realpath "$root")
   # Relative paths in the arguments (--repo, commit-msg's file) are relative to where it was called
   export AUR_PACKAGES_CWD=$PWD
-  exec "$root/aur" "$@"
+  exec "$root/aur-packages" "$@"
 fi
 # Where relative paths in the arguments start from
 cwd=${AUR_PACKAGES_CWD:-$PWD}
@@ -48,19 +48,19 @@ else
   hook_runner=pre-commit
 fi
 
-# Names the build graph resolves to another package than the one of that name, set by ./aur build's
+# Names the build graph resolves to another package than the one of that name, set by build's
 # --dotnet-bin and --libs-bin to pick the -bin variant of a selector package
 declare -A build_alias=()
 
 usage() {
   cat <<'EOF'
-Usage: ./aur COMMAND [PACKAGE...]
-       aur-packages COMMAND [PACKAGE...]
+Usage: aur-packages COMMAND [PACKAGE...]
 
 Commands work on all packages unless packages are given.
 
-As aur-packages (a symlink to this script or a copy, on PATH), it works on the checkout of the
-current directory, else the one $AUR_PACKAGES_HOME names, else the one the symlink points into.
+Run from a checkout (./aur-packages), it works on that one. From elsewhere, e.g. a symlink or a copy
+on PATH, it works on the checkout of the current directory, else the one $AUR_PACKAGES_HOME names,
+else the one the symlink points into.
 
   pull      Pull the packages from the AUR (aurpublish --pull)
   push      Check, then push the packages to the AUR (aurpublish), or with --nocheck without the
@@ -92,10 +92,11 @@ current directory, else the one $AUR_PACKAGES_HOME names, else the one the symli
   setup     Install the git hooks that run the checks before each commit, replacing aurpublish's,
             and check the commit message
   commit-msg FILE
-            Check a commit message against the convention in CONTRIBUTING.md (run by the commit-msg hook)
+            Check a commit message against the convention in CONTRIBUTING.md (run by the
+            commit-msg hook)
   list      List the packages, or with --templates the build templates
   completion bash|zsh|fish|pwsh
-            Print the completion script of aur-packages and ./aur for a shell, see CONTRIBUTING.md
+            Print the completion script for a shell, see CONTRIBUTING.md
   help      Show this help
 EOF
 }
@@ -264,19 +265,22 @@ cmd_setup() {
   "$hook_runner" install --allow-missing-config
 
   # A plain hook instead of one of the configuration's: hooks without stages run in every installed
-  # stage, so the checks would run again for the commit message. Checkouts whose ./aur has no
-  # commit-msg command yet are skipped.
+  # stage, so the checks would run again for the commit message. Checkouts of branches from before
+  # the rename have ./aur, older ones no commit-msg command; those are skipped.
   hook=$hooks/commit-msg
-  if [[ -e "$hook" ]] && ! grep -q '^# Installed by ./aur setup' "$hook"; then
+  if [[ -e "$hook" ]] && ! grep -q -E '^# Installed by \./aur(-packages)? setup' "$hook"; then
     echo "Not replacing the existing $hook" >&2
     return 1
   fi
   cat >"$hook" <<'EOF'
 #!/bin/sh
-# Installed by ./aur setup: checks the commit message, see ./aur commit-msg
-aur=$(git rev-parse --show-toplevel)/aur
-grep -q '^cmd_commit_msg()' "$aur" 2>/dev/null || exit 0
-exec "$aur" commit-msg "$(realpath "$1")"
+# Installed by ./aur-packages setup: checks the commit message, see ./aur-packages commit-msg
+top=$(git rev-parse --show-toplevel)
+for script in "$top/aur-packages" "$top/aur"; do
+  if grep -q '^cmd_commit_msg()' "$script" 2>/dev/null; then
+    exec "$script" commit-msg "$(realpath "$1")"
+  fi
+done
 EOF
   chmod +x "$hook"
   echo "Installed $hook"
@@ -513,7 +517,7 @@ alarm_makepkg_conf() {
   sed -E 's/^CARCH=/export CARCH=/' "$1/root/etc/makepkg.conf"
   cat <<EOF
 
-# Native aarch64 build under QEMU (./aur build --target aarch64-native)
+# Native aarch64 build under QEMU (./aur-packages build --target aarch64-native)
 MAKEFLAGS="-j$(nproc)"
 # .NET's W^X double mapping fails under qemu-user
 export DOTNET_EnableWriteXorExecute=0
@@ -529,7 +533,7 @@ cross_makepkg_conf() {
   grep -v -E '^CARCH=' /usr/share/devtools/makepkg.conf.d/x86_64.conf
   cat <<EOF
 
-# Cross build for aarch64 (./aur build --target aarch64)
+# Cross build for aarch64 (./aur-packages build --target aarch64)
 export CARCH=aarch64
 $(
     # shellcheck disable=SC1091 # Arch Linux ARM's makepkg.conf
@@ -597,7 +601,7 @@ cmd_build() {
     shift
   done
   if (($# == 0)); then
-    echo "Usage: ./aur build [--chroot|--local] [--install] [--dry-run] [--keep] [--repo DIR] [--dotnet-bin]" \
+    echo "Usage: aur-packages build [--chroot|--local] [--install] [--dry-run] [--keep] [--repo DIR] [--dotnet-bin]" \
       "[--libs-bin] [--target aarch64|aarch64-native] <template|package>..." >&2
     return 1
   fi
@@ -681,7 +685,7 @@ cmd_build() {
       conf=$repo/pacman.conf
       keep=true
       if [[ ! -f "$conf" ]]; then
-        echo "$repo isn't a repository of ./aur build --keep" >&2
+        echo "$repo isn't a repository of ./aur-packages build --keep" >&2
         return 1
       fi
     else
@@ -913,7 +917,7 @@ cmd_completion() {
     fish) cat completions/aur-packages.fish ;;
     pwsh) cat completions/aur-packages.ps1 ;;
     *)
-      echo "Usage: ./aur completion bash|zsh|fish|pwsh" >&2
+      echo "Usage: aur-packages completion bash|zsh|fish|pwsh" >&2
       return 1
       ;;
   esac

@@ -1,5 +1,5 @@
-# Completion of aur-packages and ./aur for bash, in ~/.bashrc: source <(aur-packages completion bash)
-# Not for aur, which is aurutils'.
+# Completion of aur-packages for bash, in ~/.bashrc: source <(aur-packages completion bash)
+# bash takes it for ./aur-packages as well, by the name after the last slash.
 # shellcheck shell=bash
 
 _aur_packages_complete() {
@@ -70,4 +70,4 @@ _aur_packages_complete() {
   mapfile -t COMPREPLY < <(compgen -W "$words" -- "$cur")
 }
 
-complete -F _aur_packages_complete aur-packages ./aur
+complete -F _aur_packages_complete aur-packages
