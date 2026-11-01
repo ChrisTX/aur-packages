@@ -12,6 +12,10 @@ else
   hook_runner=pre-commit
 fi
 
+# Names the build graph resolves to another package than the one of that name, set by ./aur build's
+# --dotnet-bin and --libs-bin to pick the -bin variant of a selector package
+declare -A build_alias=()
+
 usage() {
   cat <<'EOF'
 Usage: ./aur COMMAND [PACKAGE...]
@@ -34,7 +38,9 @@ Commands work on all packages unless packages are given.
   build     Build packages or a template (powershell-core, powershell-full) and their
             dependencies in order, in a clean chroot into a private throwaway repo (default), or
             --local (makepkg -fCd, --install to install each result). --dry-run prints the plan,
-            --keep keeps the chroot repo
+            --keep keeps the chroot repo. In a chroot, --dotnet-bin builds with Microsoft's .NET
+            (dotnet-build-deps-10.0-bin, dotnet-sdk-bin built by aur sync) and --libs-bin with the
+            libraries from nuget.org (powershell-build-deps-bin) instead of the source-built ones
   sync      Copy templates/package into the packages and write the configuration at the top level,
             or with --check only report differences
   setup     Install the git hooks that run the checks before each commit, replacing aurpublish's,
@@ -299,6 +305,9 @@ build_edges() {
       fi
     done <"$s"
   done
+  for name in "${!build_alias[@]}"; do
+    name2dir[$name]=${build_alias[$name]}
+  done
   for s in */.SRCINFO; do
     d=${s%/.SRCINFO}
     while IFS= read -r line; do
@@ -367,8 +376,10 @@ build_template() {
 }
 
 cmd_build() {
-  local method=chroot install=false dryrun=false keep=false arg pkg repo='' conf='' reponame=aur-build
-  local -a roots=() order=() expand cmd
+  local method=chroot install=false dryrun=false keep=false dotnetbin=false libsbin=false
+  local arg pkg name file repo='' conf='' reponame=aur-build
+  local -a roots=() order=() expand cmd preinstall=() files
+  local -A built=()
   while (($#)); do
     case "$1" in
       --chroot) method=chroot ;;
@@ -376,6 +387,8 @@ cmd_build() {
       --install) install=true ;;
       --dry-run | -n) dryrun=true ;;
       --keep) keep=true ;;
+      --dotnet-bin) dotnetbin=true ;;
+      --libs-bin) libsbin=true ;;
       --)
         shift
         break
@@ -389,8 +402,31 @@ cmd_build() {
     shift
   done
   if (($# == 0)); then
-    echo "Usage: ./aur build [--chroot|--local] [--install] [--dry-run] [--keep] <template|package>..." >&2
+    echo "Usage: ./aur build [--chroot|--local] [--install] [--dry-run] [--keep] [--dotnet-bin] [--libs-bin]" \
+      "<template|package>..." >&2
     return 1
+  fi
+  if [[ "$method" == local && ("$dotnetbin" == true || "$libsbin" == true) ]]; then
+    echo "--dotnet-bin and --libs-bin need a chroot build, a local one uses what's installed" >&2
+    return 1
+  fi
+
+  # The -bin variants of the selector packages, preinstalled into each chroot (makechrootpkg -I) with
+  # what they depend on, so pacman doesn't resolve the names the packages depend on to Arch's .NET
+  # (dotnet-sdk-10.0) or the source-built selectors in another repository instead. The ASP.NET ones
+  # are for powershell's checkdepends.
+  if [[ "$dotnetbin" == true ]]; then
+    preinstall+=(dotnet-host-bin dotnet-runtime-bin dotnet-targeting-pack-bin dotnet-sdk-bin
+      aspnet-runtime-bin aspnet-targeting-pack-bin)
+    # One per .NET version, e.g. dotnet-build-deps-10.0-bin for dotnet-build-deps-10.0
+    for name in dotnet-build-deps-*-bin; do
+      build_alias["${name%-bin}"]=$name
+      preinstall+=("$name")
+    done
+  fi
+  if [[ "$libsbin" == true ]]; then
+    build_alias["powershell-build-deps"]=powershell-build-deps-bin
+    preinstall+=(powershell-build-deps-bin)
   fi
 
   # Each argument is a template, expanded to its root packages, or a package directory itself
@@ -439,19 +475,52 @@ cmd_build() {
     ln -sf "$reponame.db.tar.gz" "$repo/$reponame.db"
   fi
 
+  # Microsoft's .NET from the AUR (dotnet-core-bin), built by aurutils into the private repository
+  if [[ "$dotnetbin" == true ]]; then
+    cmd=(aur sync --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" --no-view --noconfirm
+      dotnet-sdk-bin)
+    if [[ "$dryrun" == true ]]; then
+      printf '%s\n' "${cmd[*]}"
+    else
+      echo ">>> Building dotnet-sdk-bin (aur sync)" >&2
+      "${cmd[@]}"
+    fi
+    for name in dotnet-host-bin dotnet-runtime-bin dotnet-targeting-pack-bin dotnet-sdk-bin aspnet-runtime-bin \
+      aspnet-targeting-pack-bin; do
+      built[$name]=1
+    done
+  fi
+
   for pkg in "${order[@]}"; do
     if [[ "$method" == chroot ]]; then
       cmd=(aur build --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" --force)
+      # The packages to preinstall that are built by now
+      files=()
+      for name in "${preinstall[@]}"; do
+        [[ -n "${built[$name]:-}" ]] || continue
+        if [[ "$dryrun" == true ]]; then
+          files+=("$repo/$name-<version>.pkg.tar.zst")
+          continue
+        fi
+        for file in "$repo/$name"-[0-9]*.pkg.tar.zst; do
+          if [[ -f "$file" ]]; then files+=("$file"); fi
+        done
+      done
+      if ((${#files[@]})); then
+        cmd+=("--cargs=$(printf -- '-I,%s,' "${files[@]}")")
+        cmd[-1]=${cmd[-1]%,}
+      fi
     else
       cmd=(makepkg --force --cleanbuild --nodeps)
       if [[ "$install" == true ]]; then cmd+=(--install); fi
     fi
     if [[ "$dryrun" == true ]]; then
       printf '(cd %s && %s)\n' "$pkg" "${cmd[*]}"
-      continue
+    else
+      echo ">>> Building $pkg" >&2
+      (cd "$pkg" && "${cmd[@]}")
     fi
-    echo ">>> Building $pkg" >&2
-    (cd "$pkg" && "${cmd[@]}")
+    built[$pkg]=1
   done
 
   if [[ "$method" == chroot && "$keep" == true && "$dryrun" == false ]]; then
