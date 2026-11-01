@@ -40,7 +40,8 @@ Commands work on all packages unless packages are given.
             --local (makepkg -fCd, --install to install each result). --dry-run prints the plan,
             --keep keeps the chroot repo. In a chroot, --dotnet-bin builds with Microsoft's .NET
             (dotnet-build-deps-10.0-bin, dotnet-sdk-bin built by aur sync) and --libs-bin with the
-            libraries from nuget.org (powershell-build-deps-bin) instead of the source-built ones
+            libraries from nuget.org (powershell-build-deps-bin) instead of the source-built ones.
+            The chroots are in /var/lib/aur-packages-chroot ($AUR_BUILD_CHROOT), not aurutils'
   sync      Copy templates/package into the packages and write the configuration at the top level,
             or with --check only report differences
   setup     Install the git hooks that run the checks before each commit, replacing aurpublish's,
@@ -378,6 +379,9 @@ build_template() {
 cmd_build() {
   local method=chroot install=false dryrun=false keep=false dotnetbin=false libsbin=false
   local arg pkg name file repo='' conf='' reponame=aur-build
+  # The containers, apart from the ones of aurutils (/var/lib/aurbuild), which builds the system's
+  # packages with its own configuration
+  local chrootdir=${AUR_BUILD_CHROOT:-/var/lib/aur-packages-chroot/$(uname -m)}
   local -a roots=() order=() expand cmd preinstall=() files
   local -A built=()
   while (($#)); do
@@ -477,7 +481,7 @@ cmd_build() {
 
   # Microsoft's .NET from the AUR (dotnet-core-bin), built by aurutils into the private repository
   if [[ "$dotnetbin" == true ]]; then
-    cmd=(aur sync --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" --no-view --noconfirm
+    cmd=(aur sync --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" --directory "$chrootdir" --no-view --noconfirm
       dotnet-sdk-bin)
     if [[ "$dryrun" == true ]]; then
       printf '%s\n' "${cmd[*]}"
@@ -493,7 +497,7 @@ cmd_build() {
 
   for pkg in "${order[@]}"; do
     if [[ "$method" == chroot ]]; then
-      cmd=(aur build --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" --force)
+      cmd=(aur build --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" --directory "$chrootdir" --force)
       # The packages to preinstall that are built by now
       files=()
       for name in "${preinstall[@]}"; do
