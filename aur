@@ -386,6 +386,12 @@ build_arches() {
   sed -n -E 's/^\s*arch = //p' "$1/.SRCINFO"
 }
 
+# Prints the names of the packages a package directory builds, several for a split package, from its
+# .SRCINFO
+build_pkgnames() {
+  sed -n -E 's/^pkgname = //p' "$1/.SRCINFO"
+}
+
 # The key of the Arch Linux ARM build system, which signs its images
 alarm_key=68B3537F39A313B3E574D06777193F152BDBE6A6
 
@@ -510,7 +516,7 @@ cmd_build() {
   # packages with its own configuration
   local chrootbase=${AUR_BUILD_CHROOT:-/var/lib/aur-packages-chroot}
   local chrootdir=$chrootbase/x86_64 alarmdir=$chrootbase/aarch64 crossdir=$chrootbase/x86_64-cross-aarch64
-  local -a roots=() order=() expand cmd preinstall=() files arches chrootargs=() crossargs=()
+  local -a roots=() order=() expand cmd preinstall=() files arches names chrootargs=() crossargs=()
   local -A built=()
   while (($#)); do
     case "$1" in
@@ -583,9 +589,14 @@ cmd_build() {
       preinstall+=("$name")
     done
   fi
+  # powershell-build-deps and powershell-editor-services-build-deps resolve to the packages of the split
+  # powershell-build-deps-bin, which are all preinstalled
   if [[ "$libsbin" == true ]]; then
-    build_alias["powershell-build-deps"]=powershell-build-deps-bin
-    preinstall+=(powershell-build-deps-bin)
+    mapfile -t names < <(build_pkgnames powershell-build-deps-bin)
+    for name in "${names[@]}"; do
+      build_alias[${name%-bin}]=powershell-build-deps-bin
+    done
+    preinstall+=("${names[@]}")
   fi
 
   # Each argument is a template, expanded to its root packages, or a package directory itself
@@ -749,7 +760,11 @@ cmd_build() {
       echo ">>> Building $pkg" >&2
       (cd "$pkg" && "${cmd[@]}")
     fi
-    built[$pkg]=1
+    # By the names of its packages, which the packages to preinstall are looked up by
+    mapfile -t names < <(build_pkgnames "$pkg")
+    for name in "${names[@]}"; do
+      built[$name]=1
+    done
 
     if [[ "$cross" == true && " ${arches[*]} " == *" aarch64 "* ]]; then
       cmd=(aur build --chroot --no-sync --database "$crossname" --root "$crossrepo" --pacman-conf "$crossconf"
