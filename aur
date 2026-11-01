@@ -41,7 +41,12 @@ Commands work on all packages unless packages are given.
             --keep keeps the chroot repo. In a chroot, --dotnet-bin builds with Microsoft's .NET
             (dotnet-build-deps-10.0-bin, dotnet-sdk-bin built by aur sync) and --libs-bin with the
             libraries from nuget.org (powershell-build-deps-bin) instead of the source-built ones.
-            The chroots are in /var/lib/aur-packages-chroot ($AUR_BUILD_CHROOT), not aurutils'
+            --target aarch64 also cross-builds the architecture-specific packages for aarch64
+            against an Arch Linux ARM root, --target aarch64-native builds everything in that root
+            under QEMU (qemu-user-static-binfmt), with Microsoft's .NET. --repo DIR continues in
+            the repo of an earlier --keep, skipping the packages already built there.
+            The chroots are in /var/lib/aur-packages-chroot ($AUR_BUILD_CHROOT), next to the
+            Arch Linux ARM root (aarch64), not in aurutils' /var/lib/aurbuild
   sync      Copy templates/package into the packages and write the configuration at the top level,
             or with --check only report differences
   setup     Install the git hooks that run the checks before each commit, replacing aurpublish's,
@@ -376,13 +381,136 @@ build_template() {
   esac
 }
 
+# Prints the architectures of a package, from its .SRCINFO
+build_arches() {
+  sed -n -E 's/^\s*arch = //p' "$1/.SRCINFO"
+}
+
+# The key of the Arch Linux ARM build system, which signs its images
+alarm_key=68B3537F39A313B3E574D06777193F152BDBE6A6
+
+# Sets up the Arch Linux ARM root file system of the aarch64 builds in $1/root, if it isn't there yet:
+# the native builds run in it (under QEMU, with qemu-user-static-binfmt), the cross builds compile
+# against it. From the latest image of archlinuxarm.org, checked against the key of its build system,
+# without the kernel and firmware, which a container doesn't need, and with base-devel.
+alarm_root() {
+  local dir=$1 cache=${XDG_CACHE_HOME:-$HOME/.cache}/aur-packages/alarm
+  local image=ArchLinuxARM-aarch64-latest.tar.gz url=http://os.archlinuxarm.org/os conf
+  [[ ! -d "$dir/root" ]] || return 0
+  mkdir -p "$cache/gnupg"
+  chmod 700 "$cache" "$cache/gnupg"
+  echo ">>> Downloading the Arch Linux ARM image" >&2
+  curl -fL --remote-time -z "$cache/$image" -o "$cache/$image" "$url/$image"
+  curl -fL -o "$cache/$image.sig" "$url/$image.sig"
+  if ! GNUPGHOME="$cache/gnupg" gpg --batch --list-keys "$alarm_key" >/dev/null 2>&1; then
+    GNUPGHOME="$cache/gnupg" gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$alarm_key"
+  fi
+  # A good signature by that key, its fingerprint ends the VALIDSIG status line
+  if ! GNUPGHOME="$cache/gnupg" gpg --batch --status-fd 1 --verify "$cache/$image.sig" "$cache/$image" 2>/dev/null |
+    grep -q "^\[GNUPG:\] VALIDSIG .* $alarm_key\$"; then
+    echo "The signature of $cache/$image isn't valid" >&2
+    return 1
+  fi
+  echo ">>> Setting up the Arch Linux ARM root in $dir/root" >&2
+  sudo install -d -m 755 "$dir/root" "$dir/pkgcache"
+  sudo bsdtar -xpf "$cache/$image" -C "$dir/root"
+  # The configuration of the setup, kept next to the root
+  conf=$dir/pacman.conf
+  alarm_pacman_conf "$dir" | sudo tee "$conf" >/dev/null
+  sudo systemd-nspawn -q -D "$dir/root" sh -c 'pacman-key --init && pacman-key --populate archlinuxarm'
+  # The marker of mkarchroot, which arch-nspawn checks for
+  (
+    # shellcheck disable=SC1091 # devtools
+    source /usr/share/devtools/lib/archroot.sh
+    echo "$CHROOT_VERSION" | sudo tee "$dir/root/.arch-chroot" >/dev/null
+  )
+  # -s: arch-nspawn would run setarch aarch64 for the CARCH of the image's makepkg.conf, which an
+  # x86_64 kernel doesn't know
+  sudo arch-nspawn -s -C "$conf" "$dir/root" sh -c \
+    'pacman -Rdd --noconfirm linux-aarch64 $(pacman -Qqs "^linux-firmware") && pacman -Syu --noconfirm --needed base-devel'
+}
+
+# Prints the pacman.conf of the Arch Linux ARM root in $1/root, with the private repository $2 at $3
+# first if given. The mirrors are listed here, as arch-nspawn writes the system's into the mirrorlist,
+# and the packages are cached in $1/pkgcache rather than the system's cache.
+alarm_pacman_conf() {
+  local repo
+  cat <<EOF
+[options]
+Architecture = aarch64
+CacheDir = $1/pkgcache
+HoldPkg = pacman glibc
+SigLevel = Required DatabaseOptional
+LocalFileSigLevel = Optional
+ParallelDownloads = 5
+EOF
+  if (($# == 3)); then
+    printf '\n[%s]\nSigLevel = Never\nServer = file://%s\n' "$2" "$3"
+  fi
+  for repo in core extra alarm aur; do
+    # shellcheck disable=SC2016 # pacman expands $arch and $repo
+    printf '\n[%s]\nServer = http://mirror.archlinuxarm.org/$arch/$repo\n' "$repo"
+  done
+}
+
+# Prints the makepkg.conf of the native aarch64 builds, the one of the Arch Linux ARM root in $1/root.
+# makepkg reads CARCH from it, but arch-nspawn would run setarch for a line starting with CARCH=, which
+# an x86_64 kernel doesn't support for aarch64, so it's exported instead.
+alarm_makepkg_conf() {
+  sed -E 's/^CARCH=/export CARCH=/' "$1/root/etc/makepkg.conf"
+  cat <<EOF
+
+# Native aarch64 build under QEMU (./aur build --target aarch64-native)
+MAKEFLAGS="-j$(nproc)"
+# .NET's W^X double mapping fails under qemu-user
+export DOTNET_EnableWriteXorExecute=0
+EOF
+}
+
+# Prints the makepkg.conf of the cross builds for aarch64 on x86_64: devtools' for x86_64 with the
+# CHOST and compiler flags of Arch Linux ARM, from its root in $1/root, which the packages compile
+# against (ROOTFS_DIR, as for the cross toolchain of .NET's runtime). makepkg strips the binaries and
+# splits off their debug information with binutils for aarch64 (aarch64-linux-gnu-binutils), the
+# system's only handle x86_64. CARCH is exported for arch-nspawn, see alarm_makepkg_conf.
+cross_makepkg_conf() {
+  grep -v -E '^CARCH=' /usr/share/devtools/makepkg.conf.d/x86_64.conf
+  cat <<EOF
+
+# Cross build for aarch64 (./aur build --target aarch64)
+export CARCH=aarch64
+$(
+    # shellcheck disable=SC1091 # Arch Linux ARM's makepkg.conf
+    source "$1/root/etc/makepkg.conf"
+    declare -p CHOST CFLAGS CXXFLAGS LDFLAGS LTOFLAGS | sed 's/^declare -- //'
+  )
+export ROOTFS_DIR=$1/root
+strip() { aarch64-linux-gnu-strip "\$@"; }
+objcopy() { aarch64-linux-gnu-objcopy "\$@"; }
+EOF
+}
+
+# Succeeds if the packages a package directory builds ($1) are in the repository $2 already, in their
+# current version, as makepkg names them with the makepkg.conf $3
+build_in_repo() {
+  local file found=false
+  while IFS= read -r file; do
+    [[ -f "$2/${file##*/}" ]] || return 1
+    found=true
+  done < <(cd "$1" && makepkg --packagelist --config "$3")
+  [[ "$found" == true ]]
+}
+
 cmd_build() {
   local method=chroot install=false dryrun=false keep=false dotnetbin=false libsbin=false
+  local target='' native=false cross=false reuse=''
   local arg pkg name file repo='' conf='' reponame=aur-build
+  local makepkgconf=/usr/share/devtools/makepkg.conf.d/x86_64.conf
+  local crossrepo='' crossconf='' crossmakepkg='' crossname=aur-build-aarch64
   # The containers, apart from the ones of aurutils (/var/lib/aurbuild), which builds the system's
   # packages with its own configuration
-  local chrootdir=${AUR_BUILD_CHROOT:-/var/lib/aur-packages-chroot/$(uname -m)}
-  local -a roots=() order=() expand cmd preinstall=() files
+  local chrootbase=${AUR_BUILD_CHROOT:-/var/lib/aur-packages-chroot}
+  local chrootdir=$chrootbase/x86_64 alarmdir=$chrootbase/aarch64 crossdir=$chrootbase/x86_64-cross-aarch64
+  local -a roots=() order=() expand cmd preinstall=() files arches chrootargs=() crossargs=()
   local -A built=()
   while (($#)); do
     case "$1" in
@@ -393,6 +521,16 @@ cmd_build() {
       --keep) keep=true ;;
       --dotnet-bin) dotnetbin=true ;;
       --libs-bin) libsbin=true ;;
+      --target)
+        shift
+        target=${1:-}
+        ;;
+      --target=*) target=${1#*=} ;;
+      --repo)
+        shift
+        reuse=${1:-}
+        ;;
+      --repo=*) reuse=${1#*=} ;;
       --)
         shift
         break
@@ -406,13 +544,30 @@ cmd_build() {
     shift
   done
   if (($# == 0)); then
-    echo "Usage: ./aur build [--chroot|--local] [--install] [--dry-run] [--keep] [--dotnet-bin] [--libs-bin]" \
-      "<template|package>..." >&2
+    echo "Usage: ./aur build [--chroot|--local] [--install] [--dry-run] [--keep] [--repo DIR] [--dotnet-bin]" \
+      "[--libs-bin] [--target aarch64|aarch64-native] <template|package>..." >&2
     return 1
   fi
-  if [[ "$method" == local && ("$dotnetbin" == true || "$libsbin" == true) ]]; then
-    echo "--dotnet-bin and --libs-bin need a chroot build, a local one uses what's installed" >&2
+  case "$target" in
+    '') ;;
+    aarch64) cross=true ;;
+    aarch64-native) native=true ;;
+    *)
+      echo "Unknown target: $target (aarch64 cross-builds, aarch64-native builds under QEMU)" >&2
+      return 1
+      ;;
+  esac
+  if [[ "$method" == local && ("$dotnetbin" == true || "$libsbin" == true || -n "$target" || -n "$reuse") ]]; then
+    echo "--dotnet-bin, --libs-bin, --target and --repo need a chroot build, a local one uses what's installed" >&2
     return 1
+  fi
+  if [[ -n "$target" && "$(uname -m)" != x86_64 ]]; then
+    echo "--target is for x86_64 hosts, build natively on $(uname -m)" >&2
+    return 1
+  fi
+  if [[ "$native" == true && "$dotnetbin" == false ]]; then
+    echo "Arch Linux ARM has no .NET, --target aarch64-native builds with Microsoft's (--dotnet-bin)" >&2
+    dotnetbin=true
   fi
 
   # The -bin variants of the selector packages, preinstalled into each chroot (makechrootpkg -I) with
@@ -454,41 +609,98 @@ cmd_build() {
   fi
 
   # Clean-chroot builds go into a private repository, so they don't touch the system's aurutils
-  # repository; each build resolves the packages built before it from there.
+  # repository; each build resolves the packages built before it from there. --repo continues in one
+  # kept before, skipping the packages that are in there already.
   if [[ "$method" == chroot && "$dryrun" == true ]]; then
-    repo='<repo>'
-    conf='<repo>/pacman.conf'
+    repo=${reuse:-<repo>}
+    conf=$repo/pacman.conf
   elif [[ "$method" == chroot ]]; then
-    repo=$(mktemp -d --tmpdir aur-build.XXXXXX)
-    # Readable by the download user of pacman in the chroot (DownloadUser = alpm)
-    chmod 755 "$repo"
-    conf="$repo/pacman.conf"
-    if [[ "$keep" == false ]]; then
-      # shellcheck disable=SC2064 # expand $repo now, when the trap is set, not when it runs
-      trap "rm -rf '$repo'" RETURN
+    if [[ "$native" == true || "$cross" == true ]]; then
+      alarm_root "$alarmdir"
     fi
-    # The pacman.conf of clean-chroot builds (devtools, as pkgctl build uses it) with the private
-    # repository added first, so its freshly built packages take precedence over the same ones in the
-    # other repositories. Not the system's, whose testing repositories, the aurutils repo or mirrorlists
-    # elsewhere don't belong in a clean chroot.
-    awk -v name="$reponame" -v root="$repo" '
-      /^\[/ && $0 != "[options]" && !inserted {
-        printf "[%s]\nSigLevel = Never\nServer = file://%s\n\n", name, root
-        inserted = 1
-      }
-      { print }
-    ' /usr/share/devtools/pacman.conf.d/extra.conf >"$conf"
-    # An empty database, so the first build can sync the repository before it has any packages
-    tar -czf "$repo/$reponame.db.tar.gz" -T /dev/null
-    ln -sf "$reponame.db.tar.gz" "$repo/$reponame.db"
+    if [[ -n "$reuse" ]]; then
+      repo=$(realpath "$reuse")
+      conf=$repo/pacman.conf
+      keep=true
+      if [[ ! -f "$conf" ]]; then
+        echo "$repo isn't a repository of ./aur build --keep" >&2
+        return 1
+      fi
+    else
+      repo=$(mktemp -d --tmpdir aur-build.XXXXXX)
+      # Readable by the download user of pacman in the chroot (DownloadUser = alpm)
+      chmod 755 "$repo"
+      conf=$repo/pacman.conf
+      if [[ "$keep" == false ]]; then
+        # shellcheck disable=SC2064 # expand $repo now, when the trap is set, not when it runs
+        trap "rm -rf '$repo'" RETURN
+      fi
+      if [[ "$native" == true ]]; then
+        alarm_pacman_conf "$alarmdir" "$reponame" "$repo" >"$conf"
+      else
+        # The pacman.conf of clean-chroot builds (devtools, as pkgctl build uses it) with the private
+        # repository added first, so its freshly built packages take precedence over the same ones in
+        # the other repositories. Not the system's, whose testing repositories, the aurutils repo or
+        # mirrorlists elsewhere don't belong in a clean chroot.
+        awk -v name="$reponame" -v root="$repo" '
+          /^\[/ && $0 != "[options]" && !inserted {
+            printf "[%s]\nSigLevel = Never\nServer = file://%s\n\n", name, root
+            inserted = 1
+          }
+          { print }
+        ' /usr/share/devtools/pacman.conf.d/extra.conf >"$conf"
+      fi
+      # An empty database, so the first build can sync the repository before it has any packages
+      tar -czf "$repo/$reponame.db.tar.gz" -T /dev/null
+      ln -sf "$reponame.db.tar.gz" "$repo/$reponame.db"
+    fi
+  fi
+
+  # A native aarch64 build runs everything in the Arch Linux ARM root, under QEMU
+  if [[ "$native" == true ]]; then
+    chrootdir=$alarmdir
+    makepkgconf=$repo/makepkg-aarch64.conf
+    if [[ "$dryrun" == false ]]; then alarm_makepkg_conf "$alarmdir" >"$makepkgconf"; fi
+    chrootargs+=(--makepkg-conf "$makepkgconf")
+  fi
+  chrootargs+=(--directory "$chrootdir")
+
+  # A cross build builds everything for x86_64 as usual, those for aarch64 as well afterwards, in a
+  # container of their own with the cross toolchain and the Arch Linux ARM root they compile against.
+  # They go into a repository of their own, listed last, so the x86_64 ones they depend on come from
+  # the private repository.
+  if [[ "$cross" == true ]]; then
+    crossrepo=$repo/aarch64
+    crossconf=$repo/pacman-cross-aarch64.conf
+    crossmakepkg=$repo/makepkg-cross-aarch64.conf
+    # base-devel and the cross toolchain (also the Rust standard library for aarch64), comma-separated
+    # for aur build
+    local crossbase=base-devel,clang,lld,aarch64-linux-gnu-binutils,rust-aarch64-gnu
+    crossargs=(--directory "$crossdir" --makepkg-conf "$crossmakepkg" --bind "$alarmdir/root"
+      --base-packages "$crossbase")
+    if [[ "$dryrun" == false ]]; then
+      mkdir -p "$crossrepo"
+      chmod 755 "$crossrepo"
+      if [[ ! -f "$crossrepo/$crossname.db.tar.gz" ]]; then
+        tar -czf "$crossrepo/$crossname.db.tar.gz" -T /dev/null
+        ln -sf "$crossname.db.tar.gz" "$crossrepo/$crossname.db"
+      fi
+      {
+        cat "$conf"
+        printf '\n[%s]\nSigLevel = Never\nServer = file://%s\n' "$crossname" "$crossrepo"
+      } >"$crossconf"
+      cross_makepkg_conf "$alarmdir" >"$crossmakepkg"
+    fi
   fi
 
   # Microsoft's .NET from the AUR (dotnet-core-bin), built by aurutils into the private repository
   if [[ "$dotnetbin" == true ]]; then
-    cmd=(aur sync --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" --directory "$chrootdir" --no-view --noconfirm
-      dotnet-sdk-bin)
+    cmd=(aur sync --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" "${chrootargs[@]}"
+      --no-view --noconfirm dotnet-sdk-bin)
     if [[ "$dryrun" == true ]]; then
       printf '%s\n' "${cmd[*]}"
+    elif compgen -G "$repo/dotnet-sdk-bin-[0-9]*.pkg.tar.zst" >/dev/null; then
+      echo ">>> dotnet-sdk-bin is in $repo already" >&2
     else
       echo ">>> Building dotnet-sdk-bin (aur sync)" >&2
       "${cmd[@]}"
@@ -500,8 +712,14 @@ cmd_build() {
   fi
 
   for pkg in "${order[@]}"; do
+    mapfile -t arches < <(build_arches "$pkg")
+    if [[ "$native" == true && " ${arches[*]} " != *" aarch64 "* && " ${arches[*]} " != *" any "* ]]; then
+      echo ">>> Skipping $pkg, it isn't for aarch64" >&2
+      continue
+    fi
     if [[ "$method" == chroot ]]; then
-      cmd=(aur build --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" --directory "$chrootdir" --force)
+      cmd=(aur build --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" "${chrootargs[@]}"
+        --force)
       # The packages to preinstall that are built by now
       files=()
       for name in "${preinstall[@]}"; do
@@ -515,24 +733,41 @@ cmd_build() {
         done
       done
       if ((${#files[@]})); then
-        cmd+=("--cargs=$(printf -- '-I,%s,' "${files[@]}")")
-        cmd[-1]=${cmd[-1]%,}
+        files=("--cargs=$(printf -- '-I,%s,' "${files[@]}")")
+        files[0]=${files[0]%,}
       fi
+      cmd+=("${files[@]}")
     else
       cmd=(makepkg --force --cleanbuild --nodeps)
       if [[ "$install" == true ]]; then cmd+=(--install); fi
     fi
     if [[ "$dryrun" == true ]]; then
       printf '(cd %s && %s)\n' "$pkg" "${cmd[*]}"
+    elif [[ -n "$reuse" ]] && build_in_repo "$pkg" "$repo" "$makepkgconf"; then
+      echo ">>> $pkg is in $repo already" >&2
     else
       echo ">>> Building $pkg" >&2
       (cd "$pkg" && "${cmd[@]}")
     fi
     built[$pkg]=1
+
+    if [[ "$cross" == true && " ${arches[*]} " == *" aarch64 "* ]]; then
+      cmd=(aur build --chroot --no-sync --database "$crossname" --root "$crossrepo" --pacman-conf "$crossconf"
+        "${crossargs[@]}" --force "${files[@]}")
+      if [[ "$dryrun" == true ]]; then
+        printf '(cd %s && %s)\n' "$pkg" "${cmd[*]}"
+      elif [[ -n "$reuse" ]] && build_in_repo "$pkg" "$crossrepo" "$crossmakepkg"; then
+        echo ">>> $pkg for aarch64 is in $crossrepo already" >&2
+      else
+        echo ">>> Building $pkg for aarch64" >&2
+        (cd "$pkg" && "${cmd[@]}")
+      fi
+    fi
   done
 
   if [[ "$method" == chroot && "$keep" == true && "$dryrun" == false ]]; then
     echo "Repository kept at $repo" >&2
+    if [[ "$cross" == true ]]; then echo "The aarch64 packages are in $crossrepo" >&2; fi
   fi
 }
 
