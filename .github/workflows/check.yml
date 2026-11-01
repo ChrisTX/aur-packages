@@ -1,0 +1,55 @@
+# Runs the checks of .pre-commit-config.yaml (./aur check), which the git hooks run before each commit
+name: Checks
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ./aur check
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    timeout-minutes: 30
+    steps:
+      # Before the checkout, which only makes a git repository with git installed
+      - name: Install the tools of the checks
+        run: >-
+          pacman -Syu --noconfirm --needed git prek shfmt shellcheck shellharden ruff biome tombi rumdl
+          systemd-lsp editorconfig-checker reuse
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # makepkg, which the .SRCINFO check runs, refuses to run as root
+      - name: Add a user for the checks
+        run: |
+          useradd -m builder
+          chown -R builder: .
+      # PSScriptAnalyzer comes with powershell-editor-services, an AUR package: the next job runs it
+      - name: Run the checks
+        run: sudo -H -u builder env SKIP=psscriptanalyzer ./aur check
+
+  psscriptanalyzer:
+    name: PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The runner has PowerShell, PSScriptAnalyzer comes from the PowerShell Gallery here
+      - name: Install PSScriptAnalyzer and prek
+        run: |
+          pwsh -NoProfile -NonInteractive -Command 'Install-PSResource -Name PSScriptAnalyzer -TrustRepository'
+          pipx install prek
+      - name: Run PSScriptAnalyzer
+        run: prek run --all-files psscriptanalyzer

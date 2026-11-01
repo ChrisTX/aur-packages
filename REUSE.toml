@@ -10,6 +10,7 @@ path = [
   "aur",
   ".gitignore",
   ".gitattributes",
+  ".github/**",
   ".editorconfig",
   ".pre-commit-config.yaml",
   "templates/**",

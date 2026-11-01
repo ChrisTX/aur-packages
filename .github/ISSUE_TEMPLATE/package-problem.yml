@@ -1,0 +1,52 @@
+name: Package problem
+description: A package fails to build, its tests fail, or the installed package doesn't work
+labels: [bug]
+body:
+  - type: input
+    id: package
+    attributes:
+      label: Package
+      description: The name of the package, e.g. powershell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: pkgver-pkgrel, e.g. 7.6.9-23
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Architecture
+      options:
+        - x86_64
+        - aarch64
+        - other
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: How was it built?
+      options:
+        - AUR helper (paru, yay, …)
+        - makepkg
+        - Clean chroot (pkgctl build, extra-x86_64-build, …)
+        - ./aur build from this repository
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: The build log, or the output of the failing command. For a build, the end of the log and the first error are the most useful.
+      render: text

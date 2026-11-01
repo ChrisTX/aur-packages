@@ -1,0 +1,18 @@
+name: Update or change request
+description: A newer upstream version, a missing dependency, a new architecture, or another change to a package
+labels: [enhancement]
+body:
+  - type: input
+    id: package
+    attributes:
+      label: Package
+      description: The name of the package, e.g. powershell
+    validations:
+      required: true
+  - type: textarea
+    id: request
+    attributes:
+      label: What should change?
+      description: For a new upstream version, a link to the release
+    validations:
+      required: true
