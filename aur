@@ -277,7 +277,7 @@ cmd_commit_msg() {
 # resolves to another package in this repository, from the .SRCINFO files
 build_edges() {
   local s d line key name
-  local -A name2dir=()
+  local -A name2dir=() provider=()
   for s in */.SRCINFO; do
     d=${s%/.SRCINFO}
     while IFS= read -r line; do
@@ -287,7 +287,16 @@ build_edges() {
       [[ "$key" == pkgname || "$key" == provides ]] || continue
       name=${line#* = }
       name=${name%%[<>=:]*}
-      if [[ -n "$name" ]]; then name2dir[$name]=$d; fi
+      [[ -n "$name" ]] || continue
+      # A package's own name wins over what others provide, e.g. dotnet-build-deps-10.0 over
+      # the dotnet-build-deps-10.0-bin that provides it
+      if [[ "$key" == pkgname ]]; then
+        name2dir[$name]=$d
+        unset "provider[$name]"
+      elif [[ -z "${name2dir[$name]:-}" || -n "${provider[$name]:-}" ]]; then
+        name2dir[$name]=$d
+        provider[$name]=1
+      fi
     done <"$s"
   done
   for s in */.SRCINFO; do
