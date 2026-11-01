@@ -460,20 +460,24 @@ cmd_build() {
     conf='<repo>/pacman.conf'
   elif [[ "$method" == chroot ]]; then
     repo=$(mktemp -d --tmpdir aur-build.XXXXXX)
+    # Readable by the download user of pacman in the chroot (DownloadUser = alpm)
+    chmod 755 "$repo"
     conf="$repo/pacman.conf"
     if [[ "$keep" == false ]]; then
       # shellcheck disable=SC2064 # expand $repo now, when the trap is set, not when it runs
       trap "rm -rf '$repo'" RETURN
     fi
-    # The system's pacman.conf with the private repository added first, so its freshly built
-    # packages take precedence over the same ones in other repositories (e.g. the aurutils repo)
+    # The pacman.conf of clean-chroot builds (devtools, as pkgctl build uses it) with the private
+    # repository added first, so its freshly built packages take precedence over the same ones in the
+    # other repositories. Not the system's, whose testing repositories, the aurutils repo or mirrorlists
+    # elsewhere don't belong in a clean chroot.
     awk -v name="$reponame" -v root="$repo" '
       /^\[/ && $0 != "[options]" && !inserted {
         printf "[%s]\nSigLevel = Never\nServer = file://%s\n\n", name, root
         inserted = 1
       }
       { print }
-    ' /etc/pacman.conf >"$conf"
+    ' /usr/share/devtools/pacman.conf.d/extra.conf >"$conf"
     # An empty database, so the first build can sync the repository before it has any packages
     tar -czf "$repo/$reponame.db.tar.gz" -T /dev/null
     ln -sf "$reponame.db.tar.gz" "$repo/$reponame.db"
