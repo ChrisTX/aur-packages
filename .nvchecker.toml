@@ -1,0 +1,8 @@
+# The releases of Connector/C. Upgrade with the version mariadb-libs bundles (mariadb_config
+# --cc_version), so the 32-bit library matches the 64-bit one and its headers.
+[lib32-mariadb-connector-c]
+source = "git"
+git = "https://github.com/mariadb-corporation/mariadb-connector-c.git"
+use_max_tag = true
+include_regex = 'v3\.4\.\d+'
+prefix = "v"
