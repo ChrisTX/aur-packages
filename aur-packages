@@ -51,6 +51,8 @@ fi
 # Names the build graph resolves to another package than the one of that name, set by build's
 # --dotnet-bin and --libs-bin to pick the -bin variant of a selector package
 declare -A build_alias=()
+# build_edges, once per run, for build_multilib
+build_edges_cache=''
 
 usage() {
   cat <<'EOF'
@@ -514,11 +516,29 @@ build_arches() {
   sed -n -E 's/^\s*arch = //p' "$1/.SRCINFO"
 }
 
-# Succeeds if a package builds against the multilib repository: it depends on 32-bit libraries, the
-# lib32-* packages only multilib has. Like Arch's multilib packages (pkgctl build --repo multilib),
-# it builds in a container of its own with multilib and its toolchain (multilib-devel).
+# Succeeds if a package builds against the multilib repository: it or a package of this repository
+# it depends on, which the container installs with its dependencies, depends on 32-bit libraries,
+# the lib32-* packages only multilib has (e.g. a SourceMod plugin, through sourcemod). Like Arch's
+# multilib packages (pkgctl build --repo multilib), it builds in a container of its own with
+# multilib and its toolchain (multilib-devel).
 build_multilib() {
-  grep -q -E '^\s*(depends|makedepends|checkdepends)(_x86_64)? = lib32-' "$1/.SRCINFO"
+  local pkg dep dependent
+  local -a queue=("$1")
+  local -A seen=()
+  if [[ -z "$build_edges_cache" ]]; then
+    build_edges_cache=$(build_edges)
+  fi
+  while ((${#queue[@]})); do
+    pkg=${queue[0]}
+    queue=("${queue[@]:1}")
+    [[ -n "${seen[$pkg]:-}" ]] && continue
+    seen[$pkg]=1
+    grep -q -E '^\s*(depends|makedepends|checkdepends)(_x86_64)? = lib32-' "$pkg/.SRCINFO" && return 0
+    while IFS=$'\t' read -r dep dependent; do
+      if [[ "$dependent" == "$pkg" ]]; then queue+=("$dep"); fi
+    done <<<"$build_edges_cache"
+  done
+  return 1
 }
 
 # Prints a pacman.conf of devtools ($1, e.g. extra.conf) with the private repository $2 at $3 added
