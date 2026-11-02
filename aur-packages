@@ -86,6 +86,7 @@ else the one the symlink points into.
             against an Arch Linux ARM root, --target aarch64-native builds everything in that root
             under QEMU (qemu-user-static-binfmt), with Microsoft's .NET. --repo DIR continues in
             the repo of an earlier --keep, skipping the packages already built there.
+            Packages that depend on lib32-* packages build in a multilib chroot (multilib-devel).
             The chroots are in /var/lib/aur-packages-chroot ($AUR_BUILD_CHROOT), next to the
             Arch Linux ARM root (aarch64), not in aurutils' /var/lib/aurbuild
   sync      Copy templates/package into the packages and write the configuration at the top level,
@@ -508,6 +509,25 @@ build_arches() {
   sed -n -E 's/^\s*arch = //p' "$1/.SRCINFO"
 }
 
+# Succeeds if a package builds against the multilib repository: it depends on 32-bit libraries, the
+# lib32-* packages only multilib has. Like Arch's multilib packages (pkgctl build --repo multilib),
+# it builds in a container of its own with multilib and its toolchain (multilib-devel).
+build_multilib() {
+  grep -q -E '^\s*(depends|makedepends|checkdepends)(_x86_64)? = lib32-' "$1/.SRCINFO"
+}
+
+# Prints a pacman.conf of devtools ($1, e.g. extra.conf) with the private repository $2 at $3 added
+# first, so its freshly built packages take precedence over the same ones in the other repositories
+devtools_pacman_conf() {
+  awk -v name="$2" -v root="$3" '
+    /^\[/ && $0 != "[options]" && !inserted {
+      printf "[%s]\nSigLevel = Never\nServer = file://%s\n\n", name, root
+      inserted = 1
+    }
+    { print }
+  ' "/usr/share/devtools/pacman.conf.d/$1"
+}
+
 # Prints the names of the packages a package directory builds, several for a split package, from its
 # .SRCINFO
 build_pkgnames() {
@@ -638,7 +658,8 @@ cmd_build() {
   # packages with its own configuration
   local chrootbase=${AUR_BUILD_CHROOT:-/var/lib/aur-packages-chroot}
   local chrootdir=$chrootbase/x86_64 alarmdir=$chrootbase/aarch64 crossdir=$chrootbase/x86_64-cross-aarch64
-  local -a roots=() order=() expand cmd preinstall=() files arches names chrootargs=() crossargs=()
+  local multilibdir=$chrootbase/multilib-x86_64 pkgconf
+  local -a roots=() order=() expand cmd preinstall=() files arches names chrootargs=() crossargs=() pkgargs
   local -A built=()
   while (($#)); do
     case "$1" in
@@ -772,16 +793,9 @@ cmd_build() {
         alarm_pacman_conf "$alarmdir" "$reponame" "$repo" >"$conf"
       else
         # The pacman.conf of clean-chroot builds (devtools, as pkgctl build uses it) with the private
-        # repository added first, so its freshly built packages take precedence over the same ones in
-        # the other repositories. Not the system's, whose testing repositories, the aurutils repo or
-        # mirrorlists elsewhere don't belong in a clean chroot.
-        awk -v name="$reponame" -v root="$repo" '
-          /^\[/ && $0 != "[options]" && !inserted {
-            printf "[%s]\nSigLevel = Never\nServer = file://%s\n\n", name, root
-            inserted = 1
-          }
-          { print }
-        ' /usr/share/devtools/pacman.conf.d/extra.conf >"$conf"
+        # repository. Not the system's, whose testing repositories, the aurutils repo or mirrorlists
+        # elsewhere don't belong in a clean chroot.
+        devtools_pacman_conf extra.conf "$reponame" "$repo" >"$conf"
       fi
       # An empty database, so the first build can sync the repository before it has any packages
       tar -czf "$repo/$reponame.db.tar.gz" -T /dev/null
@@ -851,7 +865,17 @@ cmd_build() {
       continue
     fi
     if [[ "$method" == chroot ]]; then
-      cmd=(aur build --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" "${chrootargs[@]}"
+      pkgconf=$conf
+      pkgargs=("${chrootargs[@]}")
+      # A package against multilib builds in a multilib container, with the same private repository
+      if [[ "$native" == false ]] && build_multilib "$pkg"; then
+        pkgconf=$repo/pacman-multilib.conf
+        pkgargs=(--directory "$multilibdir" --base-packages "base-devel,multilib-devel")
+        if [[ "$dryrun" == false && ! -f "$pkgconf" ]]; then
+          devtools_pacman_conf multilib.conf "$reponame" "$repo" >"$pkgconf"
+        fi
+      fi
+      cmd=(aur build --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$pkgconf" "${pkgargs[@]}"
         --force)
       # The packages to preinstall that are built by now
       files=()

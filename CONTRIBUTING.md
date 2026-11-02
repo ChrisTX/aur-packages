@@ -115,3 +115,4 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 - Where an unquoted variable relies on word splitting, e.g. to add nothing when it's empty, use an array instead of disabling shellharden.
 - PowerShell scripts (`.ps1`/`.psm1`) are PSScriptAnalyzer-clean with its default rules, information level included (`Invoke-ScriptAnalyzer -Path script.ps1`). Suppress a rule only where the code can't comply, with `[Diagnostics.CodeAnalysis.SuppressMessageAttribute('Rule', '', Justification = '…')]` saying why.
 - Clean-chroot builds: `pkgctl build`, or `./aur-packages build` for a package with its dependencies from this repository. A local `makepkg -fCd` is fine for a quick check, but may lack makedepends.
+- 32-bit packages (`lib32-*`) and packages that build 32-bit code depend on `lib32-*` packages of multilib, in their (make)depends; `./aur-packages build` builds those in a multilib chroot with `multilib-devel`, like `pkgctl build --repo multilib`.
