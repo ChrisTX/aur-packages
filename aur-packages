@@ -69,9 +69,10 @@ else the one the symlink points into.
             (pkgctl version check), without changing anything
   upgrade   Upgrade the packages to their latest upstream version with the .nvchecker.toml of each
             (pkgctl version upgrade), then format the PKGBUILDs and regenerate .SRCINFO
-  check     Run the checks of .pre-commit-config.yaml on the packages' files with prek or
-            pre-commit, or with --manual
-            also the ones that only run on request (termux-language-server)
+  check     Run the checks of .pre-commit-config.yaml with prek or pre-commit, or with --manual
+            also the ones that only run on request (termux-language-server). Packages given,
+            only theirs: the hooks of their own .pre-commit-config.yaml, whether they match
+            templates/package and the quoting of their metadata arrays
   commits   Show, for each package that pins a _commit, the upstream commit its current pkgver was
             published from (the NuGet nuspec's repository commit), flagging stale ones; --update
             rewrites _commit and refreshes the checksums and .SRCINFO
@@ -197,22 +198,48 @@ cmd_upgrade() {
   done
 }
 
+# Runs the hooks of the given packages' own .pre-commit-config.yaml ($@ as package/, the projects of
+# prek's workspace) on their files ($files), with $stage_args
+run_package_hooks() {
+  local package
+  local -a package_files
+  if [[ "$hook_runner" == prek ]]; then
+    prek run "${stage_args[@]}" "$@" --files "${files[@]}"
+  else
+    # pre-commit has no workspaces, one package after the other with its configuration
+    for package; do
+      package=${package%/}
+      package_files=()
+      mapfile -t package_files < <(git ls-files -- "$package")
+      pre-commit run "${stage_args[@]}" --config "$package/.pre-commit-config.yaml" --files "${package_files[@]}"
+    done
+  fi
+}
+
 cmd_check() {
-  local manual=false package
-  local -a selected files=()
+  local manual=false package status=0
+  local -a selected files=() projects=() stage_args=()
   if [[ "${1-}" == --manual ]]; then
     manual=true
     shift
   fi
   if (($#)); then
+    # Only the given packages: the hooks of their own configuration, and those of the top level that
+    # check single packages. The top level's copies of the package hooks would check the same files
+    # again, its other hooks check every package.
     select_packages "$@"
     for package in "${selected[@]}"; do
       mapfile -t -O "${#files[@]}" files < <(git ls-files -- "$package")
+      projects+=("$package/")
     done
-    "$hook_runner" run --files "${files[@]}"
+    run_package_hooks "${projects[@]}" || status=1
     if [[ "$manual" == true ]]; then
-      "$hook_runner" run --hook-stage manual --files "${files[@]}"
+      stage_args=(--hook-stage manual)
+      run_package_hooks "${projects[@]}" || status=1
     fi
+    cmd_sync --check "${selected[@]}" || status=1
+    cmd_quoting "${selected[@]}" || status=1
+    return "$status"
   else
     "$hook_runner" run --all-files
     if [[ "$manual" == true ]]; then
