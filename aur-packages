@@ -74,8 +74,10 @@ else the one the symlink points into.
             only theirs: the hooks of their own .pre-commit-config.yaml, whether they match
             templates/package and the quoting of their metadata arrays
   commits   Show, for each package that pins a _commit, the upstream commit its current pkgver was
-            published from (the NuGet nuspec's repository commit), flagging stale ones; --update
-            rewrites _commit and refreshes the checksums and .SRCINFO
+            published from (the NuGet nuspec's repository commit, or the PKGBUILD's _commit_lookup),
+            and the other pins a PKGBUILD's _pins_lookup prints (submodule commits, branch heads,
+            versions of other packages), flagging stale ones; --update rewrites them and refreshes
+            the checksums and .SRCINFO
   build     Build packages or a template (powershell-core, powershell-full) and their
             dependencies in order, in a clean chroot into a private throwaway repo (default), or
             --local (makepkg -fCd, --install to install each result). --dry-run prints the plan,
@@ -169,8 +171,8 @@ cmd_updates() {
 }
 
 cmd_upgrade() {
-  local package cur new
-  local -a checked changed=()
+  local package pin name cur new
+  local -a checked changed=() pins
   select_checked_packages "$@"
   ((${#checked[@]})) || return 0
   pkgctl version upgrade "${checked[@]}"
@@ -178,20 +180,23 @@ cmd_upgrade() {
   mapfile -t changed < <(git diff --name-only -- "${checked[@]/%//PKGBUILD}")
   for package in "${changed[@]}"; do
     package=${package%/PKGBUILD}
-    # pkgctl bumps pkgver but leaves _commit at the old release, so for a package that pins one, move
-    # it to the commit the new version was published from (see cmd_commits) before the checksums are
-    # taken, so the source and sums match the new version rather than the old commit
-    cur=$(sed -n -E 's/^_commit="?([0-9a-f]{7,40})"?$/\1/p' "$package/PKGBUILD" | head -1)
-    if [[ -n "$cur" ]]; then
-      new=$(resolve_commit "$package") || new=''
-      if [[ -n "$new" && "$new" != "$cur" ]]; then
-        sed -i -E "s/^(_commit=\"?)[0-9a-f]{7,40}(\"?)\$/\1$new\2/" "$package/PKGBUILD"
-        (cd "$package" && updpkgsums)
-        echo "  _commit ${cur:0:12} -> ${new:0:12}"
-      elif [[ -z "$new" ]]; then
-        echo "  warning: couldn't resolve the commit of $package's new version; _commit left at ${cur:0:12}, set it by hand" >&2
+    # pkgctl bumps pkgver but leaves the pins (_commit, or what _pins_lookup prints) at the old
+    # release, so move them to the new version's (see cmd_commits) before the checksums are taken, so
+    # the sources and sums match the new version rather than the old commits
+    pins=()
+    mapfile -t pins < <(resolve_pins "$package")
+    for pin in "${pins[@]}"; do
+      name=${pin%% *} new=${pin#"$name"}
+      new=${new# }
+      cur=$(pin_value "$package" "$name")
+      if [[ -z "$new" || "$new" == null ]]; then
+        echo "  warning: couldn't resolve $name of $package's new version; left at $(short_pin "$cur"), set it by hand" >&2
+      elif [[ "$new" != "$cur" ]]; then
+        set_pin "$package" "$name" "$new"
+        echo "  $name $(short_pin "$cur") -> $(short_pin "$new")"
       fi
-    fi
+    done
+    if ((${#pins[@]})); then (cd "$package" && updpkgsums); fi
     # updpkgsums aligns the checksums its own way
     shfmt --write "$package/PKGBUILD"
     (cd "$package" && makepkg --printsrcinfo >.SRCINFO)
@@ -967,30 +972,81 @@ resolve_commit() {
   )
 }
 
+# Prints the values a package's pinned variables should have, "NAME VALUE" a line, nothing for a
+# package without pins: the PKGBUILD's _pins_lookup for several (run in the package's folder, e.g.
+# the commits of a tag's submodules, or of branches and the version from them), else the _commit of
+# resolve_commit. A value is empty if it can't be determined.
+resolve_pins() {
+  (
+    cd "$1" || exit 1
+    # shellcheck disable=SC1091 # the package's PKGBUILD, sourced like makepkg reads it
+    source ./PKGBUILD >/dev/null 2>&1 || exit 1
+    if declare -F _pins_lookup >/dev/null; then
+      _pins_lookup
+      exit
+    fi
+    [[ "${_commit-}" =~ ^[0-9a-f]{7,40}$ ]] || exit 0
+    echo "_commit $(resolve_commit .)"
+  )
+}
+
+# The value of a pinned variable in a PKGBUILD: pin_value <package> <name>
+pin_value() {
+  sed -n -E "s/^$2=[\"']?([^\"']*)[\"']?\$/\1/p" "$1/PKGBUILD" | head -1
+}
+
+# Sets a pinned variable in a PKGBUILD, and pkgrel to 1 with pkgver: set_pin <package> <name> <value>
+set_pin() {
+  sed -i -E "s/^($2=[\"']?)[^\"']*([\"']?)\$/\1$3\2/" "$1/PKGBUILD"
+  if [[ "$2" == pkgver ]]; then sed -i 's/^pkgrel=.*/pkgrel=1/' "$1/PKGBUILD"; fi
+}
+
+# Commits in full are shown as 12 characters
+short_pin() {
+  if [[ "$1" =~ ^[0-9a-f]{40}$ ]]; then echo "${1:0:12}"; else echo "$1"; fi
+}
+
 cmd_commits() {
-  local update=false pkg cur new
-  local -a selected
+  local update=false pkg pin name cur new changed ok
+  local -a selected pins
   if [[ "${1-}" == --update ]]; then
     update=true
     shift
   fi
   select_packages "$@"
   for pkg in "${selected[@]}"; do
-    cur=$(sed -n -E 's/^_commit="?([0-9a-f]{7,40})"?$/\1/p' "$pkg/PKGBUILD" | head -1)
-    # Only packages that pin a plain _commit
-    [[ -n "$cur" ]] || continue
-    new=$(resolve_commit "$pkg") || new=''
-    if [[ -z "$new" ]]; then
-      printf '%-38s unresolved (current %s)\n' "$pkg" "${cur:0:12}"
-    elif [[ "$new" == "$cur" ]]; then
-      printf '%-38s ok %s\n' "$pkg" "${cur:0:12}"
-    elif [[ "$update" == true ]]; then
-      sed -i -E "s/^(_commit=\"?)[0-9a-f]{7,40}(\"?)\$/\1$new\2/" "$pkg/PKGBUILD"
-      (cd "$pkg" && updpkgsums && makepkg --printsrcinfo >.SRCINFO)
+    pins=()
+    mapfile -t pins < <(resolve_pins "$pkg")
+    # Only packages that pin something
+    ((${#pins[@]})) || continue
+    changed=false ok=0
+    for pin in "${pins[@]}"; do
+      name=${pin%% *} new=${pin#"$name"}
+      new=${new# }
+      cur=$(pin_value "$pkg" "$name")
+      if [[ -z "$new" || "$new" == null ]]; then
+        printf '%-38s %s unresolved (current %s)\n' "$pkg" "$name" "$(short_pin "$cur")"
+      elif [[ "$new" == "$cur" ]]; then
+        ok=$((ok + 1))
+      elif [[ "$update" == true ]]; then
+        set_pin "$pkg" "$name" "$new"
+        changed=true
+        printf '%-38s %s updated %s -> %s\n' "$pkg" "$name" "$(short_pin "$cur")" "$(short_pin "$new")"
+      else
+        printf '%-38s %s STALE %s -> %s\n' "$pkg" "$name" "$(short_pin "$cur")" "$(short_pin "$new")"
+      fi
+    done
+    if ((ok == ${#pins[@]})); then
+      if ((ok == 1)); then
+        printf '%-38s ok %s %s\n' "$pkg" "${pins[0]%% *}" "$(short_pin "${pins[0]#* }")"
+      else
+        printf '%-38s ok, %d pins\n' "$pkg" "$ok"
+      fi
+    fi
+    if [[ "$changed" == true ]]; then
+      (cd "$pkg" && updpkgsums)
       shfmt --write "$pkg/PKGBUILD"
-      printf '%-38s updated %s -> %s\n' "$pkg" "${cur:0:12}" "${new:0:12}"
-    else
-      printf '%-38s STALE %s -> %s\n' "$pkg" "${cur:0:12}" "${new:0:12}"
+      (cd "$pkg" && makepkg --printsrcinfo >.SRCINFO)
     fi
   done
 }
