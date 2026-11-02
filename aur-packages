@@ -410,8 +410,8 @@ cmd_quoting() {
   return "$status"
 }
 
-# Prints "depdir<TAB>pkgdir" for every build dependency (depends/makedepends/checkdepends) that
-# resolves to another package in this repository, from the .SRCINFO files
+# Prints "depdir<TAB>pkgdir" for every build dependency (depends/makedepends/checkdepends, of any
+# architecture) that resolves to another package in this repository, from the .SRCINFO files
 build_edges() {
   local s d line key name
   local -A name2dir=() provider=()
@@ -446,7 +446,7 @@ build_edges() {
       key=${line%% = *}
       key=${key//[[:space:]]/}
       case "$key" in
-        depends | makedepends | checkdepends) ;;
+        depends | makedepends | checkdepends | depends_* | makedepends_* | checkdepends_*) ;;
         *) continue ;;
       esac
       name=${line#* = }
