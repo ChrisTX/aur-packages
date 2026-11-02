@@ -1,0 +1,23 @@
+pkgbase = lib32-mariadb-connector-c
+	pkgdesc = MariaDB Connector/C, the client library of MariaDB (32-bit)
+	pkgver = 3.4.10
+	pkgrel = 1
+	url = https://mariadb.com/docs/connectors/mariadb-connector-c
+	arch = x86_64
+	license = LGPL-2.1-or-later
+	makedepends = cmake
+	makedepends = git
+	makedepends = lib32-krb5
+	depends = lib32-gcc-libs
+	depends = lib32-glibc
+	depends = lib32-openssl
+	depends = lib32-zlib
+	depends = lib32-zstd
+	depends = mariadb-libs
+	optdepends = lib32-krb5: for gssapi authentication
+	provides = libmariadb.so
+	source = git+https://github.com/mariadb-corporation/mariadb-connector-c.git#tag=v3.4.10
+	sha512sums = 1fe69eee61e87392dd3d158cf5539d6b2c1b3fad3cc2ed87cb19055fbfe51ddab4a7767c2b6be547d9838c55dd6e46bfe65b57441555fdcdfd6df0527d3bd524
+	b2sums = b33da370a7dffbf8b18446162097dd69f8347e786fd04bdd9d232c1a20f009722d502fd40e4918387cd51314854cefbeb471a12ea750272bacac3ed09fcc9141
+
+pkgname = lib32-mariadb-connector-c
