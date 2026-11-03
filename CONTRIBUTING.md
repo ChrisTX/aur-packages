@@ -56,6 +56,10 @@ A typical change:
 
 The conventions below apply to every package. GitHub Actions runs `./aur-packages check` on every push and pull request.
 
+## Language
+
+Comments, documentation, package descriptions and commit messages are in British English: licence for the noun (license the verb), -ise and -isation (`optimise`, `customisation`), colour, behaviour, catalogue. Names and quotes keep their spelling: identifiers, paths and file names (`license=()`, `LICENSE`, `/usr/share/licenses`), the names of licences and products (the MIT License, Pluralize.NET), text taken from upstream, and the licence texts a package installs.
+
 ## PKGBUILD conventions
 
 - Maintainer line: `# Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>`
@@ -69,7 +73,7 @@ The conventions below apply to every package. GitHub Actions runs `./aur-package
 - Never disable SC2164. Write `cd … || exit` instead, even where makepkg's errexit makes it redundant.
 - Quoting in the metadata arrays (`arch`, `license`, `depends`, `optdepends`, `options`, `backup`, …): plain words stay bare (`arch=(x86_64 aarch64)`, `options=(!debug)`), literal text that needs quotes gets single quotes (`'powershell>=7.6.9-3'`, `'git: for git sources'`), double quotes only where something expands or the text has an apostrophe (`"dotnet-runtime-$_dotnetsdkver"`), around the whole word. Scalars like `pkgdesc` and `url` are left as they are. The quoting hook checks it (`./aur-packages quoting`).
 - Checksums: always both `sha512sums` and `b2sums` (per-arch variants too), never sha256-only or b2-only. Before running `updpkgsums`, seed both arrays (e.g. `'SKIP'`); with empty arrays it falls back to sha256.
-- Bump pkgrel when the built package changes (files, depends, license, other metadata). Style-only or packaging-only changes don't get a bump.
+- Bump pkgrel when the built package changes (files, depends, licence, other metadata). Style-only or packaging-only changes don't get a bump.
 - Go packages keep `GOPATH` inside `$srcdir`.
 - PowerShell code goes into `.ps1`/`.psm1` files shipped as sources (annotated 0BSD in REUSE.toml), not inline `pwsh -Command '…'` blocks, so editors can support it. Pass values from the PKGBUILD as script parameters (`pwsh -NoProfile -NonInteractive -File "$srcdir/script.ps1" -Param "$value"`) instead of splicing shell variables into the code.
 
@@ -92,7 +96,7 @@ The conventions below apply to every package. GitHub Actions runs `./aur-package
 Besides `PKGBUILD` and `.SRCINFO`, every package has:
 
 - `LICENSE` (0BSD, "Arch Linux Contributors") and `LICENSES/0BSD.txt` as a symlink to `../LICENSE`
-- `REUSE.toml` annotating packaging files as 0BSD; patches derived from upstream are annotated with the upstream license
+- `REUSE.toml` annotating packaging files as 0BSD; patches derived from upstream are annotated with the upstream licence
 - `.gitignore`: the toptal `archlinuxpackages` template, plus the checkout directory for git sources (e.g. `ergo/`) and downloaded sources the template doesn't cover (e.g. `*.nupkg`)
 - `.nvchecker.toml` for update checks (except VCS `-git` packages and sources without a usable upstream repo)
 - `.editorconfig` and `.pre-commit-config.yaml`, copies of `templates/package` (`./aur-packages sync`), so the package can be formatted and checked on its own. Change the template, not the copies; `./aur-packages sync` writes the top-level configuration from it as well.
