@@ -20,7 +20,7 @@ sudo pacman -S --needed base-devel devtools pacman-contrib namcap nvchecker jq \
 ./aur-packages setup
 ```
 
-`./aur-packages` manages all packages, or the packages given: `pull` and `push` (aurpublish, `push --exclude` to leave packages out), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `build` (clean-chroot builds of packages and their dependencies from this repository, with aurutils), `sync` (copies `templates/package` into the packages), `setup` (installs the git hooks) and `list` (the packages). See `./aur-packages help`.
+`./aur-packages` manages all packages, or the packages given: `pull` and `push` (aurpublish, `push --exclude` to leave packages out), `adopt` (merges the AUR's history of a package that was on the AUR before, deleted or taken over, so it can be pushed), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `build` (clean-chroot builds of packages and their dependencies from this repository, with aurutils), `sync` (copies `templates/package` into the packages), `setup` (installs the git hooks) and `list` (the packages). See `./aur-packages help`.
 
 ### `aur-packages` in your shell
 
