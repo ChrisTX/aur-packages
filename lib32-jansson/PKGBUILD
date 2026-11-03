@@ -5,7 +5,7 @@
 pkgname=lib32-jansson
 _name=jansson
 pkgver=2.15.1
-pkgrel=1
+pkgrel=2
 pkgdesc="C library for encoding, decoding and manipulating JSON data (32-bit)"
 arch=(x86_64)
 url="https://github.com/akheron/jansson"
