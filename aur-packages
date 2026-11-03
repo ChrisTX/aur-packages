@@ -68,6 +68,10 @@ else the one the symlink points into.
   push      Check, then push the packages to the AUR (aurpublish), or with --nocheck without the
             checks, e.g. while a linter isn't installed. --exclude PACKAGE leaves a package out
             (repeatable), e.g. one whose AUR request is still pending
+  adopt PACKAGE...
+            Merge the history the AUR has of packages into their subtrees, keeping their files, so
+            that push can push on top of it: for a package that was on the AUR before, deleted or
+            taken over from another maintainer (the AUR only accepts pushes on top of its history)
   updates   Show which packages have a newer upstream version with the .nvchecker.toml of each
             (pkgctl version check), without changing anything
   upgrade   Upgrade the packages to their latest upstream version with the .nvchecker.toml of each
@@ -182,6 +186,51 @@ cmd_push() {
   fi
   for package in "${selected[@]}"; do
     aurpublish "$package"
+  done
+}
+
+# Merges the AUR's history of each package into the history push pushes, the package's subtree: a
+# merge of the subtree's history and the AUR's head with the subtree's files, recorded like
+# git subtree split --rejoin, so that later splits build on it
+cmd_adopt() {
+  local package base url head split merge rejoin
+  local -a selected sign=()
+  if (($# == 0)); then
+    echo "Usage: aur-packages adopt PACKAGE..." >&2
+    return 1
+  fi
+  select_packages "$@"
+  [[ "$(git config --bool commit.gpgsign)" == true ]] && sign=(-S)
+  for package in "${selected[@]}"; do
+    base=$(sed -n 's/^pkgbase = //p' "$package/.SRCINFO")
+    url=https://aur.archlinux.org/$base.git
+    head=$(git ls-remote "$url" refs/heads/master | cut -f1)
+    if [[ -z "$head" ]]; then
+      echo "$package: not on the AUR, nothing to adopt"
+      continue
+    fi
+    git fetch -q "$url" master
+    split=$(git subtree split -q -P "$package")
+    if git merge-base --is-ancestor "$head" "$split"; then
+      echo "$package: already on top of the AUR's ${head:0:7}"
+      continue
+    fi
+    merge=$(git commit-tree "${sign[@]}" -p "$split" -p "$head" \
+      -m "Merge the earlier history of $base on the AUR" "$split^{tree}")
+    rejoin=$(
+      git commit-tree "${sign[@]}" -p HEAD -p "$merge" "HEAD^{tree}" <<EOF_MSG
+$package: merge the earlier history of $base on the AUR
+
+- The AUR only accepts pushes on top of its history of $base (${head:0:7}): the
+  package's history merges it, with the package's files unchanged
+
+git-subtree-dir: $package
+git-subtree-mainline: $(git rev-parse HEAD)
+git-subtree-split: $merge
+EOF_MSG
+    )
+    git merge -q --ff-only "$rejoin"
+    echo "$package: now on top of the AUR's ${head:0:7}"
   done
 }
 
@@ -1128,7 +1177,7 @@ cmd_completion() {
 command=${1-help}
 (($#)) && shift
 case "$command" in
-  pull | push | updates | upgrade | check | sync | setup | build | commits | list | completion)
+  pull | push | adopt | updates | upgrade | check | sync | setup | build | commits | list | completion)
     "cmd_$command" "$@"
     ;;
   commit-msg)

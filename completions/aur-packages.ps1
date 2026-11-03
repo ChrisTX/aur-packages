@@ -7,6 +7,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
     $commands = [ordered]@{
         'pull'       = 'Pull the packages from the AUR'
         'push'       = 'Check, then push the packages to the AUR'
+        'adopt'      = 'Merge the history the AUR has of packages'
         'updates'    = 'Show which packages have a newer upstream version'
         'upgrade'    = 'Upgrade the packages to their latest upstream version'
         'check'      = 'Run the checks of .pre-commit-config.yaml'
@@ -29,7 +30,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'build'   = @('--chroot', '--local', '--install', '--dry-run', '-n', '--keep', '--dotnet-bin', '--libs-bin',
             '--target', '--repo')
     }
-    $withPackages = @('pull', 'push', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting')
+    $withPackages = @('pull', 'push', 'adopt', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting')
 
     # The packages (or with --templates the build templates) of the checkout the command works on, from
     # the command itself

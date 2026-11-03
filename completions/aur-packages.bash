@@ -14,7 +14,7 @@ _aur_packages_complete() {
     fi
   done
   if [[ -z "$command" ]]; then
-    mapfile -t COMPREPLY < <(compgen -W 'pull push updates upgrade check commits build sync setup
+    mapfile -t COMPREPLY < <(compgen -W 'pull push adopt updates upgrade check commits build sync setup
       commit-msg quoting list completion help' -- "$cur")
     return
   fi
@@ -24,7 +24,7 @@ _aur_packages_complete() {
     return
   fi
   case "$command" in
-    pull | updates | upgrade | quoting) packages=true ;;
+    pull | adopt | updates | upgrade | quoting) packages=true ;;
     push)
       options='--nocheck --exclude' packages=true
       ;;

@@ -24,6 +24,7 @@ _aur-packages() {
   local -a commands=(
     'pull:pull the packages from the AUR'
     'push:check, then push the packages to the AUR'
+    'adopt:merge the history the AUR has of packages into their subtrees'
     'updates:show which packages have a newer upstream version'
     'upgrade:upgrade the packages to their latest upstream version'
     'check:run the checks of .pre-commit-config.yaml'
@@ -45,7 +46,7 @@ _aur-packages() {
     argument)
       curcontext=${curcontext%:*:*}:aur-packages-$words[1]:
       case $words[1] in
-        pull | updates | upgrade | quoting)
+        pull | adopt | updates | upgrade | quoting)
           _arguments '*:package:_aur-packages_packages' && ret=0
           ;;
         push)
