@@ -91,6 +91,7 @@ else the one the symlink points into.
             --keep keeps the chroot repo. In a chroot, --dotnet-bin builds with Microsoft's .NET
             (dotnet-build-deps-10.0-bin, dotnet-sdk-bin built by aur sync) and --libs-bin with the
             libraries from nuget.org (powershell-build-deps-bin) instead of the source-built ones.
+            A .NET Arch Linux doesn't have (dotnet-build-deps-11.0-bin) is always Microsoft's.
             --target aarch64 also cross-builds the architecture-specific packages for aarch64
             against an Arch Linux ARM root, --target aarch64-native builds everything in that root
             under QEMU (qemu-user-static-binfmt), with Microsoft's .NET. --repo DIR continues in
@@ -747,7 +748,12 @@ EOF
 build_in_repo() {
   local file found=false
   while IFS= read -r file; do
-    [[ -f "$2/${file##*/}" ]] || return 1
+    # makepkg lists a -debug package whenever debug is on, but only builds one when there are debug
+    # symbols, e.g. not for an architecture-independent package
+    if [[ ! -f "$2/${file##*/}" ]]; then
+      [[ "${file##*/}" == "$(sed -n -E 's/^pkgbase = //p' "$1/.SRCINFO")"-debug-* ]] || return 1
+      continue
+    fi
     found=true
   done < <(cd "$1" && makepkg --packagelist --config "$3")
   [[ "$found" == true ]]
@@ -831,8 +837,11 @@ cmd_build() {
   if [[ "$dotnetbin" == true ]]; then
     preinstall+=(dotnet-host-bin dotnet-runtime-bin dotnet-targeting-pack-bin dotnet-sdk-bin
       aspnet-runtime-bin aspnet-targeting-pack-bin)
-    # One per .NET version, e.g. dotnet-build-deps-10.0-bin for dotnet-build-deps-10.0
+    # One per .NET version, e.g. dotnet-build-deps-10.0-bin for dotnet-build-deps-10.0. Not the ones
+    # without a source-built variant (dotnet-build-deps-11.0-bin), which are the only provider anyway,
+    # and whose prerelease of .NET doesn't belong in the chroots of the others.
     for name in dotnet-build-deps-*-bin; do
+      [[ -d "${name%-bin}" ]] || continue
       build_alias["${name%-bin}"]=$name
       preinstall+=("$name")
     done
@@ -945,18 +954,28 @@ cmd_build() {
     fi
   fi
 
-  # Microsoft's .NET from the AUR (dotnet-core-bin), built by aurutils into the private repository
+  # Microsoft's .NET from the AUR, built by aurutils into the private repository: the SDK each -bin
+  # selector in the build order depends on, dotnet-sdk-bin (dotnet-core-bin) for
+  # dotnet-build-deps-10.0-bin with --dotnet-bin. A .NET only Microsoft builds, e.g. a prerelease
+  # (dotnet-build-deps-11.0-bin, dotnet-sdk-preview-bin), has no other selector, so it's always used.
+  if [[ "$method" == chroot ]]; then
+    for pkg in "${order[@]}"; do
+      [[ "$pkg" == dotnet-build-deps-*-bin ]] || continue
+      while IFS= read -r name; do
+        cmd=(aur sync --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf"
+          "${chrootargs[@]}" --no-view --noconfirm "$name")
+        if [[ "$dryrun" == true ]]; then
+          printf '%s\n' "${cmd[*]}"
+        elif compgen -G "$repo/$name-[0-9]*.pkg.tar.zst" >/dev/null; then
+          echo ">>> $name is in $repo already" >&2
+        else
+          echo ">>> Building $name (aur sync)" >&2
+          "${cmd[@]}"
+        fi
+      done < <(sed -n -E 's/^\s*depends = ([^<>=]+).*/\1/p' "$pkg/.SRCINFO")
+    done
+  fi
   if [[ "$dotnetbin" == true ]]; then
-    cmd=(aur sync --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf" "${chrootargs[@]}"
-      --no-view --noconfirm dotnet-sdk-bin)
-    if [[ "$dryrun" == true ]]; then
-      printf '%s\n' "${cmd[*]}"
-    elif compgen -G "$repo/dotnet-sdk-bin-[0-9]*.pkg.tar.zst" >/dev/null; then
-      echo ">>> dotnet-sdk-bin is in $repo already" >&2
-    else
-      echo ">>> Building dotnet-sdk-bin (aur sync)" >&2
-      "${cmd[@]}"
-    fi
     for name in dotnet-host-bin dotnet-runtime-bin dotnet-targeting-pack-bin dotnet-sdk-bin aspnet-runtime-bin \
       aspnet-targeting-pack-bin; do
       built[$name]=1
