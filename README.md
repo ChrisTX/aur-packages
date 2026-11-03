@@ -81,6 +81,27 @@ makepkg -si
 | [dotnet-vs-validation](https://aur.archlinux.org/packages/dotnet-vs-validation) | Common input validation and state verification utility methods, Microsoft.VisualStudio.Validation (NuGet package) | [![AUR version](https://img.shields.io/aur/version/dotnet-vs-validation?label=)](https://aur.archlinux.org/packages/dotnet-vs-validation) |
 | [dotnet-wcf](https://aur.archlinux.org/packages/dotnet-wcf) | WCF client libraries for .NET, System.ServiceModel.* and System.Web.Services.Description (NuGet packages) | [![AUR version](https://img.shields.io/aur/version/dotnet-wcf?label=)](https://aur.archlinux.org/packages/dotnet-wcf) |
 
+### SourceMod
+
+Metamod:Source, SourceMod and their plugins and extensions for Source engine game servers, built from source against the system's libraries, with the Source SDKs and AMBuild they build with.
+
+| Package | Description | AUR |
+| --- | --- | --- |
+| [ambuild](https://aur.archlinux.org/packages/ambuild) | AlliedModders' build system, used by SourceMod, SourcePawn and Metamod:Source | [![AUR version](https://img.shields.io/aur/version/ambuild?label=)](https://aur.archlinux.org/packages/ambuild) |
+| [hl2sdk](https://aur.archlinux.org/packages/hl2sdk) | Source SDKs of the games Metamod:Source and SourceMod support, with their static libraries built from source (a build dependency) | [![AUR version](https://img.shields.io/aur/version/hl2sdk?label=)](https://aur.archlinux.org/packages/hl2sdk) |
+| [lib32-jansson](https://aur.archlinux.org/packages/lib32-jansson) | C library for encoding, decoding and manipulating JSON data (32-bit) | [![AUR version](https://img.shields.io/aur/version/lib32-jansson?label=)](https://aur.archlinux.org/packages/lib32-jansson) |
+| [lib32-libmaxminddb](https://aur.archlinux.org/packages/lib32-libmaxminddb) | MaxMindDB GeoIP2 database library (32-bit) | [![AUR version](https://img.shields.io/aur/version/lib32-libmaxminddb?label=)](https://aur.archlinux.org/packages/lib32-libmaxminddb) |
+| [lib32-mariadb-connector-c](https://aur.archlinux.org/packages/lib32-mariadb-connector-c) | MariaDB Connector/C, the client library of MariaDB (32-bit) | [![AUR version](https://img.shields.io/aur/version/lib32-mariadb-connector-c?label=)](https://aur.archlinux.org/packages/lib32-mariadb-connector-c) |
+| [lib32-postgresql-libs](https://aur.archlinux.org/packages/lib32-postgresql-libs) | PostgreSQL's client library, libpq, with its OAuth module (32-bit) | [![AUR version](https://img.shields.io/aur/version/lib32-postgresql-libs?label=)](https://aur.archlinux.org/packages/lib32-postgresql-libs) |
+| [metamod-source](https://aur.archlinux.org/pkgbase/metamod-source) (`metamod-source`, `metamod-source-src`) | Metamod:Source, the plugin loader of SourceMod, for Source engine game servers, for the games of hl2sdk with Linux servers (the addons folder of a server) | [![AUR version](https://img.shields.io/aur/version/metamod-source?label=)](https://aur.archlinux.org/packages/metamod-source) |
+| [sourcebans-pp](https://aur.archlinux.org/pkgbase/sourcebans-pp) (`sourcebans-pp`, `sourcemod-sourcebans-pp`) | SourceBans++, the admin, ban and communication management of SourceMod game servers | [![AUR version](https://img.shields.io/aur/version/sourcebans-pp?label=)](https://aur.archlinux.org/packages/sourcebans-pp) |
+| [sourcemod](https://aur.archlinux.org/pkgbase/sourcemod) (`sourcemod`, `sourcemod-scripting`, `sourcemod-src`) | SourceMod, the scripting and administration platform for Source engine game servers | [![AUR version](https://img.shields.io/aur/version/sourcemod?label=)](https://aur.archlinux.org/packages/sourcemod) |
+| [sourcemod-advertisements](https://aur.archlinux.org/packages/sourcemod-advertisements) | Advertisements, a SourceMod plugin displaying messages on game servers (in the addons folder of sourcemod) | [![AUR version](https://img.shields.io/aur/version/sourcemod-advertisements?label=)](https://aur.archlinux.org/packages/sourcemod-advertisements) |
+| [sourcemod-multicolors](https://aur.archlinux.org/packages/sourcemod-multicolors) | Multi-Colors, SourceMod include files for coloured chat messages in any game (Colors and More Colors) | [![AUR version](https://img.shields.io/aur/version/sourcemod-multicolors?label=)](https://aur.archlinux.org/packages/sourcemod-multicolors) |
+| [sourcemod-smjansson](https://aur.archlinux.org/packages/sourcemod-smjansson) | SMJansson, a JSON extension of SourceMod (in the addons folder of sourcemod) | [![AUR version](https://img.shields.io/aur/version/sourcemod-smjansson?label=)](https://aur.archlinux.org/packages/sourcemod-smjansson) |
+| [sourcemod-sourcebans-pp-discord-forward](https://aur.archlinux.org/packages/sourcemod-sourcebans-pp-discord-forward) | SourceBans++ Discord Forward, a SourceMod plugin forwarding bans, comms blocks and reports to Discord webhooks | [![AUR version](https://img.shields.io/aur/version/sourcemod-sourcebans-pp-discord-forward?label=)](https://aur.archlinux.org/packages/sourcemod-sourcebans-pp-discord-forward) |
+| [sourcemod-steamworks](https://aur.archlinux.org/packages/sourcemod-steamworks) | SteamWorks, a SourceMod extension exposing Steamworks functions (in the addons folder of sourcemod) | [![AUR version](https://img.shields.io/aur/version/sourcemod-steamworks?label=)](https://aur.archlinux.org/packages/sourcemod-steamworks) |
+
 ### Other
 
 | Package | Description | AUR |
