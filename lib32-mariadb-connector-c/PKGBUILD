@@ -5,7 +5,7 @@
 pkgname=lib32-mariadb-connector-c
 _name=mariadb-connector-c
 # The version of Connector/C that mariadb-libs bundles (mariadb_config --cc_version)
-pkgver=3.4.10
+pkgver=3.4.11
 pkgrel=1
 pkgdesc="MariaDB Connector/C, the client library of MariaDB (32-bit)"
 arch=(x86_64)
@@ -17,8 +17,8 @@ makedepends=(cmake git lib32-krb5)
 optdepends=('lib32-krb5: for gssapi authentication')
 provides=(libmariadb.so)
 source=("git+https://github.com/mariadb-corporation/mariadb-connector-c.git#tag=v$pkgver")
-sha512sums=('1fe69eee61e87392dd3d158cf5539d6b2c1b3fad3cc2ed87cb19055fbfe51ddab4a7767c2b6be547d9838c55dd6e46bfe65b57441555fdcdfd6df0527d3bd524')
-b2sums=('b33da370a7dffbf8b18446162097dd69f8347e786fd04bdd9d232c1a20f009722d502fd40e4918387cd51314854cefbeb471a12ea750272bacac3ed09fcc9141')
+sha512sums=('ace97fc25e3ce2486282a0ce4e9676824d7965d049d6f0b7a97788f6a4a4eb4f3d31866253c7830995cf25ceb01ee44c6e06b737f229b2389dd9f370a3358e35')
+b2sums=('657cf1fb5b261d8276c14457444a9d02ccf6881777ec8a38c6e77d5fd195e1084f8b8083560b195cc6cb1f04e3be839910d7304e40d20b379870b74b81efdea9')
 
 build() {
   export CC="gcc -m32"
