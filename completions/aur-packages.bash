@@ -18,9 +18,16 @@ _aur_packages_complete() {
       commit-msg quoting list completion help' -- "$cur")
     return
   fi
+  # The package to leave out, of the checkout the command works on
+  if [[ "$command" == push && "$prev" == --exclude ]]; then
+    mapfile -t COMPREPLY < <(compgen -W "$("${COMP_WORDS[0]}" list 2>/dev/null)" -- "$cur")
+    return
+  fi
   case "$command" in
     pull | updates | upgrade | quoting) packages=true ;;
-    push) options=--nocheck packages=true ;;
+    push)
+      options='--nocheck --exclude' packages=true
+      ;;
     check) options=--manual packages=true ;;
     commits) options=--update packages=true ;;
     sync) options=--check packages=true ;;

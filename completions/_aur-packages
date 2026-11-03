@@ -49,7 +49,9 @@ _aur-packages() {
           _arguments '*:package:_aur-packages_packages' && ret=0
           ;;
         push)
-          _arguments '--nocheck[push without running the checks]' '*:package:_aur-packages_packages' && ret=0
+          _arguments '--nocheck[push without running the checks]' \
+            '*--exclude=[leave a package out]:package:_aur-packages_packages' \
+            '*:package:_aur-packages_packages' && ret=0
           ;;
         check)
           _arguments '--manual[also run the checks that only run on request]' \

@@ -66,7 +66,8 @@ else the one the symlink points into.
 
   pull      Pull the packages from the AUR (aurpublish --pull)
   push      Check, then push the packages to the AUR (aurpublish), or with --nocheck without the
-            checks, e.g. while a linter isn't installed
+            checks, e.g. while a linter isn't installed. --exclude PACKAGE leaves a package out
+            (repeatable), e.g. one whose AUR request is still pending
   updates   Show which packages have a newer upstream version with the .nvchecker.toml of each
             (pkgctl version check), without changing anything
   upgrade   Upgrade the packages to their latest upstream version with the .nvchecker.toml of each
@@ -140,12 +141,42 @@ cmd_pull() {
 
 cmd_push() {
   local nocheck=false package
-  local -a selected
-  if [[ "${1-}" == --nocheck ]]; then
-    nocheck=true
+  local -a selected excluded=() pushed=()
+  local -A exclude=()
+  while (($#)); do
+    case "$1" in
+      --nocheck) nocheck=true ;;
+      --exclude)
+        shift
+        excluded+=("${1:-}")
+        ;;
+      --exclude=*) excluded+=("${1#*=}") ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo "Unknown option: $1" >&2
+        return 1
+        ;;
+      *) break ;;
+    esac
     shift
-  fi
+  done
+  for package in "${excluded[@]}"; do
+    package=${package%/}
+    if [[ ! -f "$package/PKGBUILD" ]]; then
+      echo "Not a package: $package" >&2
+      return 1
+    fi
+    exclude[$package]=1
+  done
   select_packages "$@"
+  for package in "${selected[@]}"; do
+    [[ -n "${exclude[$package]-}" ]] || pushed+=("$package")
+  done
+  selected=("${pushed[@]}")
+  ((${#selected[@]})) || return 0
   if [[ "$nocheck" == false ]]; then
     cmd_check "${selected[@]}"
   fi

@@ -21,7 +21,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'help'       = 'Show the help'
     }
     $options = @{
-        'push'    = @('--nocheck')
+        'push'    = @('--nocheck', '--exclude')
         'check'   = @('--manual')
         'commits' = @('--update')
         'sync'    = @('--check')
@@ -69,6 +69,8 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'aarch64', 'aarch64-native' | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
     } elseif ($command -eq 'build' -and $previous -eq '--repo') {
         Get-PathResult -Directory
+    } elseif ($command -eq 'push' -and $previous -eq '--exclude') {
+        Get-AurPackageName | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
     } elseif ($command -eq 'commit-msg') {
         if ($afterCommand -eq 0) {
             Get-PathResult

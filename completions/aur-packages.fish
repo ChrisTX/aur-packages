@@ -31,6 +31,7 @@ complete -c aur-packages -n $none -a help -d 'Show the help'
 complete -c aur-packages -n '__fish_seen_subcommand_from pull push updates upgrade check commits build sync quoting' \
     -a '(__aur_packages_list)' -d Package
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l nocheck -d 'Push without running the checks'
+complete -c aur-packages -n '__fish_seen_subcommand_from push' -l exclude -x -a '(__aur_packages_list)' -d 'Leave a package out'
 complete -c aur-packages -n '__fish_seen_subcommand_from check' -l manual -d 'Also run the checks that only run on request'
 complete -c aur-packages -n '__fish_seen_subcommand_from commits' -l update -d 'Rewrite stale _commit values'
 complete -c aur-packages -n '__fish_seen_subcommand_from sync' -l check -d 'Only report differences'
