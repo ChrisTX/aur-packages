@@ -98,6 +98,7 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 - `LICENSE` (0BSD, "Arch Linux Contributors") and `LICENSES/0BSD.txt` as a symlink to `../LICENSE`
 - `REUSE.toml` annotating packaging files as 0BSD; patches derived from upstream are annotated with the upstream licence
 - `.gitignore`: the toptal `archlinuxpackages` template, plus the checkout directory for git sources (e.g. `ergo/`) and downloaded sources the template doesn't cover (e.g. `*.nupkg`)
+- An entry in README.md's package table, its description the package's pkgdesc: add it with a new package and keep it in sync when pkgdesc changes
 - `.nvchecker.toml` for update checks (except VCS `-git` packages and sources without a usable upstream repo)
 - `.editorconfig` and `.pre-commit-config.yaml`, copies of `templates/package` (`./aur-packages sync`), so the package can be formatted and checked on its own. Change the template, not the copies; `./aur-packages sync` writes the top-level configuration from it as well.
 
