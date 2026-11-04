@@ -26,6 +26,18 @@ jobs:
         run: >-
           pacman -Syu --noconfirm --needed git jq prek shfmt shellcheck shellharden ruff biome tombi rumdl
           systemd-lsp editorconfig-checker reuse
+      # Mago is an AUR package: its static binary from the release
+      - name: Install Mago
+        env:
+          MAGO_VERSION: 1.59.0
+          MAGO_SHA256: c536aa948ff1dbcd4f12200088a01f61ca0ea426e92128255b657a797645ec00
+        run: |
+          name="mago-$MAGO_VERSION-x86_64-unknown-linux-musl"
+          curl -fsSLo /tmp/mago.tar.gz \
+            "https://github.com/carthage-software/mago/releases/download/$MAGO_VERSION/$name.tar.gz"
+          echo "$MAGO_SHA256  /tmp/mago.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/mago.tar.gz -C /tmp
+          install -Dm755 "/tmp/$name/mago" /usr/local/bin/mago
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
