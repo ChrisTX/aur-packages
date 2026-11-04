@@ -6,7 +6,7 @@ For problems with a package, open an issue here or comment on its AUR page. Prob
 
 ## Getting started
 
-The tools of the checks are all in the Arch Linux repositories, apart from PSScriptAnalyzer, which comes with `powershell-editor-services` (this repository, or the AUR):
+The tools of the checks are all in the Arch Linux repositories, apart from PSScriptAnalyzer, which comes with `powershell-editor-services` (this repository, or the AUR), and Mago (`mago`, AUR):
 
 ```bash
 sudo pacman -S --needed base-devel devtools pacman-contrib namcap nvchecker jq \
@@ -114,11 +114,12 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 ## Building and checking
 
 - Every disabled, skipped or removed test gets a comment saying why. If it's an upstream bug, link the upstream issue (open one if there is none yet). Disable as little as possible: a single test or context rather than a whole file.
-- Everything passes `./aur-packages check`, which runs the hooks of `.pre-commit-config.yaml`: formatting (shfmt, ruff, Biome, tombi, rumdl, settings in `.editorconfig`), linting (shellcheck, shellharden, ruff, Biome, tombi, rumdl, systemd-lsp, PSScriptAnalyzer, editorconfig-checker), `reuse lint`, the quoting of the metadata arrays, up-to-date .SRCINFO files and checksums of the local sources, which a formatter may have changed (run `updpkgsums` then). Formatters fix files themselves; run the check again afterwards. After `updpkgsums`, which aligns the checksums its own way, run shfmt on the PKGBUILD (`./aur-packages upgrade` does).
+- Everything passes `./aur-packages check`, which runs the hooks of `.pre-commit-config.yaml`: formatting (shfmt, ruff, Biome, tombi, rumdl, Mago, settings in `.editorconfig`), linting (shellcheck, shellharden, ruff, Biome, tombi, rumdl, systemd-lsp, PSScriptAnalyzer, Mago, editorconfig-checker), `reuse lint`, the quoting of the metadata arrays, up-to-date .SRCINFO files and checksums of the local sources, which a formatter may have changed (run `updpkgsums` then). Formatters fix files themselves; run the check again afterwards. After `updpkgsums`, which aligns the checksums its own way, run shfmt on the PKGBUILD (`./aur-packages upgrade` does).
 - No editor modelines in any file (`# vim:set …`, `-*- mode -*-`): `.editorconfig` sets the indentation and the other settings for every editor.
 - termux-language-server only runs on request (`./aur-packages check --manual`), as it has false positives: it only knows installed packages and paru's list of AUR packages (termux/termux-language-server#44), keeps the quotes of single-quoted names (termux/termux-language-server#43), takes names with an expansion like `"$pkgname-bin"` apart (termux/termux-language-server#45), and doesn't accept SPDX license expressions or `LicenseRef-` (termux/termux-language-server#24). Its warnings about x86_64 and vscode-powershell's split makedepends come from namcap, for the `case "$CARCH"` mappings and the editors its packages conflict over.
 - Also lint with `namcap PKGBUILD` and `namcap` on the built package.
 - Where an unquoted variable relies on word splitting, e.g. to add nothing when it's empty, use an array instead of disabling shellharden.
+- PHP passes Mago's formatter, linter and analyser, warnings included. What a script only loads at runtime, like the classes of the software it's packaged with, is declared in a `*.stub.php` file next to it, which the package's `mago.toml` includes (see sourcebans-pp).
 - PowerShell scripts (`.ps1`/`.psm1`) are PSScriptAnalyzer-clean with its default rules, information level included (`Invoke-ScriptAnalyzer -Path script.ps1`). Suppress a rule only where the code can't comply, with `[Diagnostics.CodeAnalysis.SuppressMessageAttribute('Rule', '', Justification = '…')]` saying why.
 - Clean-chroot builds: `pkgctl build`, or `./aur-packages build` for a package with its dependencies from this repository. A local `makepkg -fCd` is fine for a quick check, but may lack makedepends.
 - 32-bit packages (`lib32-*`) and packages that build 32-bit code depend on `lib32-*` packages of multilib, in their (make)depends; `./aur-packages build` builds those in a multilib chroot with `multilib-devel`, like `pkgctl build --repo multilib`.
