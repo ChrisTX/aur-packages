@@ -26,7 +26,9 @@ from gi.repository import Gio, GLib
 
 APP_ID = "info.rev_crew.AurPackagesTray"
 SERVICE = "aur-packages-updates.service"
-ICON = "software-update-available"
+# The status icons of Breeze that Discover's update notifier uses as well
+ICON_UP_TO_DATE = "update-none"
+ICON_UPDATES = "update-low"
 STATE_DIR = Path(GLib.get_user_state_dir()) / "aur-packages"
 STATE_FILE = STATE_DIR / "updates.json"
 # The package versions announced so far, so each one is announced once, across restarts as well
@@ -225,6 +227,7 @@ class Tray(Gio.Application):
         # The name the tray knows the item by, as the specification suggests
         self.bus_name = f"org.kde.StatusNotifierItem-{os.getpid()}-1"
         self.status = "Passive"
+        self.icon = ICON_UP_TO_DATE
         self.title = "AUR packages"
         self.tooltip = ""
         self.revision = 0
@@ -310,7 +313,7 @@ class Tray(Gio.Application):
                 "Title": GLib.Variant("s", self.title),
                 "Status": GLib.Variant("s", self.status),
                 "WindowId": GLib.Variant("i", 0),
-                "IconName": GLib.Variant("s", ICON),
+                "IconName": GLib.Variant("s", self.icon),
                 "IconPixmap": GLib.Variant("a(iiay)", []),
                 "OverlayIconName": GLib.Variant("s", ""),
                 "OverlayIconPixmap": GLib.Variant("a(iiay)", []),
@@ -318,7 +321,7 @@ class Tray(Gio.Application):
                 "AttentionIconPixmap": GLib.Variant("a(iiay)", []),
                 "AttentionMovieName": GLib.Variant("s", ""),
                 "ToolTip": GLib.Variant(
-                    "(sa(iiay)ss)", (ICON, [], self.title, self.tooltip)
+                    "(sa(iiay)ss)", (self.icon, [], self.title, self.tooltip)
                 ),
                 # A click opens the menu as well, there's nothing else to activate
                 "ItemIsMenu": GLib.Variant("b", True),
@@ -459,7 +462,7 @@ class Tray(Gio.Application):
             notification.set_body(
                 "\n".join(f"{u['package']} {u['current']} → {u['new']}" for u in new)
             )
-            notification.set_icon(Gio.ThemedIcon.new(ICON))
+            notification.set_icon(Gio.ThemedIcon.new(ICON_UPDATES))
             self.send_notification("updates", notification)
         # Only what's outdated now: a version that comes back later is announced again
         if current != known:
@@ -480,8 +483,9 @@ class Tray(Gio.Application):
             lines.append(f"Check failed: {error}")
         self.title = f"AUR packages: {summary.lower() if count else summary}"
         self.tooltip = "\n".join(lines)
-        self.emit(ITEM_PATH, ITEM, "NewTitle")
-        self.emit(ITEM_PATH, ITEM, "NewToolTip")
+        self.icon = ICON_UPDATES if count else ICON_UP_TO_DATE
+        for signal in ("NewTitle", "NewIcon", "NewToolTip"):
+            self.emit(ITEM_PATH, ITEM, signal)
         # Passive puts the icon into the tray's overflow; never NeedsAttention
         status = "Active" if count else "Passive"
         if status != self.status:

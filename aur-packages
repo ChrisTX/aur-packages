@@ -516,7 +516,7 @@ EOF
 Type=Application
 Name=AUR package updates
 Comment=Tray icon of the update check of the AUR packages, installed by ./aur-packages tray install
-Icon=software-update-available
+Icon=system-software-update
 Exec="$exec"
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
