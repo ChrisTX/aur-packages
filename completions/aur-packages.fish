@@ -35,6 +35,7 @@ complete -c aur-packages -n '__fish_seen_subcommand_from pull push adopt updates
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l nocheck -d 'Push without running the checks'
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l exclude -x -a '(__aur_packages_list)' -d 'Leave a package out'
 complete -c aur-packages -n '__fish_seen_subcommand_from updates' -l state -d 'Write the result for the tray icon'
+complete -c aur-packages -n '__fish_seen_subcommand_from updates' -l retry -d 'Check rate-limited packages again later (with --state)'
 complete -c aur-packages -n '__fish_seen_subcommand_from check' -l manual -d 'Also run the checks that only run on request'
 complete -c aur-packages -n '__fish_seen_subcommand_from commits' -l update -d 'Rewrite stale _commit values'
 complete -c aur-packages -n '__fish_seen_subcommand_from sync' -l check -d 'Only report differences'

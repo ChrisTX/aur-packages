@@ -25,7 +25,7 @@ _aur_packages_complete() {
   fi
   case "$command" in
     pull | adopt | upgrade | quoting) packages=true ;;
-    updates) options=--state packages=true ;;
+    updates) options='--state --retry' packages=true ;;
     push)
       options='--nocheck --exclude' packages=true
       ;;

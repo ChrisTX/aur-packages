@@ -75,7 +75,8 @@ else the one the symlink points into.
   updates   Show which packages have a newer upstream version with the .nvchecker.toml of each
             (pkgctl version check), without changing anything. --state writes the result to
             ~/.local/state/aur-packages/updates.json for the tray icon instead (see tray), keeping
-            the entries of packages whose check failed
+            the entries of packages that weren't checked or whose check failed; --state --retry
+            also checks the packages that hit GitHub's rate limit again once it resets (systemd-run)
   upgrade   Upgrade the packages to their latest upstream version with the .nvchecker.toml of each
             (pkgctl version upgrade), then format the PKGBUILDs and regenerate .SRCINFO
   check     Run the checks of .pre-commit-config.yaml with prek or pre-commit, or with --manual
@@ -256,7 +257,12 @@ cmd_updates() {
   local -a checked
   if [[ "${1-}" == --state ]]; then
     shift
-    updates_state "$@"
+    if [[ "${1-}" == --retry ]]; then
+      shift
+      updates_state true "$@"
+    else
+      updates_state false "$@"
+    fi
     return
   fi
   select_checked_packages "$@"
@@ -267,54 +273,125 @@ cmd_updates() {
 # The state file of updates --state, which the tray icon (aur-packages-tray) watches
 updates_state_file=${XDG_STATE_HOME:-$HOME/.local/state}/aur-packages/updates.json
 
+# The transient units of the retries after a rate limit, aur-packages-updates-retry-<time>.timer
+updates_retry_unit=aur-packages-updates-retry
+
+# Prints when GitHub's rate limit resets, in seconds since the epoch, from its rate_limit endpoint (which
+# doesn't count against the limit), with the token of nvchecker's keyfile if there is one; the time an
+# exhausted limit resets, else now, as the limit has room again
+github_rate_limit_reset() {
+  local keyfile=${XDG_CONFIG_HOME:-$HOME/.config}/nvchecker/keyfile.toml token='' config=''
+  if [[ -f "$keyfile" ]]; then
+    token=$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb")).get("keys", {}).get("github", ""))' \
+      "$keyfile" 2>/dev/null || true)
+  fi
+  # On stdin rather than the command line, where other users could read it
+  [[ -z "$token" ]] || config="header = \"Authorization: Bearer $token\""
+  curl -fsS --max-time 30 -K - https://api.github.com/rate_limit <<<"$config" |
+    jq -r '[.resources[] | select(.remaining == 0) | .reset] | max // now | floor'
+}
+
 # Checks the packages like updates and writes the result to $updates_state_file, as JSON: the time of
 # the check, the checkout, the outdated packages (package, current and new version), the packages whose
-# check failed, and an error if the whole check failed. A package whose check failed keeps the entry of
-# the previous check, so a rate limit or a missing network doesn't make updates disappear; if no check
-# succeeded, the error says so, and the command fails. Written atomically, so the tray never reads half
-# a file.
+# check failed, those that hit GitHub's rate limit with the time they're checked again, and an error if
+# the whole check failed.
+# - Packages that weren't checked, or whose check failed, keep the entries of earlier checks, so a rate
+#   limit or a missing network doesn't make updates disappear, and packages given check only those.
+# - With --retry (the service of tray install), a transient timer of systemd checks the rate-limited
+#   packages again a minute after the limit resets; a check run by hand neither leaves timers behind
+#   nor cancels them.
+# - If no package could be checked, the error says so, and the command fails.
+# Written atomically under a lock, so the tray never reads half a file and checks don't overlap.
 updates_state() {
-  local dir output errors status=0 previous='null' tmp
-  local -a checked
+  local dir output errors status=0 previous='null' tmp state pending reset lock
+  local -a checked retry environment=(--setenv=PATH)
+  local schedule=$1
+  shift
   select_checked_packages "$@"
   dir=${updates_state_file%/*}
   mkdir -p "$dir"
+  exec {lock}>"$dir/.updates.lock"
+  flock "$lock"
   if [[ -f "$updates_state_file" ]] && jq -e . "$updates_state_file" >/dev/null 2>&1; then
     previous=$(<"$updates_state_file")
   fi
   errors=$(mktemp)
   # shellcheck disable=SC2064 # expand $errors now, when the trap is set
-  trap "rm -f '$errors'" RETURN
+  trap "rm -f '$errors'; exec $lock>&-" RETURN
   # JSON lists the outdated packages and the failed checks, pkgctl exits with 0 either way
   if ! output=$(pkgctl version check --json "${checked[@]}" 2>"$errors") || ! jq -e 'type == "array"' <<<"$output" >/dev/null 2>&1; then
     output=$(jq -n --arg error "pkgctl version check failed: $(tail -n 1 "$errors")" '{error: $error}')
     status=1
   else
-    output=$(jq -n --argjson results "$output" --argjson total "${#checked[@]}" '{
-      updates: [$results[] | select(.status == "success" and .out_of_date)
-        | {package: .pkgbase, current: .local_version, new: .upstream_version}],
-      failures: [$results[] | select(.status == "failure") | {package: .pkgbase, message: .message}],
-      error: (if $total > 0 and ([$results[] | select(.status == "failure")] | length) == $total
-        then "No package could be checked, e.g. without a network connection" else null end)
-    }')
+    output=$(jq -n --argjson results "$output" --argjson total "${#checked[@]}" '
+      # A 403 or 429 of GitHub'"'"'s API, or nvchecker saying so
+      def rate_limited: test("rate limit"; "i") or (test("api\\.github\\.com") and test("(HTTPError\\(|HTTP )(403|429)"));
+      # tornado'"'"'s HTTPError shown with its response, which takes a screen: its code, reason and URL
+      def short:
+        if test("HTTPError\\([0-9]+, ") then
+          capture("HTTPError\\((?<code>[0-9]+), '"'"'(?<reason>[^'"'"']*)'"'"'") as $error
+          | ((capture("effective_url='"'"'(?<url>[^'"'"']*)'"'"'") | " (\(.url))") // "") as $url
+          | "HTTP \($error.code) \($error.reason)\($url)"
+        else split("\n")[0] | sub("^unexpected error happened: "; "") end;
+      [$results[] | select(.status == "failure")] as $failed
+      | {
+          results: true,
+          updates: [$results[] | select(.status == "success" and .out_of_date)
+            | {package: .pkgbase, current: .local_version, new: .upstream_version}],
+          failed: [$failed[].pkgbase],
+          failures: [$failed[] | select(.message // "" | rate_limited | not)
+            | {package: .pkgbase, message: (.message // "failed" | short)}],
+          rate_limited: [$failed[] | select(.message // "" | rate_limited) | .pkgbase],
+          # Not when only the rate limit stopped them: they wait for the retry
+          error: (if $total > 0 and ($failed | length) == $total and any($failed[]; .message // "" | rate_limited | not)
+            then "No package could be checked, e.g. without a network connection" else null end)
+        }')
     jq -e '.error == null' <<<"$output" >/dev/null || status=1
   fi
-  tmp=$(mktemp "$dir/.updates.json.XXXXXX")
-  jq -n --argjson new "$output" --argjson previous "$previous" --arg checked "$(date --iso-8601=seconds)" \
-    --arg checkout "$root" '
+  state=$(jq -n --argjson new "$output" --argjson previous "$previous" --arg checked "$(date --iso-8601=seconds)" \
+    --arg checkout "$root" --args '
     ($previous // {}) as $previous
-    | ($new.failures // [] | map(.package)) as $failed
+    | $ARGS.positional as $checked_packages
+    # What this check found out: the packages it checked, unless their check failed
+    | (if $new.results then $checked_packages - $new.failed else [] end) as $known
+    | (if $new.results then $checked_packages else [] end) as $tried
+    | ($previous.rate_limited.packages // []) as $waiting
     | {
         checked: $checked,
         checkout: $checkout,
         error: $new.error,
-        updates: (if $new.updates == null then $previous.updates // []
-          else $new.updates + [$previous.updates // [] | .[] | select(.package as $p | $failed | index($p))]
-          end | sort_by(.package)),
-        failures: ($new.failures // $previous.failures // [])
-      }' >"$tmp"
+        updates: (($new.updates // []) + [$previous.updates // [] | .[] | select(.package as $p | $known | index($p) | not)]
+          | sort_by(.package)),
+        failures: (($new.failures // []) + [$previous.failures // [] | .[] | select(.package as $p | $tried | index($p) | not)]
+          | sort_by(.package)),
+        rate_limited: {
+          packages: (($new.rate_limited // []) + [$waiting[] | select(. as $p | $tried | index($p) | not)] | unique),
+          retry: null
+        }
+      }' "${checked[@]}")
+  mapfile -t retry < <(jq -r '.rate_limited.packages[]' <<<"$state")
+  # Only one retry is pending, the one for the packages that wait now
+  if [[ "$schedule" == true ]]; then
+    systemctl --user stop "$updates_retry_unit-*.timer" >/dev/null 2>&1 || true
+  fi
+  if ((${#retry[@]})); then
+    reset=$(github_rate_limit_reset) || reset=$(($(date +%s) + 3600 - 60))
+    pending=$(date --date="@$((reset + 60))" --iso-8601=seconds)
+    state=$(jq --arg retry "$pending" '.rate_limited.retry = $retry' <<<"$state")
+    if [[ "$schedule" == true ]]; then
+      # With the environment of this check, e.g. the same state file
+      [[ -z "${XDG_STATE_HOME:-}" ]] || environment+=(--setenv=XDG_STATE_HOME)
+      systemd-run --user --quiet --collect --unit="$updates_retry_unit-$reset" --on-active=$((reset + 60 - $(date +%s))) \
+        --timer-property=AccuracySec=1min --property=Type=oneshot --description="Check the AUR packages that hit GitHub's rate limit" \
+        "${environment[@]}" /usr/bin/bash "$root/aur-packages" updates --state --retry "${retry[@]}" ||
+        echo "Couldn't schedule checking the rate-limited packages again" >&2
+    fi
+  fi
+  tmp=$(mktemp "$dir/.updates.json.XXXXXX")
+  printf '%s\n' "$state" >"$tmp"
   mv "$tmp" "$updates_state_file"
   jq -r '(.updates[] | "\(.package) \(.current) -> \(.new)"), (.failures[] | "\(.package): check failed: \(.message)"),
+    (.rate_limited | select(.packages != []) | "GitHub'"'"'s rate limit, checked again at \(.retry): \(.packages | join(" "))"),
     (.error // empty | "Error: \(.)")' "$updates_state_file"
   return "$status"
 }
@@ -531,7 +608,7 @@ EOF
       ;;
     remove)
       systemctl --user disable --now "$timer" 2>/dev/null || true
-      systemctl --user stop "$service" 2>/dev/null || true
+      systemctl --user stop "$service" "$updates_retry_unit-*.timer" 2>/dev/null || true
       # disable removes the links of systemctl link as well, these are what might be left
       rm -f "$units/$service" "$units/$timer"
       rm -rf "$units/$service.d"

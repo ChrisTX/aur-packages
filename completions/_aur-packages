@@ -48,7 +48,7 @@ _aur-packages() {
       curcontext=${curcontext%:*:*}:aur-packages-$words[1]:
       case $words[1] in
         updates)
-          _arguments '--state[write the result for the tray icon]' '*:package:_aur-packages_packages' && ret=0
+          _arguments '--state[write the result for the tray icon]' '--retry[check rate-limited packages again later (with --state)]' '*:package:_aur-packages_packages' && ret=0
           ;;
         pull | adopt | upgrade | quoting)
           _arguments '*:package:_aur-packages_packages' && ret=0

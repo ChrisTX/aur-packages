@@ -137,6 +137,22 @@ def write_json(path: Path, data: dict | list) -> None:
     tmp.replace(path)
 
 
+def shorten(text: str, length: int = 100) -> str:
+    """The first line of a text, at most length characters long."""
+    line = (text.splitlines() or [""])[0]
+    return line if len(line) <= length else line[: length - 1] + "…"
+
+
+def rate_limit_line(rate_limited: dict) -> str:
+    """The packages waiting for GitHub's rate limit, and when they're checked again."""
+    count = len(rate_limited.get("packages", []))
+    try:
+        retry = f"{datetime.fromisoformat(rate_limited.get('retry') or '').astimezone():%H:%M}"
+    except ValueError:
+        retry = "later"
+    return f"{count} package{'s' if count != 1 else ''} wait for GitHub's rate limit, checked again at {retry}"
+
+
 def format_time(iso: str | None) -> str:
     """A time of the state file in the local time zone, e.g. Thu 5 Nov 2026, 22:40."""
     try:
@@ -481,6 +497,9 @@ class Tray(Gio.Application):
         lines = [f"{u['package']} {u['current']} → {u['new']}" for u in updates]
         if error:
             lines.append(f"Check failed: {error}")
+        rate_limited = self.state.get("rate_limited") or {}
+        if rate_limited.get("packages"):
+            lines.append(rate_limit_line(rate_limited))
         self.title = f"AUR packages: {summary.lower() if count else summary}"
         self.tooltip = "\n".join(lines)
         self.icon = ICON_UPDATES if count else ICON_UP_TO_DATE
@@ -510,16 +529,21 @@ class Tray(Gio.Application):
             ),
         ]
         if error:
-            items.append(MenuItem(f"Check failed: {error}"))
+            items.append(MenuItem(shorten(f"Check failed: {error}")))
+        rate_limited = self.state.get("rate_limited") or {}
+        if rate_limited.get("packages"):
+            # Not failures: they're checked again on their own
+            waiting = [MenuItem(package) for package in rate_limited["packages"]]
+            items.append(MenuItem(rate_limit_line(rate_limited), children=waiting))
         if failures:
-            failed = []
-            for failure in failures:
-                message = (failure.get("message") or "").splitlines()
-                failed.append(
-                    MenuItem(
-                        f"{failure['package']}: {message[0] if message else 'failed'}"
+            failed = [
+                MenuItem(
+                    shorten(
+                        f"{failure['package']}: {failure.get('message') or 'failed'}"
                     )
                 )
+                for failure in failures
+            ]
             count = len(failures)
             items.append(
                 MenuItem(
