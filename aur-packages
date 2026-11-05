@@ -73,7 +73,9 @@ else the one the symlink points into.
             that push can push on top of it: for a package that was on the AUR before, deleted or
             taken over from another maintainer (the AUR only accepts pushes on top of its history)
   updates   Show which packages have a newer upstream version with the .nvchecker.toml of each
-            (pkgctl version check), without changing anything
+            (pkgctl version check), without changing anything. --state writes the result to
+            ~/.local/state/aur-packages/updates.json for the tray icon instead (see tray), keeping
+            the entries of packages whose check failed
   upgrade   Upgrade the packages to their latest upstream version with the .nvchecker.toml of each
             (pkgctl version upgrade), then format the PKGBUILDs and regenerate .SRCINFO
   check     Run the checks of .pre-commit-config.yaml with prek or pre-commit, or with --manual
@@ -103,6 +105,10 @@ else the one the symlink points into.
             or with --check only report differences
   setup     Install the git hooks that run the checks before each commit, replacing aurpublish's,
             and check the commit message
+  tray install|remove
+            Install a daily update check of this checkout's packages (the systemd user units of
+            systemd/, updates --state) and a tray icon (aur-packages-tray, autostarted) that shows
+            the outdated packages and announces new versions once; or remove them again
   commit-msg FILE
             Check a commit message against the convention in CONTRIBUTING.md (run by the
             commit-msg hook)
@@ -248,9 +254,69 @@ select_checked_packages() {
 
 cmd_updates() {
   local -a checked
+  if [[ "${1-}" == --state ]]; then
+    shift
+    updates_state "$@"
+    return
+  fi
   select_checked_packages "$@"
   ((${#checked[@]})) || return 0
   pkgctl version check "${checked[@]}"
+}
+
+# The state file of updates --state, which the tray icon (aur-packages-tray) watches
+updates_state_file=${XDG_STATE_HOME:-$HOME/.local/state}/aur-packages/updates.json
+
+# Checks the packages like updates and writes the result to $updates_state_file, as JSON: the time of
+# the check, the checkout, the outdated packages (package, current and new version), the packages whose
+# check failed, and an error if the whole check failed. A package whose check failed keeps the entry of
+# the previous check, so a rate limit or a missing network doesn't make updates disappear; if no check
+# succeeded, the error says so, and the command fails. Written atomically, so the tray never reads half
+# a file.
+updates_state() {
+  local dir output errors status=0 previous='null' tmp
+  local -a checked
+  select_checked_packages "$@"
+  dir=${updates_state_file%/*}
+  mkdir -p "$dir"
+  if [[ -f "$updates_state_file" ]] && jq -e . "$updates_state_file" >/dev/null 2>&1; then
+    previous=$(<"$updates_state_file")
+  fi
+  errors=$(mktemp)
+  # shellcheck disable=SC2064 # expand $errors now, when the trap is set
+  trap "rm -f '$errors'" RETURN
+  # JSON lists the outdated packages and the failed checks, pkgctl exits with 0 either way
+  if ! output=$(pkgctl version check --json "${checked[@]}" 2>"$errors") || ! jq -e 'type == "array"' <<<"$output" >/dev/null 2>&1; then
+    output=$(jq -n --arg error "pkgctl version check failed: $(tail -n 1 "$errors")" '{error: $error}')
+    status=1
+  else
+    output=$(jq -n --argjson results "$output" --argjson total "${#checked[@]}" '{
+      updates: [$results[] | select(.status == "success" and .out_of_date)
+        | {package: .pkgbase, current: .local_version, new: .upstream_version}],
+      failures: [$results[] | select(.status == "failure") | {package: .pkgbase, message: .message}],
+      error: (if $total > 0 and ([$results[] | select(.status == "failure")] | length) == $total
+        then "No package could be checked, e.g. without a network connection" else null end)
+    }')
+    jq -e '.error == null' <<<"$output" >/dev/null || status=1
+  fi
+  tmp=$(mktemp "$dir/.updates.json.XXXXXX")
+  jq -n --argjson new "$output" --argjson previous "$previous" --arg checked "$(date --iso-8601=seconds)" \
+    --arg checkout "$root" '
+    ($previous // {}) as $previous
+    | ($new.failures // [] | map(.package)) as $failed
+    | {
+        checked: $checked,
+        checkout: $checkout,
+        error: $new.error,
+        updates: (if $new.updates == null then $previous.updates // []
+          else $new.updates + [$previous.updates // [] | .[] | select(.package as $p | $failed | index($p))]
+          end | sort_by(.package)),
+        failures: ($new.failures // $previous.failures // [])
+      }' >"$tmp"
+  mv "$tmp" "$updates_state_file"
+  jq -r '(.updates[] | "\(.package) \(.current) -> \(.new)"), (.failures[] | "\(.package): check failed: \(.message)"),
+    (.error // empty | "Error: \(.)")' "$updates_state_file"
+  return "$status"
 }
 
 cmd_upgrade() {
@@ -402,6 +468,85 @@ done
 EOF
   chmod +x "$hook"
   echo "Installed $hook"
+}
+
+# The application ID of aur-packages-tray, its name on the session bus
+tray_app_id=info.rev_crew.AurPackagesTray
+
+# Installs the daily update check (the user units of systemd/, linked from this checkout, which a
+# drop-in points at) and the tray icon's autostart entry, then starts both; or removes them again
+cmd_tray() {
+  local units=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
+  local autostart=${XDG_CONFIG_HOME:-$HOME/.config}/autostart/aur-packages-tray.desktop
+  local service=aur-packages-updates.service timer=aur-packages-updates.timer value exec
+  case "${1-}" in
+    install)
+      if ! python3 -c 'from gi.repository import Gio' 2>/dev/null; then
+        echo "The tray icon needs python-gobject, the check is installed anyway" >&2
+      fi
+      if ! command -v wl-copy >/dev/null; then
+        echo "Copying the upgrade command needs wl-clipboard" >&2
+      fi
+      # --force replaces the links of another checkout
+      systemctl --user link --force "$root/systemd/$service" "$root/systemd/$timer"
+      # systemd unquotes the value, and expands specifiers (%)
+      value=$root
+      value=${value//\\/\\\\}
+      value=${value//\"/\\\"}
+      value=${value//%/%%}
+      mkdir -p "$units/$service.d"
+      cat >"$units/$service.d/checkout.conf" <<EOF
+# Installed by ./aur-packages tray install: the checkout whose packages are checked
+[Service]
+Environment="AUR_PACKAGES_HOME=$value"
+EOF
+      systemctl --user daemon-reload
+      systemctl --user enable --now "$timer"
+      # The Exec key quotes the path for the desktop entry's argument syntax, and escapes backslashes
+      # once more as a string value
+      exec=$root/aur-packages-tray
+      exec=${exec//\\/\\\\}
+      exec=${exec//\"/\\\"}
+      exec=${exec//\`/\\\`}
+      exec=${exec//\$/\\\$}
+      exec=${exec//\\/\\\\}
+      mkdir -p "${autostart%/*}"
+      cat >"$autostart" <<EOF
+[Desktop Entry]
+Type=Application
+Name=AUR package updates
+Comment=Tray icon of the update check of the AUR packages, installed by ./aur-packages tray install
+Icon=software-update-available
+Exec="$exec"
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+EOF
+      echo "Installed the units of $root/systemd, $units/$service.d/checkout.conf and $autostart"
+      # A first result for the tray, and the tray itself in a graphical session
+      systemctl --user start --no-block "$service"
+      if [[ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]]; then
+        setsid -f "$root/aur-packages-tray" >/dev/null 2>&1 </dev/null
+        echo "Started the tray icon"
+      fi
+      ;;
+    remove)
+      systemctl --user disable --now "$timer" 2>/dev/null || true
+      systemctl --user stop "$service" 2>/dev/null || true
+      # disable removes the links of systemctl link as well, these are what might be left
+      rm -f "$units/$service" "$units/$timer"
+      rm -rf "$units/$service.d"
+      systemctl --user daemon-reload
+      rm -f "$autostart"
+      # The tray quits by its action, if it's running
+      gdbus call --session --dest "$tray_app_id" --object-path "/${tray_app_id//.//}" \
+        --method org.freedesktop.Application.ActivateAction quit '[]' '{}' >/dev/null 2>&1 || true
+      echo "Removed the update check and the tray icon; the last result stays in ${updates_state_file%/*}"
+      ;;
+    *)
+      echo "Usage: aur-packages tray install|remove" >&2
+      return 1
+      ;;
+  esac
 }
 
 # Checks the summary of a commit message ($1): upgpkg: <pkg> <ver>-<rel> with the version of the
@@ -1196,7 +1341,7 @@ cmd_completion() {
 command=${1-help}
 (($#)) && shift
 case "$command" in
-  pull | push | adopt | updates | upgrade | check | sync | setup | build | commits | list | completion)
+  pull | push | adopt | updates | upgrade | check | sync | setup | tray | build | commits | list | completion)
     "cmd_$command" "$@"
     ;;
   commit-msg)

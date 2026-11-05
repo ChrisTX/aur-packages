@@ -15,7 +15,7 @@ _aur_packages_complete() {
   done
   if [[ -z "$command" ]]; then
     mapfile -t COMPREPLY < <(compgen -W 'pull push adopt updates upgrade check commits build sync setup
-      commit-msg quoting list completion help' -- "$cur")
+      tray commit-msg quoting list completion help' -- "$cur")
     return
   fi
   # The package to leave out, of the checkout the command works on
@@ -24,7 +24,8 @@ _aur_packages_complete() {
     return
   fi
   case "$command" in
-    pull | adopt | updates | upgrade | quoting) packages=true ;;
+    pull | adopt | upgrade | quoting) packages=true ;;
+    updates) options=--state packages=true ;;
     push)
       options='--nocheck --exclude' packages=true
       ;;
@@ -57,6 +58,12 @@ _aur_packages_complete() {
     completion)
       if ((COMP_CWORD == i + 1)); then
         mapfile -t COMPREPLY < <(compgen -W 'bash zsh fish pwsh' -- "$cur")
+      fi
+      return
+      ;;
+    tray)
+      if ((COMP_CWORD == i + 1)); then
+        mapfile -t COMPREPLY < <(compgen -W 'install remove' -- "$cur")
       fi
       return
       ;;

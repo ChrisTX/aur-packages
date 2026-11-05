@@ -8,6 +8,8 @@ path = [
   "CODE_OF_CONDUCT.md",
   "CLAUDE.md",
   "aur-packages",
+  "aur-packages-tray",
+  "systemd/**",
   "completions/**",
   ".gitignore",
   ".gitattributes",

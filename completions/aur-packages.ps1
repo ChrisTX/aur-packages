@@ -15,6 +15,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'build'      = 'Build packages or a template with their dependencies'
         'sync'       = 'Copy templates/package into the packages'
         'setup'      = 'Install the git hooks'
+        'tray'       = 'Install or remove the daily update check and its tray icon'
         'commit-msg' = 'Check a commit message'
         'quoting'    = 'Check the quoting of the metadata arrays'
         'list'       = 'List the packages or the build templates'
@@ -22,6 +23,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'help'       = 'Show the help'
     }
     $options = @{
+        'updates' = @('--state')
         'push'    = @('--nocheck', '--exclude')
         'check'   = @('--manual')
         'commits' = @('--update')
@@ -79,6 +81,10 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
     } elseif ($command -eq 'completion') {
         if ($afterCommand -eq 0) {
             'bash', 'zsh', 'fish', 'pwsh' | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
+        }
+    } elseif ($command -eq 'tray') {
+        if ($afterCommand -eq 0) {
+            'install', 'remove' | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
         }
     } elseif ($wordToComplete -like '-*') {
         $options[$command] | ForEach-Object { ConvertTo-CompletionResult -Text $_ -Type 'ParameterName' }

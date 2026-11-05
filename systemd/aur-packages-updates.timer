@@ -1,0 +1,11 @@
+# Runs the update check of the AUR packages daily, and after a boot if it was missed
+[Unit]
+Description=Check the AUR packages for upstream updates daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

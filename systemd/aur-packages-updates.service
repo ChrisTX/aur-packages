@@ -1,0 +1,16 @@
+# Checks the AUR packages of a checkout for upstream updates and writes the result to
+# ~/.local/state/aur-packages/updates.json, which the tray icon (aur-packages-tray) shows. Installed with
+# ./aur-packages tray install, which sets the checkout in a drop-in (checkout.conf).
+[Unit]
+Description=Check the AUR packages for upstream updates
+Documentation=man:pkgctl-version-check(1)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash ${AUR_PACKAGES_HOME}/aur-packages updates --state
+# The user manager has no network-online.target: a check that failed as a whole, e.g. after a resume
+# before the network is up, is retried, less often the longer it fails. The previous result is kept.
+Restart=on-failure
+RestartSec=5min
+RestartSteps=4
+RestartMaxDelaySec=6h

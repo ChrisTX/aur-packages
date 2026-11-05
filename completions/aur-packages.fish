@@ -9,7 +9,7 @@ function __aur_packages_list
     $program list $argv 2>/dev/null
 end
 
-set -l commands pull push adopt updates upgrade check commits build sync setup commit-msg quoting list completion help
+set -l commands pull push adopt updates upgrade check commits build sync setup tray commit-msg quoting list completion help
 set -l none "not __fish_seen_subcommand_from $commands"
 
 complete -c aur-packages -f
@@ -23,6 +23,7 @@ complete -c aur-packages -n $none -a commits -d 'Show the upstream commits of th
 complete -c aur-packages -n $none -a build -d 'Build packages or a template with their dependencies'
 complete -c aur-packages -n $none -a sync -d 'Copy templates/package into the packages'
 complete -c aur-packages -n $none -a setup -d 'Install the git hooks'
+complete -c aur-packages -n $none -a tray -d 'Install or remove the daily update check and its tray icon'
 complete -c aur-packages -n $none -a commit-msg -d 'Check a commit message'
 complete -c aur-packages -n $none -a quoting -d 'Check the quoting of the metadata arrays'
 complete -c aur-packages -n $none -a list -d 'List the packages or the build templates'
@@ -33,6 +34,7 @@ complete -c aur-packages -n '__fish_seen_subcommand_from pull push adopt updates
     -a '(__aur_packages_list)' -d Package
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l nocheck -d 'Push without running the checks'
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l exclude -x -a '(__aur_packages_list)' -d 'Leave a package out'
+complete -c aur-packages -n '__fish_seen_subcommand_from updates' -l state -d 'Write the result for the tray icon'
 complete -c aur-packages -n '__fish_seen_subcommand_from check' -l manual -d 'Also run the checks that only run on request'
 complete -c aur-packages -n '__fish_seen_subcommand_from commits' -l update -d 'Rewrite stale _commit values'
 complete -c aur-packages -n '__fish_seen_subcommand_from sync' -l check -d 'Only report differences'
@@ -53,3 +55,4 @@ complete -c aur-packages -n $build -l repo -x -a '(__fish_complete_directories)'
 
 complete -c aur-packages -n '__fish_seen_subcommand_from commit-msg' -F
 complete -c aur-packages -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish pwsh' -d Shell
+complete -c aur-packages -n '__fish_seen_subcommand_from tray' -a 'install\t"Install the update check and the tray icon" remove\t"Remove them"'

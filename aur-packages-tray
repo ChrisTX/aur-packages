@@ -1,0 +1,580 @@
+#!/usr/bin/python3
+"""Tray icon for the update check of the AUR packages (./aur-packages tray install).
+
+Shows the state file of `aur-packages updates --state`, which the user unit aur-packages-updates.service
+writes daily: hidden in the tray's overflow (passive) while every package is up to date, shown while
+packages are outdated. The menu lists them and checks again on request. A desktop notification announces
+each new upstream version once.
+
+The icon is a StatusNotifierItem with a com.canonical.dbusmenu menu, the protocol of Plasma's tray,
+spoken over D-Bus with Gio: libayatana-appindicator is deprecated, and its successor exports menus as
+org.gtk.Menus, which Plasma doesn't read (AyatanaIndicators/libayatana-appindicator-glib#89).
+"""
+
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+
+from gi.repository import Gio, GLib
+
+APP_ID = "info.rev_crew.AurPackagesTray"
+SERVICE = "aur-packages-updates.service"
+ICON = "software-update-available"
+STATE_DIR = Path(GLib.get_user_state_dir()) / "aur-packages"
+STATE_FILE = STATE_DIR / "updates.json"
+# The package versions announced so far, so each one is announced once, across restarts as well
+NOTIFIED_FILE = STATE_DIR / "tray-notified.json"
+
+WATCHER = "org.kde.StatusNotifierWatcher"
+ITEM = "org.kde.StatusNotifierItem"
+ITEM_PATH = "/StatusNotifierItem"
+MENU = "com.canonical.dbusmenu"
+MENU_PATH = "/MenuBar"
+INTERFACES = Gio.DBusNodeInfo.new_for_xml("""
+<node>
+  <interface name="org.kde.StatusNotifierItem">
+    <property name="Category" type="s" access="read"/>
+    <property name="Id" type="s" access="read"/>
+    <property name="Title" type="s" access="read"/>
+    <property name="Status" type="s" access="read"/>
+    <property name="WindowId" type="i" access="read"/>
+    <property name="IconName" type="s" access="read"/>
+    <property name="IconPixmap" type="a(iiay)" access="read"/>
+    <property name="OverlayIconName" type="s" access="read"/>
+    <property name="OverlayIconPixmap" type="a(iiay)" access="read"/>
+    <property name="AttentionIconName" type="s" access="read"/>
+    <property name="AttentionIconPixmap" type="a(iiay)" access="read"/>
+    <property name="AttentionMovieName" type="s" access="read"/>
+    <property name="ToolTip" type="(sa(iiay)ss)" access="read"/>
+    <property name="ItemIsMenu" type="b" access="read"/>
+    <property name="Menu" type="o" access="read"/>
+    <method name="ContextMenu"><arg name="x" type="i" direction="in"/><arg name="y" type="i" direction="in"/></method>
+    <method name="Activate"><arg name="x" type="i" direction="in"/><arg name="y" type="i" direction="in"/></method>
+    <method name="SecondaryActivate">
+      <arg name="x" type="i" direction="in"/><arg name="y" type="i" direction="in"/>
+    </method>
+    <method name="Scroll">
+      <arg name="delta" type="i" direction="in"/><arg name="orientation" type="s" direction="in"/>
+    </method>
+    <signal name="NewTitle"/>
+    <signal name="NewIcon"/>
+    <signal name="NewToolTip"/>
+    <signal name="NewStatus"><arg name="status" type="s"/></signal>
+  </interface>
+  <interface name="com.canonical.dbusmenu">
+    <property name="Version" type="u" access="read"/>
+    <property name="TextDirection" type="s" access="read"/>
+    <property name="Status" type="s" access="read"/>
+    <property name="IconThemePath" type="as" access="read"/>
+    <method name="GetLayout">
+      <arg name="parentId" type="i" direction="in"/>
+      <arg name="recursionDepth" type="i" direction="in"/>
+      <arg name="propertyNames" type="as" direction="in"/>
+      <arg name="revision" type="u" direction="out"/>
+      <arg name="layout" type="(ia{sv}av)" direction="out"/>
+    </method>
+    <method name="GetGroupProperties">
+      <arg name="ids" type="ai" direction="in"/>
+      <arg name="propertyNames" type="as" direction="in"/>
+      <arg name="properties" type="a(ia{sv})" direction="out"/>
+    </method>
+    <method name="GetProperty">
+      <arg name="id" type="i" direction="in"/>
+      <arg name="name" type="s" direction="in"/>
+      <arg name="value" type="v" direction="out"/>
+    </method>
+    <method name="Event">
+      <arg name="id" type="i" direction="in"/>
+      <arg name="eventId" type="s" direction="in"/>
+      <arg name="data" type="v" direction="in"/>
+      <arg name="timestamp" type="u" direction="in"/>
+    </method>
+    <method name="EventGroup">
+      <arg name="events" type="a(isvu)" direction="in"/>
+      <arg name="idErrors" type="ai" direction="out"/>
+    </method>
+    <method name="AboutToShow">
+      <arg name="id" type="i" direction="in"/>
+      <arg name="needUpdate" type="b" direction="out"/>
+    </method>
+    <method name="AboutToShowGroup">
+      <arg name="ids" type="ai" direction="in"/>
+      <arg name="updatesNeeded" type="ai" direction="out"/>
+      <arg name="idErrors" type="ai" direction="out"/>
+    </method>
+    <signal name="ItemsPropertiesUpdated">
+      <arg name="updatedProps" type="a(ia{sv})"/>
+      <arg name="removedProps" type="a(ias)"/>
+    </signal>
+    <signal name="LayoutUpdated"><arg name="revision" type="u"/><arg name="parent" type="i"/></signal>
+    <signal name="ItemActivationRequested"><arg name="id" type="i"/><arg name="timestamp" type="u"/></signal>
+  </interface>
+</node>
+""")
+
+
+def read_json(path: Path) -> dict | list | None:
+    """The content of a JSON file, or None if it's missing or not JSON (yet)."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def write_json(path: Path, data: dict | list) -> None:
+    """Write a JSON file atomically, through a temporary file in the same folder."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def format_time(iso: str | None) -> str:
+    """A time of the state file in the local time zone, e.g. Thu 5 Nov 2026, 22:40."""
+    try:
+        time = datetime.fromisoformat(iso or "").astimezone()
+    except ValueError:
+        return "never"
+    return f"{time:%a} {time.day} {time:%b %Y, %H:%M}"
+
+
+def copy_to_clipboard(text: str) -> str | None:
+    """Copy text to the clipboard with wl-copy, or say why it couldn't.
+
+    The tray has no window, so it can't own the clipboard itself: wl-copy (wl-clipboard) does.
+    """
+    if not shutil.which("wl-copy"):
+        return "Copying needs wl-clipboard"
+    # wl-copy stays in the background to serve the clipboard, holding on to its output: with pipes,
+    # run() would wait for it
+    try:
+        result = subprocess.run(
+            ["wl-copy"],
+            input=text,
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return "wl-copy didn't finish"
+    if result.returncode:
+        return f"wl-copy failed with exit code {result.returncode}"
+    return None
+
+
+@dataclass
+class MenuItem:
+    """An item of the dbusmenu: a command, a label (greyed out), a separator or a submenu."""
+
+    label: str = ""
+    command: Callable[[], object] | None = None
+    enabled: bool = True
+    separator: bool = False
+    children: list["MenuItem"] = field(default_factory=list)
+    id: int = 0
+
+    def properties(self) -> dict[str, GLib.Variant]:
+        if self.id == 0:
+            return {"children-display": GLib.Variant("s", "submenu")}
+        if self.separator:
+            return {"type": GLib.Variant("s", "separator")}
+        props = {
+            # An underscore marks the access key, a double one is an underscore
+            "label": GLib.Variant("s", self.label.replace("_", "__")),
+            "enabled": GLib.Variant(
+                "b", self.enabled and bool(self.command or self.children)
+            ),
+        }
+        if self.children:
+            props["children-display"] = GLib.Variant("s", "submenu")
+        return props
+
+    def layout(self, depth: int) -> tuple:
+        """The item and its children down to depth levels (-1: all), as GetLayout returns it."""
+        children = (
+            [
+                GLib.Variant("(ia{sv}av)", child.layout(depth - 1))
+                for child in self.children
+            ]
+            if depth
+            else []
+        )
+        return (self.id, self.properties(), children)
+
+
+class Tray(Gio.Application):
+    """The tray icon, one per session: a second start just exits."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS
+        )
+        self.connection: Gio.DBusConnection | None = None
+        self.monitor: Gio.FileMonitor | None = None
+        self.reload_source = 0
+        self.checking = False
+        self.state: dict = {}
+        # The name the tray knows the item by, as the specification suggests
+        self.bus_name = f"org.kde.StatusNotifierItem-{os.getpid()}-1"
+        self.status = "Passive"
+        self.title = "AUR packages"
+        self.tooltip = ""
+        self.revision = 0
+        self.root = MenuItem()
+        self.items: dict[int, MenuItem] = {}
+
+    def do_startup(self) -> None:
+        Gio.Application.do_startup(self)
+        # Runs without a window, until Quit
+        self.hold()
+        # For aur-packages tray remove, over D-Bus (org.freedesktop.Application.ActivateAction)
+        quit_action = Gio.SimpleAction.new("quit", None)
+        quit_action.connect("activate", lambda _action, _parameter: self.quit())
+        self.add_action(quit_action)
+
+        self.connection = self.get_dbus_connection()
+        for path, interface in ((ITEM_PATH, ITEM), (MENU_PATH, MENU)):
+            self.connection.register_object(
+                path,
+                INTERFACES.lookup_interface(interface),
+                self.on_method_call,
+                self.on_get_property,
+                None,
+            )
+        Gio.bus_own_name_on_connection(
+            self.connection, self.bus_name, Gio.BusNameOwnerFlags.NONE, None, None
+        )
+        # Registered with the tray whenever it (re)appears, e.g. after a restart of plasmashell
+        Gio.bus_watch_name_on_connection(
+            self.connection,
+            WATCHER,
+            Gio.BusNameWatcherFlags.NONE,
+            self.on_watcher_appeared,
+            None,
+        )
+
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        # The state file is replaced as a whole (a rename), so the folder is watched rather than the file
+        self.monitor = Gio.File.new_for_path(str(STATE_DIR)).monitor_directory(
+            Gio.FileMonitorFlags.WATCH_MOVES, None
+        )
+        self.monitor.connect("changed", self.on_changed)
+        self.reload()
+
+    def do_activate(self) -> None:
+        pass
+
+    def on_watcher_appeared(
+        self, connection: Gio.DBusConnection, _name: str, _owner: str
+    ) -> None:
+        connection.call(
+            WATCHER,
+            "/StatusNotifierWatcher",
+            WATCHER,
+            "RegisterStatusNotifierItem",
+            GLib.Variant("(s)", (self.bus_name,)),
+            None,
+            Gio.DBusCallFlags.NONE,
+            -1,
+            None,
+            None,
+        )
+
+    def on_get_property(
+        self,
+        _connection: Gio.DBusConnection,
+        _sender: str,
+        path: str,
+        _interface: str,
+        name: str,
+    ) -> GLib.Variant | None:
+        if path == MENU_PATH:
+            values = {
+                "Version": GLib.Variant("u", 3),
+                "TextDirection": GLib.Variant("s", "ltr"),
+                "Status": GLib.Variant("s", "normal"),
+                "IconThemePath": GLib.Variant("as", []),
+            }
+        else:
+            values = {
+                "Category": GLib.Variant("s", "ApplicationStatus"),
+                "Id": GLib.Variant("s", "aur-packages-tray"),
+                "Title": GLib.Variant("s", self.title),
+                "Status": GLib.Variant("s", self.status),
+                "WindowId": GLib.Variant("i", 0),
+                "IconName": GLib.Variant("s", ICON),
+                "IconPixmap": GLib.Variant("a(iiay)", []),
+                "OverlayIconName": GLib.Variant("s", ""),
+                "OverlayIconPixmap": GLib.Variant("a(iiay)", []),
+                "AttentionIconName": GLib.Variant("s", ""),
+                "AttentionIconPixmap": GLib.Variant("a(iiay)", []),
+                "AttentionMovieName": GLib.Variant("s", ""),
+                "ToolTip": GLib.Variant(
+                    "(sa(iiay)ss)", (ICON, [], self.title, self.tooltip)
+                ),
+                # A click opens the menu as well, there's nothing else to activate
+                "ItemIsMenu": GLib.Variant("b", True),
+                "Menu": GLib.Variant("o", MENU_PATH),
+            }
+        return values.get(name)
+
+    def on_method_call(
+        self,
+        _connection: Gio.DBusConnection,
+        _sender: str,
+        _path: str,
+        _interface: str,
+        method: str,
+        parameters: GLib.Variant,
+        invocation: Gio.DBusMethodInvocation,
+    ) -> None:
+        # Every call gets an answer, else the tray waits for it until a timeout
+        try:
+            self.handle_method_call(method, parameters.unpack(), invocation)
+        except Exception as error:
+            invocation.return_dbus_error(
+                "org.freedesktop.DBus.Error.Failed", str(error)
+            )
+            raise
+
+    def handle_method_call(
+        self, method: str, args: tuple, invocation: Gio.DBusMethodInvocation
+    ) -> None:
+        reply = None
+        if method == "GetLayout":
+            parent, depth, _names = args
+            item = self.root if parent == 0 else self.items.get(parent)
+            if item is None:
+                invocation.return_dbus_error(
+                    f"{MENU}.Error.UnknownId", f"No menu item {parent}"
+                )
+                return
+            reply = GLib.Variant("(u(ia{sv}av))", (self.revision, item.layout(depth)))
+        elif method == "GetGroupProperties":
+            ids, _names = args
+            found = [
+                (i, self.items[i].properties())
+                for i in ids or self.items
+                if i in self.items
+            ]
+            reply = GLib.Variant("(a(ia{sv}))", (found,))
+        elif method == "GetProperty":
+            item_id, name = args
+            value = (
+                self.items[item_id].properties().get(name)
+                if item_id in self.items
+                else None
+            )
+            if value is None:
+                invocation.return_dbus_error(
+                    f"{MENU}.Error.UnknownId", f"No property {name} of item {item_id}"
+                )
+                return
+            reply = GLib.Variant("(v)", (value,))
+        elif method == "Event":
+            self.on_event(args[0], args[1])
+        elif method == "EventGroup":
+            for item_id, event, _data, _timestamp in args[0]:
+                self.on_event(item_id, event)
+            reply = GLib.Variant(
+                "(ai)", ([event[0] for event in args[0] if event[0] not in self.items],)
+            )
+        elif method == "AboutToShow":
+            reply = GLib.Variant("(b)", (False,))
+        elif method == "AboutToShowGroup":
+            reply = GLib.Variant(
+                "(aiai)", ([], [i for i in args[0] if i not in self.items])
+            )
+        # ContextMenu, Activate, SecondaryActivate and Scroll: the tray shows the menu itself
+        invocation.return_value(reply)
+
+    def on_event(self, item_id: int, event: str) -> None:
+        item = self.items.get(item_id)
+        if event == "clicked" and item and item.command and item.enabled:
+            command = item.command
+
+            # After the reply: the command may rebuild the menu
+            def run() -> bool:
+                command()
+                return GLib.SOURCE_REMOVE
+
+            GLib.idle_add(run)
+
+    def emit(
+        self,
+        path: str,
+        interface: str,
+        signal: str,
+        parameters: GLib.Variant | None = None,
+    ) -> None:
+        self.connection.emit_signal(None, path, interface, signal, parameters)
+
+    def on_changed(
+        self,
+        _monitor: Gio.FileMonitor,
+        file: Gio.File,
+        other: Gio.File | None,
+        _event: int,
+    ) -> None:
+        names = {file.get_basename(), other.get_basename() if other else None}
+        if STATE_FILE.name in names and not self.reload_source:
+            # Events come in bursts, read the file once they're over
+            self.reload_source = GLib.timeout_add(300, self.reload)
+
+    def reload(self) -> bool:
+        self.reload_source = 0
+        self.checking = False
+        state = read_json(STATE_FILE)
+        self.state = state if isinstance(state, dict) else {}
+        self.notify_new()
+        self.update()
+        return GLib.SOURCE_REMOVE
+
+    def notify_new(self) -> None:
+        """Announce the package versions that weren't outdated at the last look, once each."""
+        if "updates" not in self.state:
+            return
+        current = {f"{u['package']} {u['new']}" for u in self.state["updates"]}
+        notified = read_json(NOTIFIED_FILE)
+        known = set(notified) if isinstance(notified, list) else set()
+        new = [
+            u
+            for u in self.state["updates"]
+            if f"{u['package']} {u['new']}" not in known
+        ]
+        if new:
+            notification = Gio.Notification.new(
+                "AUR package update"
+                if len(new) == 1
+                else f"{len(new)} AUR package updates"
+            )
+            notification.set_body(
+                "\n".join(f"{u['package']} {u['current']} → {u['new']}" for u in new)
+            )
+            notification.set_icon(Gio.ThemedIcon.new(ICON))
+            self.send_notification("updates", notification)
+        # Only what's outdated now: a version that comes back later is announced again
+        if current != known:
+            write_json(NOTIFIED_FILE, sorted(current))
+
+    def update(self) -> None:
+        updates = self.state.get("updates", [])
+        error = self.state.get("error")
+        count = len(updates)
+        if count:
+            summary = f"{count} package{'s' if count != 1 else ''} outdated"
+        elif not self.state:
+            summary = "Not checked yet"
+        else:
+            summary = "All packages up to date"
+        lines = [f"{u['package']} {u['current']} → {u['new']}" for u in updates]
+        if error:
+            lines.append(f"Check failed: {error}")
+        self.title = f"AUR packages: {summary.lower() if count else summary}"
+        self.tooltip = "\n".join(lines)
+        self.emit(ITEM_PATH, ITEM, "NewTitle")
+        self.emit(ITEM_PATH, ITEM, "NewToolTip")
+        # Passive puts the icon into the tray's overflow; never NeedsAttention
+        status = "Active" if count else "Passive"
+        if status != self.status:
+            self.status = status
+            self.emit(ITEM_PATH, ITEM, "NewStatus", GLib.Variant("(s)", (status,)))
+        self.build_menu(summary, updates, self.state.get("failures", []), error)
+
+    def build_menu(
+        self, summary: str, updates: list[dict], failures: list[dict], error: str | None
+    ) -> None:
+        """Rebuild the menu and tell the tray to read it again."""
+        items = [MenuItem(summary)]
+        items += [
+            MenuItem(f"{u['package']}  {u['current']} → {u['new']}") for u in updates
+        ]
+        items += [
+            MenuItem(separator=True),
+            MenuItem(
+                "Checking…"
+                if self.checking
+                else f"Last check: {format_time(self.state.get('checked'))}"
+            ),
+        ]
+        if error:
+            items.append(MenuItem(f"Check failed: {error}"))
+        if failures:
+            failed = []
+            for failure in failures:
+                message = (failure.get("message") or "").splitlines()
+                failed.append(
+                    MenuItem(
+                        f"{failure['package']}: {message[0] if message else 'failed'}"
+                    )
+                )
+            count = len(failures)
+            items.append(
+                MenuItem(
+                    f"{count} package check{'s' if count != 1 else ''} failed",
+                    children=failed,
+                )
+            )
+        items += [
+            MenuItem(separator=True),
+            MenuItem("Check now", self.on_check, enabled=not self.checking),
+            MenuItem("Copy upgrade command", self.on_copy, enabled=bool(updates)),
+            MenuItem("Quit", self.quit),
+        ]
+        self.revision += 1
+        self.root = MenuItem(children=items)
+        self.items = {}
+        # New IDs for each revision, so a click in a menu that was open during a change does nothing
+        # rather than hitting another item
+        next_id = self.revision * 1000
+
+        def number(item: MenuItem) -> None:
+            nonlocal next_id
+            for child in item.children:
+                next_id += 1
+                child.id = next_id
+                self.items[next_id] = child
+                number(child)
+
+        number(self.root)
+        self.emit(
+            MENU_PATH, MENU, "LayoutUpdated", GLib.Variant("(ui)", (self.revision, 0))
+        )
+
+    def on_check(self) -> None:
+        # --no-block: the check takes a while, the state file says when it's done
+        result = subprocess.run(
+            ["systemctl", "--user", "start", "--no-block", SERVICE],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode:
+            self.state["error"] = (
+                result.stderr.strip() or f"systemctl failed with {result.returncode}"
+            )
+        else:
+            self.checking = True
+        self.update()
+
+    def on_copy(self) -> None:
+        packages = [update["package"] for update in self.state.get("updates", [])]
+        checkout = self.state.get("checkout") or "."
+        command = f"cd {shlex.quote(checkout)} && ./aur-packages upgrade {shlex.join(packages)}"
+        problem = copy_to_clipboard(command)
+        if problem:
+            notification = Gio.Notification.new("Couldn't copy the upgrade command")
+            notification.set_body(problem)
+            self.send_notification("copy", notification)
+
+
+if __name__ == "__main__":
+    sys.exit(Tray().run(sys.argv))

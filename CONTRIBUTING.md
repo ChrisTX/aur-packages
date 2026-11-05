@@ -20,7 +20,7 @@ sudo pacman -S --needed base-devel devtools pacman-contrib namcap nvchecker jq \
 ./aur-packages setup
 ```
 
-`./aur-packages` manages all packages, or the packages given: `pull` and `push` (aurpublish, `push --exclude` to leave packages out), `adopt` (merges the AUR's history of a package that was on the AUR before, deleted or taken over, so it can be pushed), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `build` (clean-chroot builds of packages and their dependencies from this repository, with aurutils), `sync` (copies `templates/package` into the packages), `setup` (installs the git hooks) and `list` (the packages). See `./aur-packages help`.
+`./aur-packages` manages all packages, or the packages given: `pull` and `push` (aurpublish, `push --exclude` to leave packages out), `adopt` (merges the AUR's history of a package that was on the AUR before, deleted or taken over, so it can be pushed), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `build` (clean-chroot builds of packages and their dependencies from this repository, with aurutils), `sync` (copies `templates/package` into the packages), `setup` (installs the git hooks), `tray` (a daily update check with a tray icon, see [below](#update-check-in-the-tray)) and `list` (the packages). See `./aur-packages help`.
 
 ### `aur-packages` in your shell
 
@@ -55,6 +55,23 @@ A typical change:
 4. Commit each package on its own, with a message as described in [Commits](#commits-and-aurpublish).
 
 The conventions below apply to every package. GitHub Actions runs `./aur-packages check` on every push and pull request.
+
+### Update check in the tray
+
+`./aur-packages tray install` sets up a daily check of the packages of the checkout it's run from, and a tray icon that shows its result:
+
+- The systemd user timer `aur-packages-updates.timer` runs `aur-packages updates --state` once a day (and after a boot that missed it), through `aur-packages-updates.service`. The units are linked from `systemd/` of the checkout; a drop-in (`~/.config/systemd/user/aur-packages-updates.service.d/checkout.conf`) names the checkout.
+- The result goes to `~/.local/state/aur-packages/updates.json`: the outdated packages with their current and new version, the packages whose check failed, and the time of the check. A package whose check failed (a rate limit, no network) keeps its entry of the previous check; if no package could be checked, the file says so and the service tries again later, less often the longer it fails.
+- The tray icon (`aur-packages-tray`, started on login by `~/.config/autostart/aur-packages-tray.desktop`) is hidden in the tray's overflow while everything is up to date, and shows up while packages are outdated. Its menu lists them, the time of the last check and failed checks, and has *Check now* and *Copy upgrade command* (`cd <checkout> && ./aur-packages upgrade <packages>`). A desktop notification announces each new upstream version once.
+
+The tray icon speaks the tray protocol of Plasma (StatusNotifierItem with a dbusmenu menu) itself, with `python-gobject`; copying needs `wl-clipboard`. `./aur-packages tray remove` removes the units and the autostart entry again. Run `tray install` again after moving the checkout.
+
+The check makes about 20 requests to the GitHub API, which allows 60 an hour without a token, so a token isn't needed. To check more often, put a GitHub token without any scopes (it only raises the limit) into `~/.config/nvchecker/keyfile.toml`, which `pkgctl version check` passes to nvchecker; only the `github` sources use it, not the `jq` ones that query api.github.com:
+
+```toml
+[keys]
+github = "ghp_…"
+```
 
 ## Language
 

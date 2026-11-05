@@ -32,6 +32,7 @@ _aur-packages() {
     'build:build packages or a template with their dependencies'
     'sync:copy templates/package into the packages'
     'setup:install the git hooks'
+    'tray:install or remove the daily update check and its tray icon'
     'commit-msg:check a commit message'
     'quoting:check the quoting of the metadata arrays'
     'list:list the packages or the build templates'
@@ -46,7 +47,10 @@ _aur-packages() {
     argument)
       curcontext=${curcontext%:*:*}:aur-packages-$words[1]:
       case $words[1] in
-        pull | adopt | updates | upgrade | quoting)
+        updates)
+          _arguments '--state[write the result for the tray icon]' '*:package:_aur-packages_packages' && ret=0
+          ;;
+        pull | adopt | upgrade | quoting)
           _arguments '*:package:_aur-packages_packages' && ret=0
           ;;
         push)
@@ -86,6 +90,9 @@ _aur-packages() {
           ;;
         completion)
           _arguments '1:shell:(bash zsh fish pwsh)' && ret=0
+          ;;
+        tray)
+          _arguments '1:action:((install\:"install the update check and the tray icon" remove\:"remove them"))' && ret=0
           ;;
       esac
       ;;
