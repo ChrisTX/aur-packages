@@ -75,7 +75,7 @@ github = "ghp_…"
 
 ## Language
 
-Comments, documentation, package descriptions and commit messages are in British English: licence for the noun (license the verb), -ise and -isation (`optimise`, `customisation`), colour, behaviour, catalogue. Names and quotes keep their spelling: identifiers, paths and file names (`license=()`, `LICENSE`, `/usr/share/licenses`), the names of licences and products (the MIT License, Pluralize.NET), text taken from upstream, and the licence texts a package installs. typos checks the spelling, American spellings included; the names it leaves alone, and the terms of software it accepts as they are (artifact, analyzer), are in `.typos.toml` (change `templates/package`'s).
+Comments, documentation, package descriptions and commit messages are in British English: licence for the noun (license the verb), -ise and -isation (`optimise`, `customisation`), colour, behaviour, catalogue. Names and quotes keep their spelling: identifiers, paths and file names (`license=()`, `LICENSE`, `/usr/share/licenses`), the names of licences and products (the MIT License, Pluralize.NET), text taken from upstream, and the licence texts a package installs. typos checks the spelling, American spellings included, and the commit messages too; the names it leaves alone, and the terms of software it accepts as they are (artifact, analyzer), are in `.typos.toml` (change `templates/package`'s).
 
 ## PKGBUILD conventions
 
@@ -125,7 +125,7 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 - Message summary, the Arch convention rather than Conventional Commits (versions come from upstream, and each package's commits become its AUR history):
   - `upgpkg: <pkg> <ver>-<rel>` when pkgver/pkgrel changes, e.g. `upgpkg: powershell 7.6.9-22`.
   - Otherwise `<scope>: <summary>`, where the scope is the package directory, or the top-level file or directory for changes outside packages (e.g. `README.md:`, `aur-packages:`, `templates:`, `.github:`). The summary is lowercase and imperative (`add …`, `fix …`, `drop …`), without a trailing period.
-- The body lists the changes. The commit-msg hook (`./aur-packages commit-msg`) checks the summary: the scope has to exist, and the version in `upgpkg:` has to match the staged .SRCINFO.
+- The body lists the changes. The commit-msg hook (`./aur-packages commit-msg`) checks the summary: the scope has to exist, and the version in `upgpkg:` has to match the staged .SRCINFO. It checks the spelling of the message with typos as well.
 - Regenerate .SRCINFO yourself (`makepkg --printsrcinfo > .SRCINFO`), the git hook only checks it. The hook (`./aur-packages setup`, prek or pre-commit) runs the checks below on the staged files and replaces aurpublish's hooks, so commit normally; don't bypass it.
 
 ## Building and checking
