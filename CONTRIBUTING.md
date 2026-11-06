@@ -10,7 +10,7 @@ The tools of the checks are all in the Arch Linux repositories, apart from PSScr
 
 ```bash
 sudo pacman -S --needed base-devel devtools pacman-contrib namcap nvchecker jq \
-  prek shfmt shellcheck shellharden ruff biome tombi rumdl systemd-lsp \
+  prek shfmt shellcheck shellharden ruff biome tombi rumdl typos systemd-lsp \
   editorconfig-checker reuse
 ```
 
@@ -75,7 +75,7 @@ github = "ghp_…"
 
 ## Language
 
-Comments, documentation, package descriptions and commit messages are in British English: licence for the noun (license the verb), -ise and -isation (`optimise`, `customisation`), colour, behaviour, catalogue. Names and quotes keep their spelling: identifiers, paths and file names (`license=()`, `LICENSE`, `/usr/share/licenses`), the names of licences and products (the MIT License, Pluralize.NET), text taken from upstream, and the licence texts a package installs.
+Comments, documentation, package descriptions and commit messages are in British English: licence for the noun (license the verb), -ise and -isation (`optimise`, `customisation`), colour, behaviour, catalogue. Names and quotes keep their spelling: identifiers, paths and file names (`license=()`, `LICENSE`, `/usr/share/licenses`), the names of licences and products (the MIT License, Pluralize.NET), text taken from upstream, and the licence texts a package installs. typos checks the spelling, American spellings included; the names it leaves alone, and the terms of software it accepts as they are (artifact, analyzer), are in `.typos.toml` (change `templates/package`'s).
 
 ## PKGBUILD conventions
 
@@ -117,7 +117,7 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 - `.gitignore`: the toptal `archlinuxpackages` template, plus the checkout directory for git sources (e.g. `ergo/`) and downloaded sources the template doesn't cover (e.g. `*.nupkg`)
 - An entry in README.md's package table, its description the package's pkgdesc: add it with a new package and keep it in sync when pkgdesc changes
 - `.nvchecker.toml` for update checks (except VCS `-git` packages and sources without a usable upstream repo)
-- `.editorconfig` and `.pre-commit-config.yaml`, copies of `templates/package` (`./aur-packages sync`), so the package can be formatted and checked on its own. Change the template, not the copies; `./aur-packages sync` writes the top-level configuration from it as well.
+- `.editorconfig`, `.pre-commit-config.yaml` and `.typos.toml`, copies of `templates/package` (`./aur-packages sync`), so the package can be formatted and checked on its own. Change the template, not the copies; `./aur-packages sync` writes the top-level configuration from it as well.
 
 ## Commits and aurpublish
 
@@ -131,7 +131,7 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 ## Building and checking
 
 - Every disabled, skipped or removed test gets a comment saying why. If it's an upstream bug, link the upstream issue (open one if there is none yet). Disable as little as possible: a single test or context rather than a whole file.
-- Everything passes `./aur-packages check`, which runs the hooks of `.pre-commit-config.yaml`: formatting (shfmt, ruff, Biome, tombi, rumdl, Mago, settings in `.editorconfig`), linting (shellcheck, shellharden, ruff, Biome, tombi, rumdl, systemd-lsp, PSScriptAnalyzer, Mago, editorconfig-checker), `reuse lint`, the quoting of the metadata arrays, up-to-date .SRCINFO files and checksums of the local sources, which a formatter may have changed (run `updpkgsums` then). Formatters fix files themselves; run the check again afterwards. After `updpkgsums`, which aligns the checksums its own way, run shfmt on the PKGBUILD (`./aur-packages upgrade` does).
+- Everything passes `./aur-packages check`, which runs the hooks of `.pre-commit-config.yaml`: formatting (shfmt, ruff, Biome, tombi, rumdl, Mago, settings in `.editorconfig`), linting (shellcheck, shellharden, ruff, Biome, tombi, rumdl, systemd-lsp, PSScriptAnalyzer, Mago, editorconfig-checker), spelling (typos), `reuse lint`, the quoting of the metadata arrays, up-to-date .SRCINFO files and checksums of the local sources, which a formatter may have changed (run `updpkgsums` then). Formatters fix files themselves; run the check again afterwards. After `updpkgsums`, which aligns the checksums its own way, run shfmt on the PKGBUILD (`./aur-packages upgrade` does).
 - No editor modelines in any file (`# vim:set …`, `-*- mode -*-`): `.editorconfig` sets the indentation and the other settings for every editor.
 - termux-language-server only runs on request (`./aur-packages check --manual`), as it has false positives: it only knows installed packages and paru's list of AUR packages (termux/termux-language-server#44), keeps the quotes of single-quoted names (termux/termux-language-server#43), takes names with an expansion like `"$pkgname-bin"` apart (termux/termux-language-server#45), and doesn't accept SPDX license expressions or `LicenseRef-` (termux/termux-language-server#24). Its warnings about x86_64 and vscode-powershell's split makedepends come from namcap, for the `case "$CARCH"` mappings and the editors its packages conflict over.
 - Also lint with `namcap PKGBUILD` and `namcap` on the built package.

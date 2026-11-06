@@ -502,11 +502,12 @@ cmd_sync() {
   fi
   select_packages "$@"
   for package in "${selected[@]}"; do
-    for file in .editorconfig .pre-commit-config.yaml; do
+    for file in .editorconfig .pre-commit-config.yaml .typos.toml; do
       sync_file "$package/$file" "$(cat "templates/package/$file")"$'\n'
     done
   done
   sync_file .editorconfig "$(cat templates/package/.editorconfig)"$'\n'
+  sync_file .typos.toml "$(cat templates/package/.typos.toml)"$'\n'
   sync_file .pre-commit-config.yaml "$(cat templates/package/.pre-commit-config.yaml templates/root-hooks.yaml)"$'\n'
   return "$status"
 }

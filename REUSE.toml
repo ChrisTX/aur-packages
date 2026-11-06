@@ -16,6 +16,7 @@ path = [
   ".github/**",
   ".editorconfig",
   ".pre-commit-config.yaml",
+  ".typos.toml",
   "templates/**",
 ]
 SPDX-FileCopyrightText = "Arch Linux contributors"
