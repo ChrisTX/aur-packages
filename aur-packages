@@ -947,7 +947,9 @@ EOF
 # CHOST and compiler flags of Arch Linux ARM, from its root in $1/root, which the packages compile
 # against (ROOTFS_DIR, as for the cross toolchain of .NET's runtime). makepkg strips the binaries and
 # splits off their debug information with binutils for aarch64 (aarch64-linux-gnu-binutils), the
-# system's only handle x86_64. CARCH is exported for arch-nspawn, see alarm_makepkg_conf.
+# system's only handle x86_64: as functions for makepkg's own calls, and as OBJCOPY and READELF for
+# gdb-add-index, a script of its own, which makepkg runs first to add the GDB index (the system's
+# gdb reads aarch64 too). CARCH is exported for arch-nspawn, see alarm_makepkg_conf.
 cross_makepkg_conf() {
   grep -v -E '^CARCH=' /usr/share/devtools/makepkg.conf.d/x86_64.conf
   cat <<EOF
@@ -962,6 +964,7 @@ $(
 export ROOTFS_DIR=$1/root
 strip() { aarch64-linux-gnu-strip "\$@"; }
 objcopy() { aarch64-linux-gnu-objcopy "\$@"; }
+export OBJCOPY=aarch64-linux-gnu-objcopy READELF=aarch64-linux-gnu-readelf
 EOF
 }
 
