@@ -51,6 +51,7 @@ complete -c aur-packages -n $build -s n -l dry-run -d 'Print the plan'
 complete -c aur-packages -n $build -l keep -d 'Keep the chroot repo'
 complete -c aur-packages -n $build -l dotnet-bin -d "Build with Microsoft's .NET"
 complete -c aur-packages -n $build -l libs-bin -d 'Build with the libraries from nuget.org'
+complete -c aur-packages -n $build -l testing -d "Build against Arch Linux's testing repositories"
 complete -c aur-packages -n $build -l target -x -a 'aarch64\t"Cross-build for aarch64" aarch64-native\t"Build for aarch64 under QEMU"' \
     -d 'Build for another architecture'
 complete -c aur-packages -n $build -l repo -x -a '(__fish_complete_directories)' -d 'Continue in the repo of an earlier --keep'

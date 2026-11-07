@@ -101,6 +101,8 @@ else the one the symlink points into.
             under QEMU (qemu-user-static-binfmt), with Microsoft's .NET. --repo DIR continues in
             the repo of an earlier --keep, skipping the packages already built there.
             Packages that depend on lib32-* packages build in a multilib chroot (multilib-devel).
+            --testing builds against Arch Linux's testing repositories (devtools' extra-testing and
+            multilib-testing), in chroots of their own, for a system that uses them.
             The chroots are in /var/lib/aur-packages-chroot ($AUR_BUILD_CHROOT), next to the
             Arch Linux ARM root (aarch64), not in aurutils' /var/lib/aurbuild
   sync      Copy templates/package into the packages and write the configuration at the top level,
@@ -1065,7 +1067,7 @@ build_in_repo() {
 }
 
 cmd_build() {
-  local method=chroot install=false dryrun=false keep=false dotnetbin=false libsbin=false
+  local method=chroot install=false dryrun=false keep=false dotnetbin=false libsbin=false testing=false
   local target='' native=false cross=false reuse=''
   local arg pkg name file repo='' conf='' reponame=aur-build
   local makepkgconf=/usr/share/devtools/makepkg.conf.d/x86_64.conf
@@ -1086,6 +1088,7 @@ cmd_build() {
       --keep) keep=true ;;
       --dotnet-bin) dotnetbin=true ;;
       --libs-bin) libsbin=true ;;
+      --testing) testing=true ;;
       --target)
         shift
         target=${1:-}
@@ -1110,7 +1113,7 @@ cmd_build() {
   done
   if (($# == 0)); then
     echo "Usage: aur-packages build [--chroot|--local] [--install] [--dry-run] [--keep] [--repo DIR] [--dotnet-bin]" \
-      "[--libs-bin] [--target aarch64|aarch64-native] <template|package>..." >&2
+      "[--libs-bin] [--testing] [--target aarch64|aarch64-native] <template|package>..." >&2
     return 1
   fi
   case "$target" in
@@ -1122,9 +1125,21 @@ cmd_build() {
       return 1
       ;;
   esac
-  if [[ "$method" == local && ("$dotnetbin" == true || "$libsbin" == true || -n "$target" || -n "$reuse") ]]; then
-    echo "--dotnet-bin, --libs-bin, --target and --repo need a chroot build, a local one uses what's installed" >&2
+  if [[ "$method" == local && ("$dotnetbin" == true || "$libsbin" == true || "$testing" == true || -n "$target" ||
+    -n "$reuse") ]]; then
+    echo "--dotnet-bin, --libs-bin, --testing, --target and --repo need a chroot build, a local one uses what's installed" >&2
     return 1
+  fi
+  if [[ "$testing" == true && -n "$target" ]]; then
+    echo "--testing is for Arch Linux's testing repositories, Arch Linux ARM has none" >&2
+    return 1
+  fi
+  # devtools' configurations of the chroots, the testing ones with --testing. Those have chroots of
+  # their own, as a chroot upgraded to the testing repositories can't go back.
+  local devtoolsconf=extra multilibconf=multilib
+  if [[ "$testing" == true ]]; then
+    devtoolsconf=extra-testing multilibconf=multilib-testing
+    chrootdir=$chrootbase/x86_64-testing multilibdir=$chrootbase/multilib-x86_64-testing
   fi
   if [[ -n "$target" && "$(uname -m)" != x86_64 ]]; then
     echo "--target is for x86_64 hosts, build natively on $(uname -m)" >&2
@@ -1214,7 +1229,7 @@ cmd_build() {
         # The pacman.conf of clean-chroot builds (devtools, as pkgctl build uses it) with the private
         # repository. Not the system's, whose testing repositories, the aurutils repo or mirrorlists
         # elsewhere don't belong in a clean chroot.
-        devtools_pacman_conf extra.conf "$reponame" "$repo" >"$conf"
+        devtools_pacman_conf "$devtoolsconf.conf" "$reponame" "$repo" >"$conf"
       fi
       # An empty database, so the first build can sync the repository before it has any packages
       tar -czf "$repo/$reponame.db.tar.gz" -T /dev/null
@@ -1301,7 +1316,7 @@ cmd_build() {
         pkgconf=$repo/pacman-multilib.conf
         pkgargs=(--directory "$multilibdir" --base-packages "base-devel,multilib-devel")
         if [[ "$dryrun" == false && ! -f "$pkgconf" ]]; then
-          devtools_pacman_conf multilib.conf "$reponame" "$repo" >"$pkgconf"
+          devtools_pacman_conf "$multilibconf.conf" "$reponame" "$repo" >"$pkgconf"
         fi
       fi
       cmd=(aur build --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$pkgconf" "${pkgargs[@]}"

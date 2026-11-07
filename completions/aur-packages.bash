@@ -44,7 +44,7 @@ _aur_packages_complete() {
           return
           ;;
       esac
-      options='--chroot --local --install --dry-run -n --keep --dotnet-bin --libs-bin --target --repo'
+      options='--chroot --local --install --dry-run -n --keep --dotnet-bin --libs-bin --testing --target --repo'
       packages=true templates=true
       ;;
     list) options=--templates ;;

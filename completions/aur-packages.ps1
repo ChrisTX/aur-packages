@@ -30,7 +30,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'commits' = @('--update')
         'sync'    = @('--check')
         'list'    = @('--templates')
-        'build'   = @('--chroot', '--local', '--install', '--dry-run', '-n', '--keep', '--dotnet-bin', '--libs-bin',
+        'build'   = @('--chroot', '--local', '--install', '--dry-run', '-n', '--keep', '--dotnet-bin', '--libs-bin', '--testing',
             '--target', '--repo')
     }
     $withPackages = @('pull', 'push', 'adopt', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting')
