@@ -79,7 +79,8 @@ else the one the symlink points into.
             the entries of packages that weren't checked or whose check failed; --state --retry
             also checks the packages that hit GitHub's rate limit again once it resets (systemd-run)
   upgrade   Upgrade the packages to their latest upstream version with the .nvchecker.toml of each
-            (pkgctl version upgrade), then format the PKGBUILDs and regenerate .SRCINFO
+            (pkgctl version upgrade), move their pins to it (see commits), then format the PKGBUILDs
+            and regenerate .SRCINFO. Fails if a pin couldn't be moved
   check     Run the checks of .pre-commit-config.yaml with prek or pre-commit, or with --manual
             also the ones that only run on request (termux-language-server). Packages given,
             only theirs: the hooks of their own .pre-commit-config.yaml, whether they match
@@ -122,6 +123,8 @@ else the one the symlink points into.
             prepare-commit-msg hook)
   quoting   Check the quoting of the metadata arrays (depends, optdepends, …) of the PKGBUILDs
             against the convention in CONTRIBUTING.md (run by the quoting hook)
+  pins      Check that the _commit of a version like git describe's (…r83.g4b8b3d3) is the commit
+            it names, without the network (run by the pins hook; commits checks all pins online)
   list      List the packages, or with --templates the build templates
   completion bash|zsh|fish|pwsh
             Print the completion script for a shell, see CONTRIBUTING.md
@@ -285,15 +288,26 @@ updates_state_file=${XDG_STATE_HOME:-$HOME/.local/state}/aur-packages/updates.js
 # The transient units of the retries after a rate limit, aur-packages-updates-retry-<time>.timer
 updates_retry_unit=aur-packages-updates-retry
 
-# Prints when GitHub's rate limit resets, in seconds since the epoch, from its rate_limit endpoint (which
-# doesn't count against the limit), with the token of nvchecker's keyfile if there is one; the time an
-# exhausted limit resets, else now, as the limit has room again
-github_rate_limit_reset() {
-  local keyfile=${XDG_CONFIG_HOME:-$HOME/.config}/nvchecker/keyfile.toml token='' config=''
+# Prints the GitHub token of nvchecker's keyfile, else the one gh is logged in with (gh auth token),
+# nothing without either
+github_token() {
+  local keyfile=${XDG_CONFIG_HOME:-$HOME/.config}/nvchecker/keyfile.toml token=''
   if [[ -f "$keyfile" ]]; then
     token=$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb")).get("keys", {}).get("github", ""))' \
       "$keyfile" 2>/dev/null || true)
   fi
+  if [[ -z "$token" ]] && command -v gh >/dev/null; then
+    token=$(gh auth token --hostname github.com 2>/dev/null || true)
+  fi
+  printf '%s\n' "$token"
+}
+
+# Prints when GitHub's rate limit resets, in seconds since the epoch, from its rate_limit endpoint (which
+# doesn't count against the limit), with the token of nvchecker's keyfile if there is one; the time an
+# exhausted limit resets, else now, as the limit has room again
+github_rate_limit_reset() {
+  local token config=''
+  token=$(github_token)
   # On stdin rather than the command line, where other users could read it
   [[ -z "$token" ]] || config="header = \"Authorization: Bearer $token\""
   curl -fsS --max-time 30 -K - https://api.github.com/rate_limit <<<"$config" |
@@ -440,7 +454,7 @@ updates_forget_pushed() {
 
 cmd_upgrade() {
   local package pin name cur new
-  local -a checked changed=() pins
+  local -a checked changed=() pins unresolved=()
   select_checked_packages "$@"
   ((${#checked[@]})) || return 0
   pkgctl version upgrade "${checked[@]}"
@@ -458,7 +472,8 @@ cmd_upgrade() {
       new=${new# }
       cur=$(pin_value "$package" "$name")
       if [[ -z "$new" || "$new" == null ]]; then
-        echo "  warning: couldn't resolve $name of $package's new version; left at $(short_pin "$cur"), set it by hand" >&2
+        echo "  couldn't resolve $name of $package's new version, left at $(short_pin "$cur")" >&2
+        unresolved+=("$package $name")
       elif [[ "$new" != "$cur" ]]; then
         set_pin "$package" "$name" "$new"
         echo "  $name $(short_pin "$cur") -> $(short_pin "$new")"
@@ -470,6 +485,13 @@ cmd_upgrade() {
     (cd "$package" && makepkg --printsrcinfo >.SRCINFO)
     echo "Upgraded $package"
   done
+  # The version is upgraded, but a pin still names the old one's sources: not done yet
+  if ((${#unresolved[@]})); then
+    echo "Pins left at the old version, e.g. after GitHub's rate limit; run ./aur-packages commits --update" \
+      "on the packages later, or set them by hand:" >&2
+    printf '  %s\n' "${unresolved[@]}" >&2
+    return 1
+  fi
 }
 
 # Runs the hooks of the given packages' own .pre-commit-config.yaml ($@ as package/, the projects of
@@ -513,6 +535,7 @@ cmd_check() {
     fi
     cmd_sync --check "${selected[@]}" || status=1
     cmd_quoting "${selected[@]}" || status=1
+    cmd_pins "${selected[@]}" || status=1
     return "$status"
   else
     "$hook_runner" run --all-files
@@ -753,6 +776,27 @@ cmd_prepare_commit_msg() {
   fi
   [[ -n "$summary" ]] || return 0
   printf '%s\n%s\n' "$summary" "$(<"$file")" >"$file"
+}
+
+# Checks, without the network, that a pinned _commit is the commit pkgver names, for the versions like
+# git describe (<tag>.r<commits>.g<short commit>): an upgrade that couldn't resolve the new commit
+# leaves the old one, and the package builds the old sources under the new version. Takes packages or
+# their PKGBUILDs, as the hook passes them. ./aur-packages commits checks the other pins, online.
+cmd_pins() {
+  local status=0 package pkgver commit
+  local -a selected
+  select_packages "${@%/PKGBUILD}"
+  for package in "${selected[@]}"; do
+    pkgver=$(pin_value "$package" pkgver)
+    commit=$(pin_value "$package" _commit)
+    [[ "$pkgver" =~ \.g([0-9a-f]{7,40})$ && -n "$commit" ]] || continue
+    if [[ "$commit" != "${BASH_REMATCH[1]}"* ]]; then
+      echo "$package/PKGBUILD: _commit $(short_pin "$commit") isn't the commit pkgver names," \
+        "${BASH_REMATCH[1]}: ./aur-packages commits --update $package"
+      status=1
+    fi
+  done
+  return "$status"
 }
 
 # Checks the quoting of the metadata arrays of the PKGBUILDs against CONTRIBUTING.md: plain words bare,
@@ -1417,6 +1461,24 @@ resolve_commit() {
 # resolve_commit. A value is empty if it can't be determined.
 resolve_pins() {
   (
+    local github_token
+    github_token=$(github_token)
+    # The lookups' requests to GitHub's API with the token of github_token, so they get its rate
+    # limit rather than the 60 requests an hour without one, which the update check uses up: a lookup
+    # that hits it leaves its pin unresolved. On stdin rather than the command line, where other users
+    # could read it.
+    if [[ -n "$github_token" ]]; then
+      curl() {
+        local arg
+        for arg; do
+          if [[ "$arg" == https://api.github.com/* ]]; then
+            command curl -K - "$@" <<<"header = \"Authorization: Bearer $github_token\""
+            return
+          fi
+        done
+        command curl "$@"
+      }
+    fi
     cd "$1" || exit 1
     # shellcheck disable=SC1091 # the package's PKGBUILD, sourced like makepkg reads it
     source ./PKGBUILD >/dev/null 2>&1 || exit 1
@@ -1527,6 +1589,9 @@ case "$command" in
     ;;
   quoting)
     cmd_quoting "$@"
+    ;;
+  pins)
+    cmd_pins "$@"
     ;;
   help | -h | --help)
     usage

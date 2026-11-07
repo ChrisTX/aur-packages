@@ -12,6 +12,11 @@
         language: system
         entry: ./aur-packages quoting
         files: (^|/)PKGBUILD$
+      - id: pins
+        name: pinned commits match pkgver
+        language: system
+        entry: ./aur-packages pins
+        files: (^|/)PKGBUILD$
       - id: reuse-lint
         name: reuse lint (reuse)
         language: system
