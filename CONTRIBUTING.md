@@ -125,6 +125,7 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 - Message summary, the Arch convention rather than Conventional Commits (versions come from upstream, and each package's commits become its AUR history):
   - `upgpkg: <pkg> <ver>-<rel>` when pkgver/pkgrel changes, e.g. `upgpkg: powershell 7.6.9-22`.
   - Otherwise `<scope>: <summary>`, where the scope is the package directory, or the top-level file or directory for changes outside packages (e.g. `README.md:`, `aur-packages:`, `templates:`, `.github:`). The summary is lowercase and imperative (`add …`, `fix …`, `drop …`), without a trailing period.
+- The prepare-commit-msg hook (`./aur-packages prepare-commit-msg`) fills in the summary of an empty message from the staged changes: the whole `upgpkg:` summary when they change a package's version (the staged .SRCINFO against HEAD's), else the scope, followed by the summary you write. Changes in several scopes get a comment saying so instead.
 - The body lists the changes. The commit-msg hook (`./aur-packages commit-msg`) checks the summary: the scope has to exist, and the version in `upgpkg:` has to match the staged .SRCINFO. It checks the spelling of the message with typos as well.
 - Regenerate .SRCINFO yourself (`makepkg --printsrcinfo > .SRCINFO`), the git hook only checks it. The hook (`./aur-packages setup`, prek or pre-commit) runs the checks below on the staged files and replaces aurpublish's hooks, so commit normally; don't bypass it.
 

@@ -34,6 +34,7 @@ _aur-packages() {
     'setup:install the git hooks'
     'tray:install or remove the daily update check and its tray icon'
     'commit-msg:check a commit message'
+    'prepare-commit-msg:fill in the summary of a commit message'
     'quoting:check the quoting of the metadata arrays'
     'list:list the packages or the build templates'
     'completion:print the completion script of a shell'
@@ -85,7 +86,7 @@ _aur-packages() {
         list)
           _arguments '--templates[list the build templates]' && ret=0
           ;;
-        commit-msg)
+        commit-msg | prepare-commit-msg)
           _arguments '1:commit message file:_files' && ret=0
           ;;
         completion)

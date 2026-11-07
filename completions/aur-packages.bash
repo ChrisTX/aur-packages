@@ -15,7 +15,7 @@ _aur_packages_complete() {
   done
   if [[ -z "$command" ]]; then
     mapfile -t COMPREPLY < <(compgen -W 'pull push adopt updates upgrade check commits build sync setup
-      tray commit-msg quoting list completion help' -- "$cur")
+      tray commit-msg prepare-commit-msg quoting list completion help' -- "$cur")
     return
   fi
   # The package to leave out, of the checkout the command works on
@@ -48,7 +48,7 @@ _aur_packages_complete() {
       packages=true templates=true
       ;;
     list) options=--templates ;;
-    commit-msg)
+    commit-msg | prepare-commit-msg)
       if ((COMP_CWORD == i + 1)); then
         compopt -o filenames
         mapfile -t COMPREPLY < <(compgen -f -- "$cur")

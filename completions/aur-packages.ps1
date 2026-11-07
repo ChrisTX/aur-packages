@@ -17,6 +17,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'setup'      = 'Install the git hooks'
         'tray'       = 'Install or remove the daily update check and its tray icon'
         'commit-msg' = 'Check a commit message'
+        'prepare-commit-msg' = 'Fill in the summary of a commit message'
         'quoting'    = 'Check the quoting of the metadata arrays'
         'list'       = 'List the packages or the build templates'
         'completion' = 'Print the completion script of a shell'
@@ -74,7 +75,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         Get-PathResult -Directory
     } elseif ($command -eq 'push' -and $previous -eq '--exclude') {
         Get-AurPackageName | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
-    } elseif ($command -eq 'commit-msg') {
+    } elseif ($command -in 'commit-msg', 'prepare-commit-msg') {
         if ($afterCommand -eq 0) {
             Get-PathResult
         }

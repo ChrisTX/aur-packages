@@ -9,7 +9,7 @@ function __aur_packages_list
     $program list $argv 2>/dev/null
 end
 
-set -l commands pull push adopt updates upgrade check commits build sync setup tray commit-msg quoting list completion help
+set -l commands pull push adopt updates upgrade check commits build sync setup tray commit-msg prepare-commit-msg quoting list completion help
 set -l none "not __fish_seen_subcommand_from $commands"
 
 complete -c aur-packages -f
@@ -25,6 +25,7 @@ complete -c aur-packages -n $none -a sync -d 'Copy templates/package into the pa
 complete -c aur-packages -n $none -a setup -d 'Install the git hooks'
 complete -c aur-packages -n $none -a tray -d 'Install or remove the daily update check and its tray icon'
 complete -c aur-packages -n $none -a commit-msg -d 'Check a commit message'
+complete -c aur-packages -n $none -a prepare-commit-msg -d 'Fill in the summary of a commit message'
 complete -c aur-packages -n $none -a quoting -d 'Check the quoting of the metadata arrays'
 complete -c aur-packages -n $none -a list -d 'List the packages or the build templates'
 complete -c aur-packages -n $none -a completion -d 'Print the completion script of a shell'
@@ -54,6 +55,6 @@ complete -c aur-packages -n $build -l target -x -a 'aarch64\t"Cross-build for aa
     -d 'Build for another architecture'
 complete -c aur-packages -n $build -l repo -x -a '(__fish_complete_directories)' -d 'Continue in the repo of an earlier --keep'
 
-complete -c aur-packages -n '__fish_seen_subcommand_from commit-msg' -F
+complete -c aur-packages -n '__fish_seen_subcommand_from commit-msg prepare-commit-msg' -F
 complete -c aur-packages -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish pwsh' -d Shell
 complete -c aur-packages -n '__fish_seen_subcommand_from tray' -a 'install\t"Install the update check and the tray icon" remove\t"Remove them"'

@@ -106,7 +106,7 @@ else the one the symlink points into.
   sync      Copy templates/package into the packages and write the configuration at the top level,
             or with --check only report differences
   setup     Install the git hooks that run the checks before each commit, replacing aurpublish's,
-            and check the commit message
+            fill in the summary of the commit message and check it
   tray install|remove
             Install a daily update check of this checkout's packages (the systemd user units of
             systemd/, updates --state) and a tray icon (aur-packages-tray, autostarted) that shows
@@ -114,6 +114,10 @@ else the one the symlink points into.
   commit-msg FILE
             Check a commit message against the convention in CONTRIBUTING.md (run by the
             commit-msg hook)
+  prepare-commit-msg FILE [SOURCE]
+            Fill in the summary of an empty commit message from the staged changes: upgpkg: with
+            the staged version when they change a package's version, else the scope (run by the
+            prepare-commit-msg hook)
   quoting   Check the quoting of the metadata arrays (depends, optdepends, …) of the PKGBUILDs
             against the convention in CONTRIBUTING.md (run by the quoting hook)
   list      List the packages, or with --templates the build templates
@@ -562,26 +566,32 @@ cmd_setup() {
   # Checkouts of branches from before the configuration are skipped
   "$hook_runner" install --allow-missing-config
 
-  # A plain hook instead of one of the configuration's: hooks without stages run in every installed
-  # stage, so the checks would run again for the commit message. Checkouts of branches from before
-  # the rename have ./aur, older ones no commit-msg command; those are skipped.
-  hook=$hooks/commit-msg
-  if [[ -e "$hook" ]] && ! grep -q -E '^# Installed by \./aur(-packages)? setup' "$hook"; then
-    echo "Not replacing the existing $hook" >&2
-    return 1
-  fi
-  cat >"$hook" <<'EOF'
+  # Plain hooks instead of the configuration's: hooks without stages run in every installed stage, so
+  # the checks would run again for the commit message. commit-msg checks the message,
+  # prepare-commit-msg fills in its summary. Checkouts of branches from before the rename have ./aur,
+  # older ones lack the command; those are skipped.
+  local command function
+  for hook in commit-msg prepare-commit-msg; do
+    command=$hook function=cmd_${hook//-/_}
+    if [[ -e "$hooks/$hook" ]] && ! grep -q -E '^# Installed by \./aur(-packages)? setup' "$hooks/$hook"; then
+      echo "Not replacing the existing $hooks/$hook" >&2
+      return 1
+    fi
+    cat >"$hooks/$hook" <<EOF
 #!/bin/sh
-# Installed by ./aur-packages setup: checks the commit message, see ./aur-packages commit-msg
-top=$(git rev-parse --show-toplevel)
-for script in "$top/aur-packages" "$top/aur"; do
-  if grep -q '^cmd_commit_msg()' "$script" 2>/dev/null; then
-    exec "$script" commit-msg "$(realpath "$1")"
+# Installed by ./aur-packages setup: see ./aur-packages $command
+top=\$(git rev-parse --show-toplevel)
+for script in "\$top/aur-packages" "\$top/aur"; do
+  if grep -q '^$function()' "\$script" 2>/dev/null; then
+    file=\$(realpath "\$1")
+    shift
+    exec "\$script" $command "\$file" "\$@"
   fi
 done
 EOF
-  chmod +x "$hook"
-  echo "Installed $hook"
+    chmod +x "$hooks/$hook"
+    echo "Installed $hooks/$hook"
+  done
 }
 
 # The application ID of aur-packages-tray, its name on the session bus
@@ -710,6 +720,37 @@ cmd_commit_msg() {
     echo "The summary has to be 'upgpkg: <pkg> <ver>-<rel>' or '<scope>: <summary>', see CONTRIBUTING.md: $summary" >&2
     return 1
   fi
+}
+
+# Fills in the summary of the commit message (git's prepare-commit-msg hook, $1 the message's file, $2
+# where the message comes from): when the staged changes are in one package and change its version
+# (the staged .SRCINFO against HEAD's), the whole summary, upgpkg: <pkg> <ver>-<rel>; when they're in
+# one scope otherwise, the scope, <scope>: . Changes in several scopes get a comment instead, as each
+# package is a commit of its own. A message that isn't empty is left as it is.
+cmd_prepare_commit_msg() {
+  local file=$1 source=${2-} scope version previous summary=''
+  local -a scopes
+  [[ "$file" == /* ]] || file=$cwd/$file
+  # Not for -m and -F, which commit without an editor, nor for git's own messages (merge, squash) and
+  # those taken from a commit (-c, -C, --amend)
+  case "$source" in
+    message | merge | squash | commit) return 0 ;;
+  esac
+  # Only a message without text, e.g. not one of commit.template
+  ! grep -q -v -m1 -e '^#' -e '^[[:space:]]*$' "$file" || return 0
+  mapfile -t scopes < <(git diff --cached --name-only --no-renames | cut -d/ -f1 | sort -u)
+  if ((${#scopes[@]} > 1)); then
+    summary="# The staged changes are in several scopes, one commit each: ${scopes[*]}"
+  elif ((${#scopes[@]} == 1)); then
+    scope=${scopes[0]}
+    if [[ -f "$scope/PKGBUILD" ]] && version=$(srcinfo_version ":$scope/.SRCINFO"); then
+      previous=$(srcinfo_version "HEAD:$scope/.SRCINFO") || previous=''
+      [[ "$version" == "$previous" ]] || summary="upgpkg: $scope $version"
+    fi
+    summary=${summary:-"$scope: "}
+  fi
+  [[ -n "$summary" ]] || return 0
+  printf '%s\n%s\n' "$summary" "$(<"$file")" >"$file"
 }
 
 # Checks the quoting of the metadata arrays of the PKGBUILDs against CONTRIBUTING.md: plain words bare,
@@ -1465,6 +1506,9 @@ case "$command" in
     ;;
   commit-msg)
     cmd_commit_msg "$@"
+    ;;
+  prepare-commit-msg)
+    cmd_prepare_commit_msg "$@"
     ;;
   quoting)
     cmd_quoting "$@"
