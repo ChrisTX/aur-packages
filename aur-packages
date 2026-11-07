@@ -67,7 +67,8 @@ else the one the symlink points into.
   pull      Pull the packages from the AUR (aurpublish --pull)
   push      Check, then push the packages to the AUR (aurpublish), or with --nocheck without the
             checks, e.g. while a linter isn't installed. --exclude PACKAGE leaves a package out
-            (repeatable), e.g. one whose AUR request is still pending
+            (repeatable), e.g. one whose AUR request is still pending. A pushed package leaves the
+            tray's list of outdated packages once its version is at least the new one
   adopt PACKAGE...
             Merge the history the AUR has of packages into their subtrees, keeping their files, so
             that push can push on top of it: for a package that was on the AUR before, deleted or
@@ -194,6 +195,8 @@ cmd_push() {
   fi
   for package in "${selected[@]}"; do
     aurpublish "$package"
+    # The tray's update list, which only the next check would clear otherwise
+    updates_forget_pushed "$package"
   done
 }
 
@@ -394,6 +397,39 @@ updates_state() {
     (.rate_limited | select(.packages != []) | "GitHub'"'"'s rate limit, checked again at \(.retry): \(.packages | join(" "))"),
     (.error // empty | "Error: \(.)")' "$updates_state_file"
   return "$status"
+}
+
+# Prints the full version ([epoch:]pkgver-pkgrel) of a .SRCINFO in git, given as git show takes it
+# (":package/.SRCINFO" for the staged one, "HEAD:package/.SRCINFO")
+srcinfo_version() {
+  local srcinfo epoch pkgver pkgrel
+  srcinfo=$(git show "$1" 2>/dev/null) || return
+  epoch=$(sed -n -E 's/^\tepoch = //p' <<<"$srcinfo")
+  pkgver=$(sed -n -E 's/^\tpkgver = //p' <<<"$srcinfo")
+  pkgrel=$(sed -n -E 's/^\tpkgrel = //p' <<<"$srcinfo")
+  printf '%s\n' "${epoch:+$epoch:}$pkgver-$pkgrel"
+}
+
+# Removes a pushed package from the outdated packages of $updates_state_file once the version pushed,
+# that of HEAD (aurpublish pushes HEAD's subtree), is at least the new one the check found, so the tray
+# no longer lists it until the next check. Under the lock of updates --state; a missing state file
+# (without tray install) is left alone.
+updates_forget_pushed() {
+  local package=$1 version state new tmp lock dir=${updates_state_file%/*}
+  [[ -f "$updates_state_file" ]] || return 0
+  version=$(srcinfo_version "HEAD:$package/.SRCINFO") || return 0
+  exec {lock}>"$dir/.updates.lock"
+  flock "$lock"
+  # shellcheck disable=SC2064 # expand $lock now, when the trap is set
+  trap "exec $lock>&-" RETURN
+  new=$(jq -r --arg package "$package" '.updates[]? | select(.package == $package) | .new' \
+    "$updates_state_file" 2>/dev/null) || return 0
+  [[ -n "$new" ]] && (($(vercmp "$new" "$version") <= 0)) || return 0
+  state=$(jq --arg package "$package" '.updates |= map(select(.package != $package))' "$updates_state_file")
+  tmp=$(mktemp "$dir/.updates.json.XXXXXX")
+  printf '%s\n' "$state" >"$tmp"
+  mv "$tmp" "$updates_state_file"
+  echo "Removed $package $new from the update list of the tray"
 }
 
 cmd_upgrade() {
@@ -630,7 +666,7 @@ EOF
 # Checks the summary of a commit message ($1): upgpkg: <pkg> <ver>-<rel> with the version of the
 # package's staged .SRCINFO, or <scope>: <summary> with a top-level file or folder as scope
 cmd_commit_msg() {
-  local summary scope version srcinfo expected epoch pkgver pkgrel file=$1
+  local summary scope version expected file=$1
   local upgpkg_pattern='^upgpkg: ([^ ]+) ([^ ]+)$' scope_pattern='^([^ :]+): [^ ]'
   [[ "$file" == /* ]] || file=$cwd/$file
   # The first line that isn't empty or a comment, git strips those afterwards
@@ -651,14 +687,10 @@ cmd_commit_msg() {
   if [[ "$summary" =~ $upgpkg_pattern ]]; then
     scope=${BASH_REMATCH[1]}
     version=${BASH_REMATCH[2]}
-    if ! srcinfo=$(git show ":$scope/.SRCINFO" 2>/dev/null); then
+    if ! expected=$(srcinfo_version ":$scope/.SRCINFO"); then
       echo "Not a package with a staged .SRCINFO: $scope" >&2
       return 1
     fi
-    epoch=$(sed -n -E 's/^\tepoch = //p' <<<"$srcinfo")
-    pkgver=$(sed -n -E 's/^\tpkgver = //p' <<<"$srcinfo")
-    pkgrel=$(sed -n -E 's/^\tpkgrel = //p' <<<"$srcinfo")
-    expected=${epoch:+$epoch:}$pkgver-$pkgrel
     if [[ "$version" != "$expected" ]]; then
       echo "The version in the summary is $version, but $scope/.SRCINFO has $expected" >&2
       return 1
