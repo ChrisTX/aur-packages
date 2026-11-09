@@ -124,7 +124,6 @@ Metamod:Source, SourceMod and their plugins and extensions for Source engine gam
 | [flarectl](https://aur.archlinux.org/packages/flarectl) | CLI application for interacting with a Cloudflare account | [![AUR version](https://img.shields.io/aur/version/flarectl?label=)](https://aur.archlinux.org/packages/flarectl) |
 | [flarectl-bin](https://aur.archlinux.org/packages/flarectl-bin) | CLI application for interacting with a Cloudflare account | [![AUR version](https://img.shields.io/aur/version/flarectl-bin?label=)](https://aur.archlinux.org/packages/flarectl-bin) |
 | [fortitude](https://aur.archlinux.org/packages/fortitude) | Fortran linter, inspired by (and built upon) Ruff | [![AUR version](https://img.shields.io/aur/version/fortitude?label=)](https://aur.archlinux.org/packages/fortitude) |
-| [ghidra-mcp](https://aur.archlinux.org/packages/ghidra-mcp) | MCP server for Ghidra: a Ghidra extension with an HTTP API for reverse engineering, and the MCP bridge to it | [![AUR version](https://img.shields.io/aur/version/ghidra-mcp?label=)](https://aur.archlinux.org/packages/ghidra-mcp) |
 | [gotlsaflare](https://aur.archlinux.org/packages/gotlsaflare) | Update TLSA DANE records on Cloudflare from X509 certificate | [![AUR version](https://img.shields.io/aur/version/gotlsaflare?label=)](https://aur.archlinux.org/packages/gotlsaflare) |
 | [ircdog](https://aur.archlinux.org/packages/ircdog) | Tool for sending and receiving raw IRC protocol lines | [![AUR version](https://img.shields.io/aur/version/ircdog?label=)](https://aur.archlinux.org/packages/ircdog) |
 | [ltex-ls-plus](https://aur.archlinux.org/packages/ltex-ls-plus) | Language server for LanguageTool with support for LaTeX, Markdown, and others | [![AUR version](https://img.shields.io/aur/version/ltex-ls-plus?label=)](https://aur.archlinux.org/packages/ltex-ls-plus) |
@@ -135,9 +134,26 @@ Metamod:Source, SourceMod and their plugins and extensions for Source engine gam
 | [tcos-pkcs11](https://aur.archlinux.org/packages/tcos-pkcs11) | PKCS#11 driver for TeleSec TCOS smartcards | [![AUR version](https://img.shields.io/aur/version/tcos-pkcs11?label=)](https://aur.archlinux.org/packages/tcos-pkcs11) |
 | [tlog](https://aur.archlinux.org/packages/tlog) | Terminal I/O logger | [![AUR version](https://img.shields.io/aur/version/tlog?label=)](https://aur.archlinux.org/packages/tlog) |
 
+### Not on the AUR
+
+Packages built here for our own use, with `./aur-packages build`, and never published to the AUR.
+
+`local/` has packages of ours that aren't (or aren't yet) ours to publish:
+
+| Package | Description | Why |
+| --- | --- | --- |
+| [ghidra-mcp](local/ghidra-mcp) | MCP server for Ghidra: a Ghidra extension with an HTTP API for reverse engineering, and the MCP bridge to it | A rework of the [AUR package](https://aur.archlinux.org/packages/ghidra-mcp), whose maintainer it's [offered to](https://aur.archlinux.org/packages/ghidra-mcp#comment-1090246) |
+
+`overrides/` has Arch Linux's packages with changes of ours, as subtrees of Arch's packaging in Arch's style, versioned below Arch's next release (e.g. `12.2-0.1`), which replaces them. `./aur-packages overrides` says when Arch has caught up and one can go:
+
+| Package | Changes | Until |
+| --- | --- | --- |
+| [ghidra](overrides/ghidra) | 12.2, and fixes of the no-return analysis that truncates functions in 32-bit GCC binaries | [ghidra#9770](https://github.com/NationalSecurityAgency/ghidra/pull/9770) and [ghidra#10173](https://github.com/NationalSecurityAgency/ghidra/issues/10173) are released, and Arch Linux has 12.2 |
+
 ## Repository layout
 
 - `<package>/`: one AUR package each, added with `git subtree` and published with [aurpublish](https://github.com/eli-schwartz/aurpublish). Each one has its own `.editorconfig` and `.pre-commit-config.yaml` (copies of `templates/package`), so its AUR repository can be formatted and checked on its own.
+- `local/<package>/` and `overrides/<package>/`: packages built here but never published to the AUR, see [above](#not-on-the-aur). The overrides keep Arch Linux's style, and only the checks that aren't about style run on them.
 - `aur-packages`: manages the packages: pulling and pushing them, update checks and upgrades with each `.nvchecker.toml`, the checks and clean-chroot builds of packages with their dependencies from this repository (`./aur-packages build powershell-full`, also cross-built or under QEMU for `aarch64`). It can go on PATH, with completions for bash, zsh, fish and PowerShell (see [CONTRIBUTING.md](CONTRIBUTING.md#aur-packages-in-your-shell)). See `./aur-packages help`.
 - `completions/`: the shell completions of `aur-packages`.
 - `aur-packages-tray` and `systemd/`: the tray icon and the user units of the daily update check (`./aur-packages tray install`, see [CONTRIBUTING.md](CONTRIBUTING.md#update-check-in-the-tray)).
