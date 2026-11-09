@@ -119,6 +119,23 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 - `.nvchecker.toml` for update checks (except VCS `-git` packages and sources without a usable upstream repo)
 - `.editorconfig`, `.pre-commit-config.yaml` and `.typos.toml`, copies of `templates/package` (`./aur-packages sync`), so the package can be formatted and checked on its own. Change the template, not the copies; `./aur-packages sync` writes the top-level configuration from it as well.
 
+## Packages outside the AUR
+
+Two folders hold packages that are built and checked here, but never published to the AUR (`./aur-packages pull`, `push` and `adopt` refuse them):
+
+- `local/<package>/`: packages of ours that aren't ours to publish, e.g. a rework of someone else's AUR package. They follow all the conventions of this file, like the packages at the top level; `git mv` moves one there or back.
+- `overrides/<package>/`: Arch Linux's packages with changes of ours, e.g. fixes that aren't released yet. Each one is a subtree of Arch's packaging repository, with our changes as commits on top, and keeps Arch's style, so that Arch's updates merge cleanly and a fix can go back to Arch as it is:
+
+  ```bash
+  arch=https://gitlab.archlinux.org/archlinux/packaging/packages
+  git subtree add -P overrides/ghidra "$arch/ghidra.git" main
+  git subtree pull -P overrides/ghidra "$arch/ghidra.git" main
+  ```
+
+  Give the subtree's merge commit a summary like `overrides: add Arch Linux's ghidra packaging`, keeping the `git-subtree-*` lines of its message, which `git subtree` reads. An override's `pkgrel` stays below Arch's next release (`12.2-0.1` before Arch's `12.2-1`), so that pacman replaces it with Arch's package then; `./aur-packages overrides` compares them with Arch's repositories and says when one can go. Patches carry a comment with their upstream issue or pull request, like the backports in the other packages. Besides the patches, an override only adds a `.gitignore` for its downloads and their REUSE annotations. The style hooks leave overrides out; .SRCINFO, the checksums, REUSE and the downloads check still cover them. An override we keep for longer can get the files of `templates/package` and our conventions, and is then checked fully.
+
+Commands take these packages by folder or by name (`./aur-packages build ghidra`), and `build` resolves dependencies on them, so a package builds against an override of its dependency. Their commits use the package name as the scope (`upgpkg: ghidra 12.2-0.1`, `ghidra-mcp: …`).
+
 ## Commits and aurpublish
 
 - One commit per package.
