@@ -87,7 +87,7 @@ prepare() {
   # guess (NationalSecurityAgency/ghidra#9770)
   patch -Np1 -i ../ghidra-noreturn-continuation.patch
   # The same analyzer, run again while it repairs flow damage, left null state for the outer call
-  # (NullPointerException in findPotentialDamagedLocations)
+  # (NullPointerException in findPotentialDamagedLocations, NationalSecurityAgency/ghidra#10173)
   patch -Np1 -i ../ghidra-noreturn-reentrancy.patch
 
   # Check dependency expectations
