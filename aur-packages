@@ -479,7 +479,7 @@ cmd_upgrade() {
         echo "  $name $(short_pin "$cur") -> $(short_pin "$new")"
       fi
     done
-    if ((${#pins[@]})); then (cd "$package" && updpkgsums); fi
+    if ((${#pins[@]})); then update_checksums "$package"; fi
     # updpkgsums aligns the checksums its own way
     shfmt --write "$package/PKGBUILD"
     (cd "$package" && makepkg --printsrcinfo >.SRCINFO)
@@ -1463,22 +1463,25 @@ resolve_pins() {
   (
     local github_token
     github_token=$(github_token)
-    # The lookups' requests to GitHub's API with the token of github_token, so they get its rate
-    # limit rather than the 60 requests an hour without one, which the update check uses up: a lookup
-    # that hits it leaves its pin unresolved. On stdin rather than the command line, where other users
-    # could read it.
-    if [[ -n "$github_token" ]]; then
-      curl() {
-        local arg
+    # The lookups' requests (resolve_commit's and the PKGBUILDs' _pins_lookup) give up on a stalled
+    # connection and try again, instead of waiting for it forever: no timeout on the whole transfer,
+    # as some download a whole package. Those to GitHub's API go with the token of github_token, so
+    # they get its rate limit rather than the 60 requests an hour without one, which the update check
+    # uses up: a lookup that hits it leaves its pin unresolved. On stdin rather than the command line,
+    # where other users could read it.
+    curl() {
+      local arg
+      local -a stall=(--connect-timeout 15 --speed-limit 1024 --speed-time 30 --retry 2)
+      if [[ -n "$github_token" ]]; then
         for arg; do
           if [[ "$arg" == https://api.github.com/* ]]; then
-            command curl -K - "$@" <<<"header = \"Authorization: Bearer $github_token\""
+            command curl "${stall[@]}" -K - "$@" <<<"header = \"Authorization: Bearer $github_token\""
             return
           fi
         done
-        command curl "$@"
-      }
-    fi
+      fi
+      command curl "${stall[@]}" "$@"
+    }
     cd "$1" || exit 1
     # shellcheck disable=SC1091 # the package's PKGBUILD, sourced like makepkg reads it
     source ./PKGBUILD >/dev/null 2>&1 || exit 1
@@ -1505,6 +1508,16 @@ set_pin() {
 # Commits in full are shown as 12 characters
 short_pin() {
   if [[ "$1" =~ ^[0-9a-f]{40}$ ]]; then echo "${1:0:12}"; else echo "$1"; fi
+}
+
+# updpkgsums on a package whose pins changed. An interrupted download leaves a .part file behind,
+# which makepkg resumes with a range request (curl -C -). GitHub's archives of a commit
+# (archive/<commit>.tar.gz) are made on the fly and don't support ranges, so curl fails (33) on every
+# later try until the file is gone: remove them first, at the cost of starting a resumable download
+# again.
+update_checksums() {
+  find "$1" -maxdepth 1 -name '*.part' -type f -delete
+  (cd "$1" && updpkgsums)
 }
 
 cmd_commits() {
@@ -1545,7 +1558,7 @@ cmd_commits() {
       fi
     fi
     if [[ "$changed" == true ]]; then
-      (cd "$pkg" && updpkgsums)
+      update_checksums "$pkg"
       shfmt --write "$pkg/PKGBUILD"
       (cd "$pkg" && makepkg --printsrcinfo >.SRCINFO)
     fi
