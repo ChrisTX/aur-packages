@@ -1,0 +1,132 @@
+diff --git a/build.gradle b/build.gradle
+index 89d59925..4c05d207 100644
+--- a/build.gradle
++++ b/build.gradle
+@@ -40,6 +40,7 @@ def ghidraDir   = ghidraRoot
+     : null
+ 
+ def ghidraVersion  = null
++def ghidraJavaVersion = 21  // fallback when the install doesn't declare one
+ def buildTimestamp = new Date().format('yyyyMMdd-HHmmss')
+ 
+ if (ghidraDir) {
+@@ -48,18 +49,32 @@ if (ghidraDir) {
+         def props = new Properties()
+         appProps.withReader { props.load(it) }
+         ghidraVersion = props.getProperty('application.version')
++        // The Java release the target Ghidra was built for (12.1 = 21, 12.2 = 25).
++        def javaCompiler = props.getProperty('application.java.compiler')
++        if (javaCompiler) {
++            ghidraJavaVersion = javaCompiler.trim().toInteger()
++        }
+     }
+ }
+ 
+ // ---------------------------------------------------------------------------
+ // Java toolchain
++// Compile with --release at the target Ghidra's Java level. Any JDK at least that
++// new works (e.g. JDK 27 for Ghidra 12.2); a toolchain is only requested when the
++// JDK running Gradle is older, since a Java 21 compiler cannot read 12.2's classes.
+ // ---------------------------------------------------------------------------
+-java {
+-    toolchain {
+-        languageVersion = JavaLanguageVersion.of(21)
++if (JavaVersion.current().majorVersion.toInteger() < ghidraJavaVersion) {
++    java {
++        toolchain {
++            languageVersion = JavaLanguageVersion.of(ghidraJavaVersion)
++        }
+     }
+ }
+ 
++tasks.withType(JavaCompile).configureEach {
++    options.release = ghidraJavaVersion
++}
++
+ // ---------------------------------------------------------------------------
+ // Repositories
+ // ---------------------------------------------------------------------------
+diff --git a/src/main/java/com/xebyte/core/DataTypeService.java b/src/main/java/com/xebyte/core/DataTypeService.java
+index 4572660c..581c909f 100644
+--- a/src/main/java/com/xebyte/core/DataTypeService.java
++++ b/src/main/java/com/xebyte/core/DataTypeService.java
+@@ -1199,7 +1199,7 @@ public class DataTypeService {
+                 // Check if type is in use (simplified check)
+                 // Note: Ghidra will prevent deletion if type is in use during remove operation
+ 
+-                boolean deleted = dtm.remove(dataType, null);
++                boolean deleted = dtm.remove(dataType);
+                 if (deleted) {
+                     success.set(true);
+                 } else {
+@@ -1514,7 +1514,7 @@ public class DataTypeService {
+                 StringBuilder delMsg = new StringBuilder();
+                 try {
+                     threadingStrategy.executeWrite(program, "Recreate struct delete", () -> {
+-                        deleted.set(dtm.remove(existing, null));
++                        deleted.set(dtm.remove(existing));
+                         if (deleted.get()) {
+                             delMsg.append("Removed existing type before recreate");
+                         } else {
+@@ -1784,7 +1784,7 @@ public class DataTypeService {
+         try {
+             threadingStrategy.executeWrite(program, "Delete placeholder type " + logicalName, () -> {
+                 DataTypeManager dtm = program.getDataTypeManager();
+-                boolean deleted = dtm.remove(dataType, null);
++                boolean deleted = dtm.remove(dataType);
+                 if (deleted) {
+                     result.append("Removed placeholder '").append(dataType.getPathName()).append("'");
+                     success.set(true);
+diff --git a/src/main/java/com/xebyte/core/ServiceUtils.java b/src/main/java/com/xebyte/core/ServiceUtils.java
+index 1fc2b173..cdc8be98 100644
+--- a/src/main/java/com/xebyte/core/ServiceUtils.java
++++ b/src/main/java/com/xebyte/core/ServiceUtils.java
+@@ -752,13 +752,44 @@ public final class ServiceUtils {
+      * silently drop it.
+      */
+     private static String decoderOf(ghidra.program.model.lang.LanguageDescription d) {
+-        if (d instanceof ghidra.program.model.lang.SleighLanguageDescription sld) {
+-            generic.jar.ResourceFile sla = sld.getSlaFile();
+-            if (sla != null) return sla.getAbsolutePath();
+-        }
++        generic.jar.ResourceFile sla = slaFileOf(d);
++        if (sla != null) return sla.getAbsolutePath();
+         return d.getLanguageID().getIdAsString();
+     }
+ 
++    /**
++     * The {@code .sla} behind a Sleigh language description, on either side of the Ghidra 12.2
++     * API move: 12.1.x has {@code ghidra.program.model.lang.SleighLanguageDescription#getSlaFile()};
++     * 12.2 moved the class to {@code ghidra.app.plugin.processors.sleigh} and reaches the file via
++     * {@code getLanguageFile().getSlaFile()}. Resolved reflectively so one build runs on both.
++     * Returns null for non-Sleigh descriptions or an unknown API shape.
++     */
++    private static generic.jar.ResourceFile slaFileOf(Object description) {
++        try {
++            if (invokeNoArg(description, "getSlaFile") instanceof generic.jar.ResourceFile direct) {
++                return direct;
++            }
++            Object languageFile = invokeNoArg(description, "getLanguageFile");
++            if (languageFile != null
++                    && invokeNoArg(languageFile, "getSlaFile") instanceof generic.jar.ResourceFile viaFile) {
++                return viaFile;
++            }
++        } catch (ReflectiveOperationException | RuntimeException e) {
++            // fall through: caller uses the language id instead
++        }
++        return null;
++    }
++
++    private static Object invokeNoArg(Object target, String methodName) throws ReflectiveOperationException {
++        java.lang.reflect.Method m;
++        try {
++            m = target.getClass().getMethod(methodName);
++        } catch (NoSuchMethodException e) {
++            return null;
++        }
++        return m.invoke(target);
++    }
++
+     /** The variant a program is loaded under, or "" when it cannot be determined. */
+     public static String loadedVariant(Program program) {
+         if (program == null) return "";

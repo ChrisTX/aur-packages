@@ -1,0 +1,142 @@
+# Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>
+# Contributor: Steve Holvoet <linux@steho.be>
+# shellcheck disable=SC2034,SC2154
+# shellcheck shell=bash
+
+pkgname=ghidra-mcp
+pkgver=7.0.0
+# The bridge needs the MCP SDK 1.x: it uses FastMCP and its internals, which the SDK 2.x of
+# python-mcp replaced (MCPServer). The package keeps the last 1.x release in its own folder.
+_mcpver=1.30.0
+pkgrel=1
+pkgdesc="MCP server for Ghidra: a Ghidra extension with an HTTP API for reverse engineering, and the MCP bridge to it"
+arch=(any)
+url="https://github.com/bethington/ghidra-mcp"
+# MIT: the MCP SDK
+license=(Apache-2.0 MIT)
+depends=(
+  ghidra
+  python
+  python-anyio
+  python-cryptography
+  python-httpx
+  python-httpx-sse
+  python-jsonschema
+  python-pydantic
+  python-pydantic-settings
+  python-pyjwt
+  python-python-multipart
+  python-sse-starlette
+  python-starlette
+  python-typing-inspection
+  python-typing_extensions
+  uvicorn
+)
+makedepends=(
+  git
+  gradle
+  'java-environment>=21'
+  python-build
+  python-hatchling
+  python-installer
+  python-uv-dynamic-versioning
+)
+checkdepends=(
+  python-pytest
+  python-pytest-asyncio
+  python-pytest-mock
+  python-pytest-timeout
+  python-requests
+  python-requests-mock
+  python-responses
+  python-yaml
+  uv
+)
+optdepends=('python-rich: coloured log output of the bridge')
+conflicts=(ghidra-mcp-git)
+source=(
+  "git+$url.git#tag=v$pkgver"
+  "git+https://github.com/modelcontextprotocol/python-sdk.git#tag=v$_mcpver"
+  bridge-mcp-ghidra.sh
+  ghidra-12.2.patch
+)
+sha512sums=('61d6d7b03be46bba3afeca4e8b2b054bcb003395af542cfae3a759f53fbdfbb47495767d855002d829c1be8ec4b00ceb465ec5d5570f951ed75a88488854dd68'
+  '6c93cba4397ffe0932e5b3379a0c69a4f6c5322ee96c3e761b4168d7b24ce28af2b237b436c7dd5e023d0cfb5e1174feaabe60fbb3ec43e5107ca12112553c0d'
+  'f0c9b84f92e4af5d9bfc4c73a947b8e60a20078f492e91b4d05e3941105e40c54718d44fb539f271845b46dbd6c350142a729dacf6116e6638a93d15d9c51481'
+  '0a36ae49f3c86637274fcc1f60b6c2c7af2f53067fcc92ae2ae4139e9d11980b19fb10e91c0f9efe14c01b627cf588d5c5d211de54b983b041dcc279b2a45fcf')
+b2sums=('3008c73f11117c38e2dc1b0d78f93af1c22ea51e26b9277ff240f74a5488f685c4b559d279b25a64cedfcc58092a71b636e913ddcadeff5a2243453f336490f1'
+  'f6cc562ac57eab4a4a1748d7c52a9d659432b019303ecf92e95b671af301245861d10488293ce6935df4bb946115b38f0d76e4ae8833528332d29750d2a1429d'
+  '46657aee55ce182ad3c5242765f90ecd4a9bc176209239b98cd03343582761bd5bd318c54a9847ac3f9c5a982e860f341461bfcf5d38258892bc7797e6d220fb'
+  '0a766b8c303ce2d19dfd3f12541f195db7ba52860e30d2a0aa6cdb32b9bc8d576c7d850a32ca9254761c3296462228e138912231fa7a9bc4cfa7397b43a38094')
+
+prepare() {
+  cd "$pkgname" || exit
+
+  # Ghidra 12.2 support, from upstream's dev branch (bethington/ghidra-mcp@b06c679d, after 7.0.0): it
+  # compiles at the installed Ghidra's Java release, and uses the APIs that moved in 12.2 in a way
+  # that works with 12.1 as well
+  patch -Np1 -i ../ghidra-12.2.patch
+}
+
+build() {
+  cd "$pkgname" || exit
+
+  # The extension, built against the installed Ghidra, whose version it takes: Ghidra only loads
+  # extensions of its exact version. Offline, as it only needs Ghidra's own libraries (gson too).
+  export GRADLE_USER_HOME="$srcdir/gradle"
+  gradle --offline --no-daemon -PGHIDRA_INSTALL_DIR=/opt/ghidra buildExtension
+
+  python -m build --wheel --no-isolation
+  cd "$srcdir/python-sdk" || exit
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname" || exit
+
+  # The bridge's tests that don't need a running Ghidra (tests/unit), and its end-to-end tests
+  # against a fake Ghidra (tests/offline), with the MCP SDK it's packaged with. The Java tests need
+  # JUnit and Mockito from Maven Central, and most of them a running Ghidra.
+  python -m venv --system-site-packages "$srcdir/test-env"
+  "$srcdir/test-env/bin/python" -m installer dist/*.whl "$srcdir"/python-sdk/dist/*.whl
+  local deselect=(
+    # These run ./gradlew, the Gradle wrapper, which downloads a prebuilt Gradle first (the package
+    # builds with Arch's gradle)
+    tests/unit/test_gradle_tasks.py::test_gradlew_tasks_lists_all_custom_tasks
+    tests/unit/test_gradle_tasks.py::test_gradlew_deploy_task_order
+    tests/unit/test_gradle_tasks.py::test_gradlew_verify_version_without_ghidra_dir
+    tests/unit/test_gradle_tasks.py::test_gradlew_build_extension_dry_run
+    tests/unit/test_gradle_tasks.py::test_gradlew_reads_version_from_pom
+    # Compares the release's DEFAULT_BRANCH (main) with the clone's origin/HEAD, upstream's current
+    # default branch (dev since after 7.0.0): it checks the remote, not the code
+    tests/unit/test_ci_workflow_triggers.py::test_default_branch_constant_matches_git
+  )
+  "$srcdir/test-env/bin/python" -m pytest -o addopts='' -p no:cacheprovider \
+    "${deselect[@]/#/--deselect=}" tests/unit tests/offline
+}
+
+package() {
+  # The version of Ghidra the extension is built for
+  local ghidra_version site
+  ghidra_version=$(sed -n 's/^application\.version=//p' /opt/ghidra/Ghidra/application.properties)
+  depends=("${depends[@]/#ghidra/"ghidra=$ghidra_version"}")
+
+  cd "$pkgname" || exit
+
+  # An extension of the installation, for every user: Ghidra lists it as installed, and the plugin
+  # only has to be enabled (File > Configure in the CodeBrowser)
+  install -d "$pkgdir/opt/ghidra/Ghidra/Extensions"
+  bsdtar -xf build/distributions/GhidraMCP-*.zip -C "$pkgdir/opt/ghidra/Ghidra/Extensions"
+
+  # The bridge and the MCP SDK in their own folder, and the bridge's command, which puts it first on
+  # the path
+  python -m installer --destdir="$pkgdir" --prefix=/usr/lib/ghidra-mcp \
+    dist/*.whl "$srcdir"/python-sdk/dist/*.whl
+  rm -r "$pkgdir/usr/lib/ghidra-mcp/bin"
+  site=$(python -c 'import sysconfig; print(sysconfig.get_path("purelib", vars={"base": "/usr/lib/ghidra-mcp"}))')
+  sed "s|@SITE@|$site|" ../bridge-mcp-ghidra.sh | install -Dm755 /dev/stdin "$pkgdir/usr/bin/bridge-mcp-ghidra"
+
+  install -Dm644 README.md CHANGELOG.md -t "$pkgdir/usr/share/doc/$pkgname"
+  install -Dm644 NOTICE -t "$pkgdir/usr/share/licenses/$pkgname"
+  install -Dm644 "$srcdir/python-sdk/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.mcp-python-sdk"
+}

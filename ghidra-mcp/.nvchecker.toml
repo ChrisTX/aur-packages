@@ -1,0 +1,7 @@
+# The releases of GhidraMCP. The MCP SDK stays at its last 1.x release (_mcpver) until the bridge
+# moves to the SDK 2.x.
+[ghidra-mcp]
+source = "github"
+github = "bethington/ghidra-mcp"
+use_latest_release = true
+prefix = "v"
