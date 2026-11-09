@@ -12,11 +12,15 @@
         language: system
         entry: ./aur-packages quoting
         files: (^|/)PKGBUILD$
+        # Arch Linux's packages in overrides/ keep Arch's style
+        exclude: ^overrides/
       - id: pins
         name: pinned commits match pkgver
         language: system
         entry: ./aur-packages pins
         files: (^|/)PKGBUILD$
+        # Arch Linux's packages in overrides/ keep Arch's style
+        exclude: ^overrides/
       - id: reuse-lint
         name: reuse lint (reuse)
         language: system
