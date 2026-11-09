@@ -58,7 +58,10 @@ usage() {
   cat <<'EOF'
 Usage: aur-packages COMMAND [PACKAGE...]
 
-Commands work on all packages unless packages are given.
+Commands work on all packages unless packages are given, by folder or name. The packages at the top
+level are the AUR's; local/ holds packages of ours that aren't on the AUR, overrides/ Arch Linux's
+packages with changes of ours (subtrees of Arch's packaging, in Arch's style). Both are built,
+checked and tracked here, but never published to the AUR: pull, push and adopt refuse them.
 
 Run from a checkout (./aur-packages), it works on that one. From elsewhere, e.g. a symlink or a copy
 on PATH, it works on the checkout of the current directory, else the one $AUR_PACKAGES_HOME names,
@@ -125,6 +128,8 @@ else the one the symlink points into.
             against the convention in CONTRIBUTING.md (run by the quoting hook)
   pins      Check that the _commit of a version like git describe's (…r83.g4b8b3d3) is the commit
             it names, without the network (run by the pins hook; commits checks all pins online)
+  overrides Compare the packages of overrides/ with Arch Linux's repositories, and fail if Arch has
+            caught up with one, which then isn't needed any more
   list      List the packages, or with --templates the build templates
   completion bash|zsh|fish|pwsh
             Print the completion script for a shell, see CONTRIBUTING.md
@@ -132,30 +137,64 @@ else the one the symlink points into.
 EOF
 }
 
-# Sets $selected to the given packages, or all of them. Fails for folders that aren't packages.
+# The folders of the packages: the AUR packages at the top level, then local/ (packages of ours that
+# aren't on the AUR) and overrides/ (Arch Linux's packages with changes of ours), which are built and
+# checked, but never published to the AUR
+package_dirs() {
+  local pkgbuild
+  for pkgbuild in */PKGBUILD local/*/PKGBUILD overrides/*/PKGBUILD; do
+    [[ -f "$pkgbuild" ]] && printf '%s
+' "${pkgbuild%/PKGBUILD}"
+  done
+}
+
+# The folder of a package, by its folder or its name (e.g. ghidra for overrides/ghidra)
+package_dir() {
+  local name=${1%/} dir
+  for dir in "$name" "local/$name" "overrides/$name"; do
+    if [[ -f "$dir/PKGBUILD" ]]; then
+      printf '%s
+' "$dir"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Sets $selected to the given packages, or all of them (--aur: only the AUR packages, the default
+# list as well as the given ones). Fails for folders that aren't packages.
 select_packages() {
-  local package
+  local package dir aur_only=false
   selected=()
+  if [[ "${1-}" == --aur ]]; then
+    aur_only=true
+    shift
+  fi
   if (($#)); then
     for package; do
-      package=${package%/}
-      if [[ ! -f "$package/PKGBUILD" ]]; then
+      if ! dir=$(package_dir "$package"); then
         echo "Not a package: $package" >&2
         return 1
       fi
-      selected+=("$package")
+      if [[ "$aur_only" == true && "$dir" == */* ]]; then
+        echo "Not an AUR package: $dir (local/ and overrides/ aren't published to the AUR)" >&2
+        return 1
+      fi
+      selected+=("$dir")
     done
-  else
+  elif [[ "$aur_only" == true ]]; then
     for package in */PKGBUILD; do
       selected+=("${package%/PKGBUILD}")
     done
+  else
+    mapfile -t selected < <(package_dirs)
   fi
 }
 
 cmd_pull() {
   local package
   local -a selected
-  select_packages "$@"
+  select_packages --aur "$@"
   for package in "${selected[@]}"; do
     aurpublish --pull "$package"
   done
@@ -186,14 +225,13 @@ cmd_push() {
     shift
   done
   for package in "${excluded[@]}"; do
-    package=${package%/}
-    if [[ ! -f "$package/PKGBUILD" ]]; then
-      echo "Not a package: $package" >&2
+    if ! package=$(package_dir "$package"); then
+      echo "Not a package: ${excluded[0]}" >&2
       return 1
     fi
     exclude[$package]=1
   done
-  select_packages "$@"
+  select_packages --aur "$@"
   for package in "${selected[@]}"; do
     [[ -n "${exclude[$package]-}" ]] || pushed+=("$package")
   done
@@ -219,7 +257,7 @@ cmd_adopt() {
     echo "Usage: aur-packages adopt PACKAGE..." >&2
     return 1
   fi
-  select_packages "$@"
+  select_packages --aur "$@"
   [[ "$(git config --bool commit.gpgsign)" == true ]] && sign=(-S)
   for package in "${selected[@]}"; do
     base=$(sed -n 's/^pkgbase = //p' "$package/.SRCINFO")
@@ -567,6 +605,8 @@ cmd_sync() {
   fi
   select_packages "$@"
   for package in "${selected[@]}"; do
+    # Arch Linux's packages keep Arch's files, unless an override has copies of its own
+    [[ "$package" != overrides/* || -f "$package/.pre-commit-config.yaml" ]] || continue
     for file in .editorconfig .pre-commit-config.yaml .typos.toml; do
       sync_file "$package/$file" "$(cat "templates/package/$file")"$'\n'
     done
@@ -701,7 +741,7 @@ EOF
 # Checks the summary of a commit message ($1): upgpkg: <pkg> <ver>-<rel> with the version of the
 # package's staged .SRCINFO, or <scope>: <summary> with a top-level file or folder as scope
 cmd_commit_msg() {
-  local summary scope version expected file=$1
+  local summary scope version expected dir file=$1
   local upgpkg_pattern='^upgpkg: ([^ ]+) ([^ ]+)$' scope_pattern='^([^ :]+): [^ ]'
   [[ "$file" == /* ]] || file=$cwd/$file
   # The first line that isn't empty or a comment, git strips those afterwards
@@ -722,18 +762,22 @@ cmd_commit_msg() {
   if [[ "$summary" =~ $upgpkg_pattern ]]; then
     scope=${BASH_REMATCH[1]}
     version=${BASH_REMATCH[2]}
-    if ! expected=$(srcinfo_version ":$scope/.SRCINFO"); then
+    # The package by its name, also in local/ and overrides/
+    dir=$(package_dir "$scope") || dir=$scope
+    if ! expected=$(srcinfo_version ":$dir/.SRCINFO"); then
       echo "Not a package with a staged .SRCINFO: $scope" >&2
       return 1
     fi
     if [[ "$version" != "$expected" ]]; then
-      echo "The version in the summary is $version, but $scope/.SRCINFO has $expected" >&2
+      echo "The version in the summary is $version, but $dir/.SRCINFO has $expected" >&2
       return 1
     fi
   elif [[ "$summary" =~ $scope_pattern ]]; then
     scope=${BASH_REMATCH[1]}
-    # Removed packages and files exist only in HEAD
-    if [[ ! -e "$scope" ]] && ! git cat-file -e "HEAD:$scope" 2>/dev/null; then
+    # Removed packages and files exist only in HEAD; the packages of local/ and overrides/ by name
+    if [[ ! -e "$scope" ]] && ! git cat-file -e "HEAD:$scope" 2>/dev/null &&
+      ! package_dir "$scope" >/dev/null && ! git cat-file -e "HEAD:local/$scope" 2>/dev/null &&
+      ! git cat-file -e "HEAD:overrides/$scope" 2>/dev/null; then
       echo "The scope '$scope' is neither a package nor a top-level file or folder" >&2
       return 1
     fi
@@ -753,7 +797,7 @@ cmd_commit_msg() {
 # one scope otherwise, the scope, <scope>: . Changes in several scopes get a comment instead, as each
 # package is a commit of its own. A message that isn't empty is left as it is.
 cmd_prepare_commit_msg() {
-  local file=$1 source=${2-} scope version previous summary=''
+  local file=$1 source=${2-} scope dir version previous summary=''
   local -a scopes
   [[ "$file" == /* ]] || file=$cwd/$file
   # Not for -m and -F, which commit without an editor, nor for git's own messages (merge, squash) and
@@ -763,13 +807,15 @@ cmd_prepare_commit_msg() {
   esac
   # Only a message without text, e.g. not one of commit.template
   ! grep -q -v -m1 -e '^#' -e '^[[:space:]]*$' "$file" || return 0
-  mapfile -t scopes < <(git diff --cached --name-only --no-renames | cut -d/ -f1 | sort -u)
+  # The top-level file or folder, for local/ and overrides/ the package's name
+  mapfile -t scopes < <(git diff --cached --name-only --no-renames |
+    sed -E 's#^(local|overrides)/([^/]+)/.*#\2#; s#/.*##' | sort -u)
   if ((${#scopes[@]} > 1)); then
     summary="# The staged changes are in several scopes, one commit each: ${scopes[*]}"
   elif ((${#scopes[@]} == 1)); then
     scope=${scopes[0]}
-    if [[ -f "$scope/PKGBUILD" ]] && version=$(srcinfo_version ":$scope/.SRCINFO"); then
-      previous=$(srcinfo_version "HEAD:$scope/.SRCINFO") || previous=''
+    if dir=$(package_dir "$scope") && version=$(srcinfo_version ":$dir/.SRCINFO"); then
+      previous=$(srcinfo_version "HEAD:$dir/.SRCINFO") || previous=''
       [[ "$version" == "$previous" ]] || summary="upgpkg: $scope $version"
     fi
     summary=${summary:-"$scope: "}
@@ -846,8 +892,8 @@ cmd_quoting() {
 build_edges() {
   local s d line key name
   local -A name2dir=() provider=()
-  for s in */.SRCINFO; do
-    d=${s%/.SRCINFO}
+  while IFS= read -r d; do
+    s=$d/.SRCINFO
     while IFS= read -r line; do
       [[ "$line" == *" = "* ]] || continue
       key=${line%% = *}
@@ -866,12 +912,12 @@ build_edges() {
         provider[$name]=1
       fi
     done <"$s"
-  done
+  done < <(package_dirs)
   for name in "${!build_alias[@]}"; do
     name2dir[$name]=${build_alias[$name]}
   done
-  for s in */.SRCINFO; do
-    d=${s%/.SRCINFO}
+  while IFS= read -r d; do
+    s=$d/.SRCINFO
     while IFS= read -r line; do
       [[ "$line" == *" = "* ]] || continue
       key=${line%% = *}
@@ -887,7 +933,7 @@ build_edges() {
         printf '%s\t%s\n' "${name2dir[$name]}" "$d"
       fi
     done <"$s"
-  done | sort -u
+  done < <(package_dirs) | sort -u
 }
 
 # Prints the given root packages and all their repo-local dependencies, dependencies first
@@ -1565,6 +1611,36 @@ cmd_commits() {
   done
 }
 
+# Compares each package of overrides/ with Arch Linux's (core, extra, multilib): an override is only
+# needed until Arch's version is at least ours, which pacman then installs instead
+cmd_overrides() {
+  local dir name ours repo theirs found status=0
+  local -a selected
+  select_packages "$@"
+  for dir in "${selected[@]}"; do
+    [[ "$dir" == overrides/* ]] || continue
+    name=$(sed -n 's/^pkgbase = //p' "$dir/.SRCINFO")
+    ours=$(sed -n -E 's/^\tepoch = (.*)/\1:/p; s/^\tpkgver = //p; s/^\tpkgrel = /-/p' "$dir/.SRCINFO" | tr -d '\n')
+    found=''
+    for repo in core extra multilib; do
+      theirs=$(LC_ALL=C pacman -Si "$repo/$name" 2>/dev/null | sed -n 's/^Version *: //p') || true
+      if [[ -n "$theirs" ]]; then
+        found=$repo
+        break
+      fi
+    done
+    if [[ -z "$found" ]]; then
+      printf '%-30s %s, not in Arch Linux'"'"'s repositories\n' "$name" "$ours"
+    elif (($(vercmp "$theirs" "$ours") >= 0)); then
+      printf '%-30s %s, Arch Linux has %s (%s): the override can go\n' "$name" "$ours" "$theirs" "$found"
+      status=1
+    else
+      printf '%-30s %s, Arch Linux has %s (%s)\n' "$name" "$ours" "$theirs" "$found"
+    fi
+  done
+  return "$status"
+}
+
 cmd_list() {
   local -a selected
   if [[ "${1-}" == --templates ]]; then
@@ -1591,7 +1667,7 @@ cmd_completion() {
 command=${1-help}
 (($#)) && shift
 case "$command" in
-  pull | push | adopt | updates | upgrade | check | sync | setup | tray | build | commits | list | completion)
+  pull | push | adopt | updates | upgrade | check | sync | setup | tray | build | commits | overrides | list | completion)
     "cmd_$command" "$@"
     ;;
   commit-msg)
