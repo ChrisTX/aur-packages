@@ -1159,7 +1159,7 @@ build_in_repo() {
 cmd_build() {
   local method=chroot install=false dryrun=false keep=false dotnetbin=false libsbin=false testing=false
   local target='' native=false cross=false reuse=''
-  local arg pkg name file repo='' conf='' reponame=aur-build
+  local arg pkg name file dir repo='' conf='' reponame=aur-build
   local makepkgconf=/usr/share/devtools/makepkg.conf.d/x86_64.conf
   local crossrepo='' crossconf='' crossmakepkg='' crossname=aur-build-aarch64
   # The containers, apart from the ones of aurutils (/var/lib/aurbuild), which builds the system's
@@ -1272,8 +1272,8 @@ cmd_build() {
     mapfile -t expand < <(build_template "$arg")
     if ((${#expand[@]})); then
       roots+=("${expand[@]}")
-    elif [[ -f "$arg/PKGBUILD" ]]; then
-      roots+=("$arg")
+    elif dir=$(package_dir "$arg"); then
+      roots+=("$dir")
     else
       echo "Not a template or package: $arg" >&2
       return 1
