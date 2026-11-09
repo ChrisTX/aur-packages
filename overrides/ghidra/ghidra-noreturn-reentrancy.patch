@@ -1,0 +1,33 @@
+diff --git a/Ghidra/Features/Base/src/main/java/ghidra/app/plugin/core/analysis/FindNoReturnFunctionsAnalyzer.java b/Ghidra/Features/Base/src/main/java/ghidra/app/plugin/core/analysis/FindNoReturnFunctionsAnalyzer.java
+index eaa4185..3f1d1fe 100644
+--- a/Ghidra/Features/Base/src/main/java/ghidra/app/plugin/core/analysis/FindNoReturnFunctionsAnalyzer.java
++++ b/Ghidra/Features/Base/src/main/java/ghidra/app/plugin/core/analysis/FindNoReturnFunctionsAnalyzer.java
+@@ -102,6 +102,13 @@ public class FindNoReturnFunctionsAnalyzer extends AbstractAnalyzer {
+ 	public boolean added(Program prog, AddressSetView set, TaskMonitor monitor, MessageLog log)
+ 			throws CancelledException {
+ 
++		// The repair below disassembles, which can run this analyzer again before this call is
++		// done: keep the state of an outer call, rather than leaving it null for it
++		Program outerProgram = this.program;
++		TaskMonitor outerMonitor = this.monitor;
++		List<NoReturnLocations> outerReasonList = this.reasonList;
++		Address outerLastGetNextFuncAddress = lastGetNextFuncAddress;
++		boolean outerIsX86 = isX86;
+ 		try {
+ 			this.program = prog;
+ 			this.monitor = monitor;
+@@ -147,9 +154,11 @@ public class FindNoReturnFunctionsAnalyzer extends AbstractAnalyzer {
+ 			}
+ 		}
+ 		finally {
+-			this.program = null;
+-			this.monitor = null;
+-			this.reasonList = null;
++			this.program = outerProgram;
++			this.monitor = outerMonitor;
++			this.reasonList = outerReasonList;
++			lastGetNextFuncAddress = outerLastGetNextFuncAddress;
++			isX86 = outerIsX86;
+ 		}
+ 		return true;
+ 	}
