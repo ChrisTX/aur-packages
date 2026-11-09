@@ -33,7 +33,8 @@ jobs:
           MAGO_SHA256: c536aa948ff1dbcd4f12200088a01f61ca0ea426e92128255b657a797645ec00
         run: |
           name="mago-$MAGO_VERSION-x86_64-unknown-linux-musl"
-          curl -fsSLo /tmp/mago.tar.gz \
+          # GitHub's release downloads fail now and then (504): try again before failing the checks
+          curl -fsSL --retry 4 --retry-all-errors --retry-delay 10 -o /tmp/mago.tar.gz \
             "https://github.com/carthage-software/mago/releases/download/$MAGO_VERSION/$name.tar.gz"
           echo "$MAGO_SHA256  /tmp/mago.tar.gz" | sha256sum -c -
           tar -xzf /tmp/mago.tar.gz -C /tmp
