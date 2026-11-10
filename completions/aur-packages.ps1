@@ -31,7 +31,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'sync'    = @('--check')
         'list'    = @('--templates')
         'build'   = @('--chroot', '--local', '--install', '--dry-run', '-n', '--keep', '--dotnet-bin', '--libs-bin', '--testing',
-            '--target', '--repo')
+            '--sanitize', '--target', '--repo')
     }
     $withPackages = @('pull', 'push', 'adopt', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting')
 
@@ -71,6 +71,8 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         }
     } elseif ($command -eq 'build' -and $previous -eq '--target') {
         'aarch64', 'aarch64-native' | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
+    } elseif ($command -eq 'build' -and $previous -eq '--sanitize') {
+        'undefined', 'address', 'address,undefined' | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
     } elseif ($command -eq 'build' -and $previous -eq '--repo') {
         Get-PathResult -Directory
     } elseif ($command -eq 'push' -and $previous -eq '--exclude') {

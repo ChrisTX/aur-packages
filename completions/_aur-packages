@@ -79,6 +79,7 @@ _aur-packages() {
             "--dotnet-bin[build with Microsoft's .NET]" \
             '--libs-bin[build with the libraries from nuget.org]' \
             "--testing[build against Arch Linux's testing repositories]" \
+            '--sanitize=[make test builds with the sanitisers]:sanitiser:(undefined address address,undefined)' \
             '--target=[build for another architecture]:target:((aarch64\:"cross-build for aarch64" aarch64-native\:"build for aarch64 under QEMU"))' \
             '--repo=[continue in the repo of an earlier --keep]:repo:_directories' \
             '*:package or template:_aur-packages_buildables' &&

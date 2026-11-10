@@ -38,13 +38,17 @@ _aur_packages_complete() {
           mapfile -t COMPREPLY < <(compgen -W 'aarch64 aarch64-native' -- "$cur")
           return
           ;;
+        --sanitize)
+          mapfile -t COMPREPLY < <(compgen -W 'undefined address address,undefined' -- "$cur")
+          return
+          ;;
         --repo)
           compopt -o filenames
           mapfile -t COMPREPLY < <(compgen -d -- "$cur")
           return
           ;;
       esac
-      options='--chroot --local --install --dry-run -n --keep --dotnet-bin --libs-bin --testing --target --repo'
+      options='--chroot --local --install --dry-run -n --keep --dotnet-bin --libs-bin --testing --sanitize --target --repo'
       packages=true templates=true
       ;;
     list) options=--templates ;;

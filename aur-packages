@@ -105,6 +105,9 @@ else the one the symlink points into.
             under QEMU (qemu-user-static-binfmt), with Microsoft's .NET. --repo DIR continues in
             the repo of an earlier --keep, skipping the packages already built there.
             Packages that depend on lib32-* packages build in a multilib chroot (multilib-devel).
+            --sanitize undefined|address|address,undefined makes test builds with the sanitisers
+            (their -fsanitize flags in the chroots' makepkg.conf) and keeps their repo; check() runs
+            on them too
             --testing builds against Arch Linux's testing repositories (devtools' extra-testing and
             multilib-testing), in chroots of their own, for a system that uses them.
             The chroots are in /var/lib/aur-packages-chroot ($AUR_BUILD_CHROOT), next to the
@@ -1156,9 +1159,27 @@ build_in_repo() {
   [[ "$found" == true ]]
 }
 
+# Prints the makepkg.conf of test builds with the sanitisers $2 (address, undefined or both,
+# comma-separated): the makepkg.conf $1 with their flags. Without the checks of undefined that don't work
+# for libraries loaded into closed-source programs, like the plugins of game servers (vptr and function
+# need the type information of the whole program), or that LLVM's LTO can't build for 32-bit x86
+# (pointer-overflow). Executables get the sanitisers' runtime linked in; shared libraries take it from
+# the program that loads them, e.g. a server started with the runtime in LD_PRELOAD.
+sanitise_makepkg_conf() {
+  local flags="-fsanitize=$2 -fno-omit-frame-pointer"
+  if [[ ",$2," == *,undefined,* ]]; then
+    flags+=" -fno-sanitize=vptr,function,pointer-overflow"
+  fi
+  cat "$1"
+  printf '\n# ./aur-packages build --sanitize=%s: test builds with the sanitisers\n' "$2"
+  printf 'CFLAGS+=" %s"\nCXXFLAGS+=" %s"\nLDFLAGS+=" %s"\n' "$flags" "$flags" "$flags"
+  # Reports of check() and of the programs the build runs, with where they come from
+  printf 'export UBSAN_OPTIONS=print_stacktrace=1\n'
+}
+
 cmd_build() {
   local method=chroot install=false dryrun=false keep=false dotnetbin=false libsbin=false testing=false
-  local target='' native=false cross=false reuse=''
+  local target='' native=false cross=false reuse='' sanitise='' sanitiser
   local arg pkg name file dir repo='' conf='' reponame=aur-build
   local makepkgconf=/usr/share/devtools/makepkg.conf.d/x86_64.conf
   local crossrepo='' crossconf='' crossmakepkg='' crossname=aur-build-aarch64
@@ -1179,6 +1200,11 @@ cmd_build() {
       --dotnet-bin) dotnetbin=true ;;
       --libs-bin) libsbin=true ;;
       --testing) testing=true ;;
+      --sanitize)
+        shift
+        sanitise=${1:-}
+        ;;
+      --sanitize=*) sanitise=${1#*=} ;;
       --target)
         shift
         target=${1:-}
@@ -1203,7 +1229,8 @@ cmd_build() {
   done
   if (($# == 0)); then
     echo "Usage: aur-packages build [--chroot|--local] [--install] [--dry-run] [--keep] [--repo DIR] [--dotnet-bin]" \
-      "[--libs-bin] [--testing] [--target aarch64|aarch64-native] <template|package>..." >&2
+      "[--libs-bin] [--testing] [--sanitize undefined|address|address,undefined] [--target aarch64|aarch64-native]" \
+      "<template|package>..." >&2
     return 1
   fi
   case "$target" in
@@ -1219,6 +1246,22 @@ cmd_build() {
     -n "$reuse") ]]; then
     echo "--dotnet-bin, --libs-bin, --testing, --target and --repo need a chroot build, a local one uses what's installed" >&2
     return 1
+  fi
+  if [[ -n "$sanitise" ]]; then
+    local -a sanitisers
+    IFS=, read -ra sanitisers <<<"$sanitise"
+    for sanitiser in "${sanitisers[@]}"; do
+      if [[ "$sanitiser" != address && "$sanitiser" != undefined ]]; then
+        echo "Unknown sanitiser: $sanitiser (address, undefined or both, comma-separated)" >&2
+        return 1
+      fi
+    done
+    if [[ "$method" == local || -n "$target" ]]; then
+      echo "--sanitize needs a chroot build for x86_64" >&2
+      return 1
+    fi
+    # The test builds are no use without their packages
+    keep=true
   fi
   if [[ "$testing" == true && -n "$target" ]]; then
     echo "--testing is for Arch Linux's testing repositories, Arch Linux ARM has none" >&2
@@ -1335,6 +1378,16 @@ cmd_build() {
     chrootargs+=(--makepkg-conf "$makepkgconf")
   fi
   chrootargs+=(--directory "$chrootdir")
+  # Test builds with the sanitisers take their flags from a makepkg.conf of their own, in the normal and
+  # the multilib container
+  local -a sanitiseargs=()
+  if [[ -n "$sanitise" ]]; then
+    sanitiseargs=(--makepkg-conf "$repo/makepkg-sanitise.conf")
+    if [[ "$dryrun" == false ]]; then
+      sanitise_makepkg_conf "$makepkgconf" "$sanitise" >"$repo/makepkg-sanitise.conf"
+    fi
+    chrootargs+=("${sanitiseargs[@]}")
+  fi
 
   # A cross build builds everything for x86_64 as usual, those for aarch64 as well afterwards, in a
   # container of their own with the cross toolchain and the Arch Linux ARM root they compile against.
@@ -1404,7 +1457,7 @@ cmd_build() {
       # A package against multilib builds in a multilib container, with the same private repository
       if [[ "$native" == false ]] && build_multilib "$pkg"; then
         pkgconf=$repo/pacman-multilib.conf
-        pkgargs=(--directory "$multilibdir" --base-packages "base-devel,multilib-devel")
+        pkgargs=(--directory "$multilibdir" --base-packages "base-devel,multilib-devel" "${sanitiseargs[@]}")
         if [[ "$dryrun" == false && ! -f "$pkgconf" ]]; then
           devtools_pacman_conf "$multilibconf.conf" "$reponame" "$repo" >"$pkgconf"
         fi
@@ -1462,6 +1515,9 @@ cmd_build() {
 
   if [[ "$method" == chroot && "$keep" == true && "$dryrun" == false ]]; then
     echo "Repository kept at $repo" >&2
+    if [[ -n "$sanitise" ]]; then
+      echo "Its packages are test builds with -fsanitize=$sanitise, not to be installed as the usual ones" >&2
+    fi
     if [[ "$cross" == true ]]; then echo "The aarch64 packages are in $crossrepo" >&2; fi
   fi
 }
