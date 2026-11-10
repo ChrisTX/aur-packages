@@ -1,7 +1,7 @@
 pkgbase = ghidra
 	pkgdesc = Software reverse engineering framework
 	pkgver = 12.2
-	pkgrel = 0.1
+	pkgrel = 1.1
 	url = https://ghidra-sre.org/
 	arch = x86_64
 	license = Apache-2.0
@@ -16,7 +16,6 @@ pkgbase = ghidra
 	makedepends = python-setuptools
 	makedepends = z3
 	makedepends = z3-java
-	depends = java-environment>=25
 	depends = bash
 	depends = glibc
 	depends = libgcc
@@ -38,6 +37,7 @@ pkgbase = ghidra
 	source = https://files.pythonhosted.org/packages/source/w/wheel/wheel-0.45.1.tar.gz
 	source = https://files.pythonhosted.org/packages/source/j/jpype1/jpype1-1.5.2.tar.gz
 	source = https://files.pythonhosted.org/packages/source/p/packaging/packaging-25.0.tar.gz
+	source = https://files.pythonhosted.org/packages/source/t/typing_extensions/typing_extensions-4.16.0.tar.gz
 	source = ghidra.desktop
 	source = ghidra-noreturn-continuation.patch
 	source = ghidra-noreturn-reentrancy.patch
@@ -51,8 +51,16 @@ pkgbase = ghidra
 	sha512sums = df45f00e9eaeae2f27f813f31591590c961da2f6bff15bba6fb2a14d529c221f39b29894b8da408fe49cd4b760840a0e05c4baef377ccfacd9983c0bba83d6d8
 	sha512sums = b02c294ee2ef7a206fcd80827f790bcad73bf857ab8a473a795752431eacfda85dc53ec5451545b24d9d5c80c71fa10355ba232916c2c1d52534ec54c7d0bb3b
 	sha512sums = 0672602d2e18c3aee71b3e567b0de572bc8613ee3d24a79a655ded23ac08ec4582193225bc0c0ea390ed81cf5efbb46e8afbe0798d14f2235f811f263c25728c
+	sha512sums = a46564258597913027f8104ab84dc15cb09434f978e3cac423d2e7c916b400d24627351cd0cc7095e21b01246a6c7b0bcfc062e7c9c5e56e9b71fb4d659560bd
 	sha512sums = e611f0a84023aee72016a8bb73a627e4d3b3fc28201fe2b60ccc8d6628fc2e7005b9edc24e35e489311fd6fa9ed1a35d5e230e2657a77b331dbf7cd6773ae957
 	sha512sums = bb09ce6401fd658d60d36d9cc9be8c0198162ce69ceef3cd745425947b6b5e8b0d80d7a40375a27536883d3eeff2f6b9552a09cf9e0ce77d81d24b1d22b7c2d6
 	sha512sums = 595b09eba3299bb7ce91c0cd9f35ae0205df3ed19f98736e7f6efdd76d677dfb498edb74b310a3aae9f3d84016dcf0e3423218e1bc37d8244b20261865c147bc
 
 pkgname = ghidra
+	depends = bash
+	depends = glibc
+	depends = libgcc
+	depends = libstdc++
+	depends = python
+	depends = python-packaging
+	depends = java-environment>=25

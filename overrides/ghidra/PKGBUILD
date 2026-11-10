@@ -3,9 +3,11 @@
 
 pkgname=ghidra
 pkgver=12.2
-# Below Arch's 12.2-1, which replaces it: a local build with the fix of
-# NationalSecurityAgency/ghidra#9769 (PR #9770, not merged yet)
-pkgrel=0.1
+# Above Arch's 12.2-1, below its next release, which replaces it: with the fix of
+# NationalSecurityAgency/ghidra#9769 (PR #9770) and of the NullPointerException of
+# NationalSecurityAgency/ghidra#10173, neither merged yet
+pkgrel=1.1
+_jdkver=25
 _yajsw=13.18
 _jsarif=2.1
 _protobuf=6.31.0
@@ -14,6 +16,7 @@ _setuptools=80.9.0
 _wheel=0.45.1
 _jpype1=1.5.2
 _packaging=25.0
+_typing_extensions=4.16.0
 pkgdesc='Software reverse engineering framework'
 url='https://ghidra-sre.org/'
 arch=(x86_64)
@@ -21,7 +24,6 @@ license=(
   Apache-2.0
 )
 depends=(
-  'java-environment>=25'
   bash
   glibc
   libgcc
@@ -30,7 +32,7 @@ depends=(
   python-packaging
 )
 makedepends=(
-  'java-environment=25'
+  "java-environment=${_jdkver}"
   git
   gradle
   grep
@@ -57,6 +59,7 @@ source=(
   https://files.pythonhosted.org/packages/source/w/wheel/wheel-${_wheel}.tar.gz
   https://files.pythonhosted.org/packages/source/j/jpype1/jpype1-${_jpype1}.tar.gz
   https://files.pythonhosted.org/packages/source/p/packaging/packaging-${_packaging}.tar.gz
+  https://files.pythonhosted.org/packages/source/t/typing_extensions/typing_extensions-${_typing_extensions}.tar.gz
   ghidra.desktop
   ghidra-noreturn-continuation.patch
   ghidra-noreturn-reentrancy.patch
@@ -76,6 +79,7 @@ sha512sums=('e4576bd511628fd2d6a64a6803c6c07922b2c0820436480c7acee97fbd49258f00d
             'df45f00e9eaeae2f27f813f31591590c961da2f6bff15bba6fb2a14d529c221f39b29894b8da408fe49cd4b760840a0e05c4baef377ccfacd9983c0bba83d6d8'
             'b02c294ee2ef7a206fcd80827f790bcad73bf857ab8a473a795752431eacfda85dc53ec5451545b24d9d5c80c71fa10355ba232916c2c1d52534ec54c7d0bb3b'
             '0672602d2e18c3aee71b3e567b0de572bc8613ee3d24a79a655ded23ac08ec4582193225bc0c0ea390ed81cf5efbb46e8afbe0798d14f2235f811f263c25728c'
+            'a46564258597913027f8104ab84dc15cb09434f978e3cac423d2e7c916b400d24627351cd0cc7095e21b01246a6c7b0bcfc062e7c9c5e56e9b71fb4d659560bd'
             'e611f0a84023aee72016a8bb73a627e4d3b3fc28201fe2b60ccc8d6628fc2e7005b9edc24e35e489311fd6fa9ed1a35d5e230e2657a77b331dbf7cd6773ae957'
             'bb09ce6401fd658d60d36d9cc9be8c0198162ce69ceef3cd745425947b6b5e8b0d80d7a40375a27536883d3eeff2f6b9552a09cf9e0ce77d81d24b1d22b7c2d6'
             '595b09eba3299bb7ce91c0cd9f35ae0205df3ed19f98736e7f6efdd76d677dfb498edb74b310a3aae9f3d84016dcf0e3423218e1bc37d8244b20261865c147bc')
@@ -99,6 +103,7 @@ prepare() {
   _check_dep "wheel-${_wheel}-"
   _check_dep "jpype1-${_jpype1}-"
   _check_dep "packaging-${_packaging}-"
+  _check_dep "typing_extensions-${_typing_extensions}-"
 
   # Copy needed libraries into flat repo folder
   install -Dm 644 \
@@ -137,7 +142,8 @@ build() {
   cd ghidra-Ghidra_${pkgver}_build
 
   export GRADLE_HOME="$(pwd)/usr/share/java/gradle/"
-  export PATH="/usr/lib/jvm/java-25-openjdk/bin:${PATH}"
+  export JAVA_HOME="/usr/lib/jvm/java-${_jdkver}-openjdk"
+  export PATH="${JAVA_HOME}/bin:${PATH}"
   export PATH="$(pwd)/usr/share/java/gradle/bin/:${PATH}"
 
   # Build dependencies
@@ -145,6 +151,7 @@ build() {
   _build_python_dependency setuptools-${_setuptools} Debugger-rmi-trace PyGhidra
   _build_python_dependency wheel-${_wheel} Debugger-rmi-trace PyGhidra
   _build_python_dependency packaging-${_packaging} PyGhidra
+  _build_python_dependency typing_extensions-${_typing_extensions} PyGhidra
   _build_python_dependency jpype1-${_jpype1} PyGhidra
 
   # Ghidra build
@@ -170,13 +177,16 @@ _build_python_dependency() {
 }
 
 package() {
+  depends+=(
+    'java-environment>=25'
+  )
+
   cd ghidra-Ghidra_${pkgver}_build
 
   # Extract built archive into destination folder
   install -d "${pkgdir}"/{opt,usr/bin}
   _appver=$(grep -oP '(?<=^application.version=).*$' Ghidra/application.properties)
   _relname=$(grep -oP '(?<=^application.release.name=).*$' Ghidra/application.properties)
-  # 12.2 names the zip without the platform: ghidra_<version>_<release>_<date>.zip
   bsdtar xf "build/dist/ghidra_${_appver}_${_relname}"_*.zip -C "${pkgdir}"/opt
 
   # Simplify some directory and binary names
