@@ -143,6 +143,7 @@ Packages built here for our own use, with `./aur-packages build`, and never publ
 | Package | Description | Why |
 | --- | --- | --- |
 | [ghidra-mcp](local/ghidra-mcp) | MCP server for Ghidra: a Ghidra extension with an HTTP API for reverse engineering, and the MCP bridge to it | A rework of the [AUR package](https://aur.archlinux.org/packages/ghidra-mcp), whose maintainer it's [offered to](https://aur.archlinux.org/packages/ghidra-mcp#comment-1090246) |
+| [pmd](local/pmd) | Extensible cross-language static code analyser | An update of the [AUR package](https://aur.archlinux.org/packages/pmd) (7.12.0, out of date since March 2026), built from source, for the linting of Java code |
 
 `overrides/` has Arch Linux's packages with changes of ours, as subtrees of Arch's packaging in Arch's style, versioned below Arch's next release (e.g. `12.2-0.1`), which replaces them. `./aur-packages overrides` says when Arch has caught up and one can go:
 

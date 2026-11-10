@@ -1,0 +1,18 @@
+pkgbase = pmd
+	pkgdesc = Extensible cross-language static code analyser
+	pkgver = 7.29.0
+	pkgrel = 1
+	url = https://pmd.github.io
+	arch = any
+	license = LicenseRef-PMD
+	license = Apache-2.0
+	makedepends = java-environment=21
+	makedepends = maven
+	makedepends = unzip
+	depends = bash
+	depends = java-runtime>=8
+	source = pmd-7.29.0-src.zip::https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.29.0/pmd-dist-7.29.0-src.zip
+	sha512sums = 4412261ea928c26a873885ad570e638336b123535c1b4da3b5794a10aee64444bad5b067edf7556264c64bea783f127f1f9b0232f79b9aec5e3f24686f4533e1
+	b2sums = 1c1a46607d2a452ea73d4d0b31febd2b9ebd4981b71dc4e5f55131b1d927557a4042bcd0fca5d65911f6ec0cf55a9483317372c9af3a1dab5639396ffefe68df
+
+pkgname = pmd

@@ -1,0 +1,59 @@
+# Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>
+# Contributor: Daniel Poellmann <aur at poellmanndaniel dot de>
+# Contributor: Luis Martinez <luis dot martinez at disroot dot org>
+# Contributor: Simon Legner <Simon.Legner@gmail.com>
+# Contributor: David Pugnasse <david.pugnasse@gmail.com>
+# shellcheck disable=SC2034,SC2154
+# shellcheck shell=bash
+
+pkgname=pmd
+pkgver=7.29.0
+pkgrel=1
+pkgdesc="Extensible cross-language static code analyser"
+arch=(any)
+url="https://pmd.github.io"
+# LicenseRef-PMD: PMD's BSD-style licence, with an acknowledgement in the end-user documentation;
+# Apache-2.0: parts of PMD (net.sourceforge.pmd.lang.vm) and most of the bundled libraries
+license=(LicenseRef-PMD Apache-2.0)
+depends=(
+  bash
+  'java-runtime>=8'
+)
+# PMD's build needs at least Java 21 (its enforcer rule)
+makedepends=(
+  java-environment=21
+  maven
+  unzip
+)
+source=("$pkgname-$pkgver-src.zip::https://github.com/pmd/pmd/releases/download/pmd_releases%2F$pkgver/pmd-dist-$pkgver-src.zip")
+sha512sums=('4412261ea928c26a873885ad570e638336b123535c1b4da3b5794a10aee64444bad5b067edf7556264c64bea783f127f1f9b0232f79b9aec5e3f24686f4533e1')
+b2sums=('1c1a46607d2a452ea73d4d0b31febd2b9ebd4981b71dc4e5f55131b1d927557a4042bcd0fca5d65911f6ec0cf55a9483317372c9af3a1dab5639396ffefe68df')
+
+_mvn() {
+  # Maven's repository stays in $srcdir; the release's source has no git, whose commit PMD would
+  # record (git-commit-id-maven-plugin), so it keeps its default, "unknown"
+  JAVA_HOME=/usr/lib/jvm/java-21-openjdk mvn -B --no-transfer-progress \
+    -Dmaven.repo.local="$srcdir/m2" -Dmaven.gitcommitid.skip=true "$@"
+}
+
+build() {
+  cd "pmd-src-$pkgver" || exit
+  # The modules in parallel, a thread for each core
+  _mvn package -DskipTests -T 1C
+}
+
+check() {
+  cd "pmd-src-$pkgver" || exit
+  # The tests one module after another, as upstream's CI runs them
+  _mvn test
+}
+
+package() {
+  cd "pmd-src-$pkgver/pmd-dist/target" || exit
+  unzip -q "pmd-dist-$pkgver-bin.zip"
+  install -d "$pkgdir/usr/share/java/pmd" "$pkgdir/usr/bin"
+  cp -r --no-preserve=ownership "pmd-bin-$pkgver/." "$pkgdir/usr/share/java/pmd/"
+  # The script finds PMD's folder through its link
+  ln -s /usr/share/java/pmd/bin/pmd "$pkgdir/usr/bin/pmd"
+  install -Dm644 "pmd-bin-$pkgver/LICENSE" -t "$pkgdir/usr/share/licenses/$pkgname"
+}

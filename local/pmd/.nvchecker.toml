@@ -1,0 +1,6 @@
+# The releases of PMD, tagged pmd_releases/<version>
+[pmd]
+source = "github"
+github = "pmd/pmd"
+use_latest_release = true
+prefix = "pmd_releases/"
