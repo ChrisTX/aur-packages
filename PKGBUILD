@@ -2,8 +2,9 @@
 # Maintainer: Levente Polyak <anthraxx[at]archlinux[dot]org>
 
 pkgname=ghidra
-pkgver=12.1.2
-pkgrel=2
+pkgver=12.2
+pkgrel=1
+_jdkver=25
 _yajsw=13.18
 _jsarif=2.1
 _protobuf=6.31.0
@@ -12,6 +13,7 @@ _setuptools=80.9.0
 _wheel=0.45.1
 _jpype1=1.5.2
 _packaging=25.0
+_typing_extensions=4.16.0
 pkgdesc='Software reverse engineering framework'
 url='https://ghidra-sre.org/'
 arch=(x86_64)
@@ -19,7 +21,6 @@ license=(
   Apache-2.0
 )
 depends=(
-  'java-environment>=21'
   bash
   glibc
   libgcc
@@ -28,7 +29,7 @@ depends=(
   python-packaging
 )
 makedepends=(
-  'java-environment=21'
+  "java-environment=${_jdkver}"
   git
   gradle
   grep
@@ -55,6 +56,7 @@ source=(
   https://files.pythonhosted.org/packages/source/w/wheel/wheel-${_wheel}.tar.gz
   https://files.pythonhosted.org/packages/source/j/jpype1/jpype1-${_jpype1}.tar.gz
   https://files.pythonhosted.org/packages/source/p/packaging/packaging-${_packaging}.tar.gz
+  https://files.pythonhosted.org/packages/source/t/typing_extensions/typing_extensions-${_typing_extensions}.tar.gz
   ghidra.desktop
 )
 noextract=(
@@ -62,7 +64,7 @@ noextract=(
   yajsw-stable-${_yajsw}.zip
   psutil-${_psutil}.tar.gz
 )
-sha512sums=('c0ad86b372b7252e6a13c9432c75215dba32f0e30c32c6a7d72bb2660762fed67549938b4dc369296dade9199c048e99e846d3cc17667f3ee5a0247174f40079'
+sha512sums=('e4576bd511628fd2d6a64a6803c6c07922b2c0820436480c7acee97fbd49258f00d9cae9cf2a6bea7d14c5aef561ec4eeac82d6d9dbbd79e515bb344e9ad582a'
             'b2dfe009e30bb89f84cbc5693c696e523882af1682a14f001570d89d475e72b399ab540a6cb8b027ed1f2358dc47a3bb5c7270237f03bf6f25b761b5dc9b1865'
             'c1168ec913f1fbb0675915d4fd865ec9a8e8573f6c8aedcb6e68166f61f11aeaececc7548d54d78134843c0102c57d6350973f6d3027d0ffdae52a5c57a7f601'
             'a128c724769f938658826789593616a8a2e68835f0624a15ea6f6551a84b8218e4ad6dcfc263a6a0c730c21ef911362d46d61e1ad02ec3857fe24bb4ea7130cd'
@@ -72,6 +74,7 @@ sha512sums=('c0ad86b372b7252e6a13c9432c75215dba32f0e30c32c6a7d72bb2660762fed6754
             'df45f00e9eaeae2f27f813f31591590c961da2f6bff15bba6fb2a14d529c221f39b29894b8da408fe49cd4b760840a0e05c4baef377ccfacd9983c0bba83d6d8'
             'b02c294ee2ef7a206fcd80827f790bcad73bf857ab8a473a795752431eacfda85dc53ec5451545b24d9d5c80c71fa10355ba232916c2c1d52534ec54c7d0bb3b'
             '0672602d2e18c3aee71b3e567b0de572bc8613ee3d24a79a655ded23ac08ec4582193225bc0c0ea390ed81cf5efbb46e8afbe0798d14f2235f811f263c25728c'
+            'a46564258597913027f8104ab84dc15cb09434f978e3cac423d2e7c916b400d24627351cd0cc7095e21b01246a6c7b0bcfc062e7c9c5e56e9b71fb4d659560bd'
             'e611f0a84023aee72016a8bb73a627e4d3b3fc28201fe2b60ccc8d6628fc2e7005b9edc24e35e489311fd6fa9ed1a35d5e230e2657a77b331dbf7cd6773ae957')
 
 prepare() {
@@ -86,6 +89,7 @@ prepare() {
   _check_dep "wheel-${_wheel}-"
   _check_dep "jpype1-${_jpype1}-"
   _check_dep "packaging-${_packaging}-"
+  _check_dep "typing_extensions-${_typing_extensions}-"
 
   # Copy needed libraries into flat repo folder
   install -Dm 644 \
@@ -124,7 +128,8 @@ build() {
   cd ghidra-Ghidra_${pkgver}_build
 
   export GRADLE_HOME="$(pwd)/usr/share/java/gradle/"
-  export PATH="/usr/lib/jvm/java-21-openjdk/bin:${PATH}"
+  export JAVA_HOME="/usr/lib/jvm/java-${_jdkver}-openjdk"
+  export PATH="${JAVA_HOME}/bin:${PATH}"
   export PATH="$(pwd)/usr/share/java/gradle/bin/:${PATH}"
 
   # Build dependencies
@@ -132,6 +137,7 @@ build() {
   _build_python_dependency setuptools-${_setuptools} Debugger-rmi-trace PyGhidra
   _build_python_dependency wheel-${_wheel} Debugger-rmi-trace PyGhidra
   _build_python_dependency packaging-${_packaging} PyGhidra
+  _build_python_dependency typing_extensions-${_typing_extensions} PyGhidra
   _build_python_dependency jpype1-${_jpype1} PyGhidra
 
   # Ghidra build
@@ -157,13 +163,17 @@ _build_python_dependency() {
 }
 
 package() {
+  depends+=(
+    'java-environment>=25'
+  )
+
   cd ghidra-Ghidra_${pkgver}_build
 
   # Extract built archive into destination folder
   install -d "${pkgdir}"/{opt,usr/bin}
   _appver=$(grep -oP '(?<=^application.version=).*$' Ghidra/application.properties)
   _relname=$(grep -oP '(?<=^application.release.name=).*$' Ghidra/application.properties)
-  bsdtar xf "build/dist/ghidra_${_appver}_${_relname}"_*_linux_x86_64.zip -C "${pkgdir}"/opt
+  bsdtar xf "build/dist/ghidra_${_appver}_${_relname}"_*.zip -C "${pkgdir}"/opt
 
   # Simplify some directory and binary names
   mv "${pkgdir}"/opt/ghidra{_*,}
