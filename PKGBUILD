@@ -1,7 +1,8 @@
 # Maintainer: Giancarlo Razzolini <grazzolini@archlinux.org>
-# Maintainer: Frederik Schwan <freswa@archlinux.org>
+# Maintainer: Hyacinthe Cartiaux <hyacinthe@archlinux.org>
+# Contributor: Frederik Schwan <freswa@archlinux.org>
 pkgname=dracut
-pkgver=111
+pkgver=112
 pkgrel=1
 pkgdesc="An event driven initramfs infrastructure"
 arch=('x86_64')
@@ -14,11 +15,14 @@ depends=(
   'filesystem'
   'findutils'
   'gawk'
+  'glibc'
   'grep'
   'kmod'
+  'libgcc'
   'pkgconf'
   'procps-ng'
   'sed'
+  'systemd-libs'
   'util-linux'
 )
 makedepends=(
@@ -87,12 +91,12 @@ source=(
   90-dracut-install.hook
   60-dracut-remove.hook
 )
-sha512sums=('79c82ba011736bd39dc45e6b32a35debbde061ed6ef96d9bcc8983f35967202d36d6c5ea7ae3fc9accf6fa66d095b5098237278b7554e5b0c4a212c1ad56b83a'
+sha512sums=('c06703a3685a1ce4edd8bb19beb0a32e4832c08cdcf9427593be6dd02ecc20c37de035e3b31f289a58fc4162e244e0275fe663c72dbfbe0b9df8c2f7d7b646f7'
             '0f91f0d4378fd9f67f1fd05080aa013b65ce48661aad4ffc07e090dee88ee789daddfa85393c49e8fd5e2ea82bf00ac482fef71523198336750bef59508408d2'
             'ed249af85fd15b79299e99b9b587fe962158d803cc1365d903a6202331cc0befaa309e36d4922bd859824295cd023bd75f959f5ad783d230550f6ce371baac67'
             'a560fba9fdb66c733e15ff299676747f94a98a6da19b1d01293bb01d7e4a1b227e34c0f6c37e2e6924d1e42c028b0006b2b7a6cb8a5797777c6538fd0923356f'
             '5f8f6f04081061d36cd331737b40a8f523319f0d05d92308c0967de97266c27d3dd901da49ce0850f12c2cd95e5eb19ba6219b5d8a1d075c010420be1900f803')
-b2sums=('8c7aec878b118fca1d3f4e74e58afb86acdcacb4d0c7061ad960f5936bf05f64a54b18ea5ef3a0755e3795428578cbfb298379eddfa29892bd85f3ff131390c2'
+b2sums=('190892b98d2bfcf00ece2bc2db724bc689886c7dbdacd98c24d62cf6e0cd60b03cd82b0e482999ffa259010476d8d3666397b4403806b378558280c616861352'
         '5468c20cd1d723509bf1d79dd5691d5e81eb19bc2e506c77eb8ee39b1b93ae195a34bb1e24a1db6a844b43999859491a3bf3c84dbef12b19a41d10a10ee8465c'
         '06e6ef68f1116d348ce4f11960a9b583af703b93ae0172c5d3d237dcdd4ca4614f2cb0f761ff12079b8c40f349e39d096ed404dee38732d4cc704e8af7ca23f1'
         '5e0e702553060dbc94a378a1b3b7caa52590a33f33d78767a4c3ef0a5360d11520084e91f59b941a62bea8abfcd017cd64132c5f3d42d93319683283a22e0875'
