@@ -1,0 +1,6 @@
+# The releases of libwbxml, tagged libwbxml-<version>
+[libwbxml]
+source = "git"
+git = "https://github.com/libwbxml/libwbxml.git"
+use_max_tag = true
+prefix = "libwbxml-"

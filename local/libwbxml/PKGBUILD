@@ -1,0 +1,41 @@
+# Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>
+# Contributor: Deon Spengler <deon at spengler dot co dot za>
+# Contributor: DJ Lucas <dj@linuxfromscratch.org>
+# Contributor: Jaroslav Lichtblau <dragonlord@aur.archlinux.org>
+# shellcheck disable=SC2034,SC2154
+# shellcheck shell=bash
+
+pkgname=libwbxml
+pkgver=0.11.10
+pkgrel=1
+pkgdesc="Library and tools to parse, encode and handle WBXML documents"
+arch=(x86_64 aarch64)
+url="https://github.com/$pkgname/$pkgname"
+license=(LGPL-2.1-or-later)
+depends=(glibc expat)
+makedepends=(cmake)
+checkdepends=(check)
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/$pkgname-$pkgver.tar.gz")
+sha512sums=('be8097a96ac82618e9e95c1368d502f46eab959e3ac6a5d5866b33d20f710c470df96928aa9bad5e785d2a2773186eadf1df7bcd7b4ffeaf9b05b92c8e1bc8f9')
+b2sums=('79e4c265ddb38f41b476afc353df1d500a0b36440d0d0bc68aaaa24280a06055a3398ecc1496cb94056dc1892ad0afa7e8e154127ea7ded4b07b2ac92256f7ba')
+
+build() {
+  # The unit tests are built when check is installed (checkdepends).
+  # CMAKE_INSTALL_LIBDIR: the CMake package configuration is installed to it, but 0.11.10 doesn't
+  # include GNUInstallDirs, which defines it, so it would end up in /cmake. Fixed upstream, not
+  # released yet: https://github.com/libwbxml/libwbxml/pull/104
+  cmake -B build -S "$pkgname-$pkgname-$pkgver" \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBDIR=lib \
+    -Wno-dev
+  cmake --build build
+}
+
+check() {
+  ctest --test-dir build --output-on-failure
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}
