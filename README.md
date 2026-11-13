@@ -149,6 +149,7 @@ Packages built here for our own use, with `./aur-packages build`, and never publ
 | [lib32-mariadb-connector-c](local/lib32-mariadb-connector-c) | MariaDB Connector/C, the client library of MariaDB (32-bit) | An update of the [AUR package](https://aur.archlinux.org/packages/lib32-mariadb-connector-c), orphaned, until its adoption goes through; for sourcemod's MySQL extension |
 | [libwbxml](local/libwbxml) | Library and tools to parse, encode and handle WBXML documents | An update of the [AUR package](https://aur.archlinux.org/packages/libwbxml) without its CMake configuration in /cmake, for sogo; its adoption request is pending |
 | [pmd](local/pmd) | Extensible cross-language static code analyser | An update of the [AUR package](https://aur.archlinux.org/packages/pmd) (7.12.0, out of date since March 2026), built from source, for the linting of Java code |
+| [python-sievelib](local/python-sievelib) | Client-side Sieve and ManageSieve library | A fix of the [AUR package](https://aur.archlinux.org/packages/python-sievelib), which lacks python-typing_extensions, for sogo6-server; goes once the AUR's is fixed |
 
 `overrides/` has Arch Linux's packages with changes of ours, as subtrees of Arch's packaging in Arch's style, versioned below Arch's next release (e.g. `12.2-0.1`), which replaces them. `./aur-packages overrides` says when Arch has caught up and one can go:
 

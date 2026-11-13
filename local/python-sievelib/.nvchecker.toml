@@ -1,0 +1,4 @@
+# The releases of sievelib on PyPI, where the source comes from
+[python-sievelib]
+source = "pypi"
+pypi = "sievelib"
