@@ -97,7 +97,7 @@ else the one the symlink points into.
             dependencies in order, in a clean chroot into a private throwaway repo (default), or
             --local (makepkg -fCd, --install to install each result). --dry-run prints the plan,
             --keep keeps the chroot repo. In a chroot, --dotnet-bin builds with Microsoft's .NET
-            (dotnet-build-deps-10.0-bin, dotnet-sdk-bin built by aur sync) and --libs-bin with the
+            (dotnet-build-deps-10.0-bin, dotnet-sdk-10.0-bin built by aur sync) and --libs-bin with the
             libraries from nuget.org (powershell-build-deps-bin) instead of the source-built ones.
             A .NET Arch Linux doesn't have (dotnet-build-deps-11.0-bin) is always Microsoft's.
             --target aarch64 also cross-builds the architecture-specific packages for aarch64
@@ -1240,6 +1240,7 @@ cmd_build() {
   local chrootdir=$chrootbase/x86_64 alarmdir=$chrootbase/aarch64 crossdir=$chrootbase/x86_64-cross-aarch64
   local multilibdir=$chrootbase/multilib-x86_64 pkgconf
   local -a roots=() order=() expand cmd preinstall=() files arches names chrootargs=() crossargs=() pkgargs
+  local ver
   local -A built=()
   while (($#)); do
     case "$1" in
@@ -1338,16 +1339,20 @@ cmd_build() {
   # what they depend on, so pacman doesn't resolve the names the packages depend on to Arch's .NET
   # (dotnet-sdk-10.0) or the source-built selectors in another repository instead. The ASP.NET ones
   # are for powershell's checkdepends.
+  local -a dotnetbinpkgs=()
   if [[ "$dotnetbin" == true ]]; then
-    preinstall+=(dotnet-host-bin dotnet-runtime-bin dotnet-targeting-pack-bin dotnet-sdk-bin
-      aspnet-runtime-bin aspnet-targeting-pack-bin)
-    # One per .NET version, e.g. dotnet-build-deps-10.0-bin for dotnet-build-deps-10.0. Not the ones
-    # without a source-built variant (dotnet-build-deps-11.0-bin), which are the only provider anyway,
-    # and whose prerelease of .NET doesn't belong in the chroots of the others.
+    # One per .NET version, e.g. dotnet-build-deps-10.0-bin for dotnet-build-deps-10.0, with Microsoft's
+    # packages of that version (dotnet-core-10.0-bin: dotnet-sdk-10.0-bin, …). Not the ones without a
+    # source-built variant (dotnet-build-deps-11.0-bin), which are the only provider anyway, and whose
+    # prerelease of .NET doesn't belong in the chroots of the others.
     for name in dotnet-build-deps-*-bin; do
       [[ -d "${name%-bin}" ]] || continue
       build_alias["${name%-bin}"]=$name
-      preinstall+=("$name")
+      ver=${name#dotnet-build-deps-}
+      ver=${ver%-bin}
+      dotnetbinpkgs+=("dotnet-host-$ver-bin" "dotnet-runtime-$ver-bin" "dotnet-targeting-pack-$ver-bin"
+        "dotnet-sdk-$ver-bin" "aspnet-runtime-$ver-bin" "aspnet-targeting-pack-$ver-bin")
+      preinstall+=("${dotnetbinpkgs[@]: -6}" "$name")
     done
   fi
   # powershell-build-deps and powershell-editor-services-build-deps resolve to the packages of the split
@@ -1470,7 +1475,7 @@ cmd_build() {
 
   # Dependencies only the AUR has, built by aurutils into the private repository first (it builds
   # their own AUR dependencies as well): e.g. lasso for sogo, or Microsoft's .NET, the SDK each -bin
-  # selector in the build order depends on, dotnet-sdk-bin (dotnet-core-bin) for
+  # selector in the build order depends on, dotnet-sdk-10.0-bin (dotnet-core-10.0-bin) for
   # dotnet-build-deps-10.0-bin with --dotnet-bin. A .NET only Microsoft builds, e.g. a prerelease
   # (dotnet-build-deps-11.0-bin, dotnet-sdk-preview-bin), has no other selector, so it's always used.
   # Names that aren't packages in the AUR are provides of the ones built, e.g. dotnet-runtime-11.0
@@ -1503,12 +1508,9 @@ cmd_build() {
       fi
     done
   fi
-  if [[ "$dotnetbin" == true ]]; then
-    for name in dotnet-host-bin dotnet-runtime-bin dotnet-targeting-pack-bin dotnet-sdk-bin aspnet-runtime-bin \
-      aspnet-targeting-pack-bin; do
-      built[$name]=1
-    done
-  fi
+  for name in "${dotnetbinpkgs[@]}"; do
+    built[$name]=1
+  done
 
   for pkg in "${order[@]}"; do
     mapfile -t arches < <(build_arches "$pkg")
