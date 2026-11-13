@@ -1,6 +1,6 @@
 pkgbase = python-sievelib
 	pkgdesc = Client-side Sieve and ManageSieve library
-	pkgver = 1.5.0
+	pkgver = 1.6.0
 	pkgrel = 1
 	url = https://github.com/tonioo/sievelib
 	arch = any
@@ -13,8 +13,8 @@ pkgbase = python-sievelib
 	makedepends = python-wheel
 	depends = python
 	depends = python-typing_extensions
-	source = https://files.pythonhosted.org/packages/source/s/sievelib/sievelib-1.5.0.tar.gz
-	sha512sums = 7e3cfe6c05259db888b5de25a45099f917a1c30b355c9d1748ace6f259f0f32276c595a8b2550bb1b7bbad5091da9b4b96c82bf32f77c264f9f67dcffeee3ded
-	b2sums = e72c35b1e7e3fda087eeb74e75b1f34ab08c97b8d85507a7054f4839b2798df16c5fb9613ceef9832f5951dd65d03cc49539df83553f0b1c71e1a0482a581e78
+	source = https://files.pythonhosted.org/packages/source/s/sievelib/sievelib-1.6.0.tar.gz
+	sha512sums = ea18e3dfbe6eb399377ac7f35dbaa59ad2c29ad853a79618e8dc504551e497324c9d40604fa4fab1384808f50ddbfe65723b1062f49ea3a433dcbd2c0072b2af
+	b2sums = 62925ea4d2d5b6260fbdbaf6e295a7ebd91f0ba745b38cac7a036587d711f4089ca67a2bf3f65250628fb3dd3b0175df4e2e494a3f47345beb83fc7d388772c2
 
 pkgname = python-sievelib
