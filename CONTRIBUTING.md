@@ -20,7 +20,7 @@ sudo pacman -S --needed base-devel devtools pacman-contrib namcap nvchecker jq \
 ./aur-packages setup
 ```
 
-`./aur-packages` manages all packages, or the packages given: `pull` and `push` (aurpublish, `push --exclude` to leave packages out), `adopt` (merges the AUR's history of a package that was on the AUR before, deleted or taken over, so it can be pushed), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `build` (clean-chroot builds of packages and their dependencies from this repository, with aurutils), `sync` (copies `templates/package` into the packages), `setup` (installs the git hooks), `tray` (a daily update check with a tray icon, see [below](#update-check-in-the-tray)) and `list` (the packages). See `./aur-packages help`.
+`./aur-packages` manages all packages, or the packages given: `pull` and `push` (aurpublish, `push --exclude` to leave packages out), `adopt` (merges the AUR's history of a package that was on the AUR before, deleted or taken over, so it can be pushed), `publish` (moves a package of `local/` to the top level, with its history, see [below](#packages-outside-the-aur)), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `build` (clean-chroot builds of packages and their dependencies from this repository, with aurutils), `sync` (copies `templates/package` into the packages), `setup` (installs the git hooks), `tray` (a daily update check with a tray icon, see [below](#update-check-in-the-tray)) and `list` (the packages). See `./aur-packages help`.
 
 ### `aur-packages` in your shell
 
@@ -124,7 +124,7 @@ Besides `PKGBUILD` and `.SRCINFO`, every package has:
 
 Two folders hold packages that are built and checked here, but never published to the AUR (`./aur-packages pull`, `push` and `adopt` refuse them):
 
-- `local/<package>/`: packages of ours that aren't ours to publish, e.g. a rework of someone else's AUR package. They follow all the conventions of this file, like the packages at the top level; `git mv` moves one there or back.
+- `local/<package>/`: packages of ours that aren't ours to publish, e.g. a rework of someone else's AUR package. They follow all the conventions of this file, like the packages at the top level. `git mv` moves one there; `./aur-packages publish <package>` moves one back to publish it, with `--section` for its table in README.md (default: Other). A plain `git mv` back would break the history `push` pushes: it would start at the move, and for a package that was at the top level before, `git subtree split` would take the whole repository's history. `publish` instead joins the package's earlier history at the top level, the AUR's included, and its commits in `local/`, then moves its row in README.md and commits; `push` publishes it. A package the AUR has another history of, e.g. one taken over, needs `--adopt` once it's ours there, which merges that history as `adopt` does.
 - `overrides/<package>/`: Arch Linux's packages with changes of ours, e.g. fixes that aren't released yet. Each one is a subtree of Arch's packaging repository, with our changes as commits on top, and keeps Arch's style, so that Arch's updates merge cleanly and a fix can go back to Arch as it is:
 
   ```bash

@@ -9,13 +9,14 @@ function __aur_packages_list
     $program list $argv 2>/dev/null
 end
 
-set -l commands pull push adopt updates upgrade check commits build sync setup tray commit-msg prepare-commit-msg quoting maintainers list completion help
+set -l commands pull push adopt publish updates upgrade check commits build sync setup tray commit-msg prepare-commit-msg quoting maintainers list completion help
 set -l none "not __fish_seen_subcommand_from $commands"
 
 complete -c aur-packages -f
 complete -c aur-packages -n $none -a pull -d 'Pull the packages from the AUR'
 complete -c aur-packages -n $none -a push -d 'Check, then push the packages to the AUR'
 complete -c aur-packages -n $none -a adopt -d 'Merge the history the AUR has of packages'
+complete -c aur-packages -n $none -a publish -d 'Move packages of local/ to the top level'
 complete -c aur-packages -n $none -a updates -d 'Show which packages have a newer upstream version'
 complete -c aur-packages -n $none -a upgrade -d 'Upgrade the packages to their latest upstream version'
 complete -c aur-packages -n $none -a check -d 'Run the checks of .pre-commit-config.yaml'
@@ -32,7 +33,7 @@ complete -c aur-packages -n $none -a list -d 'List the packages or the build tem
 complete -c aur-packages -n $none -a completion -d 'Print the completion script of a shell'
 complete -c aur-packages -n $none -a help -d 'Show the help'
 
-complete -c aur-packages -n '__fish_seen_subcommand_from pull push adopt updates upgrade check commits build sync quoting maintainers' \
+complete -c aur-packages -n '__fish_seen_subcommand_from pull push adopt publish updates upgrade check commits build sync quoting maintainers' \
     -a '(__aur_packages_list)' -d Package
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l nocheck -d 'Push without running the checks'
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l exclude -x -a '(__aur_packages_list)' -d 'Leave a package out'
@@ -43,6 +44,9 @@ complete -c aur-packages -n '__fish_seen_subcommand_from maintainers' -l aur -d 
 complete -c aur-packages -n '__fish_seen_subcommand_from commits' -l update -d 'Rewrite stale _commit values'
 complete -c aur-packages -n '__fish_seen_subcommand_from sync' -l check -d 'Only report differences'
 complete -c aur-packages -n '__fish_seen_subcommand_from list' -l templates -d 'List the build templates'
+complete -c aur-packages -n '__fish_seen_subcommand_from publish' -l section -x -a 'PowerShell .NET SourceMod Other' \
+    -d 'The table of README.md'
+complete -c aur-packages -n '__fish_seen_subcommand_from publish' -l adopt -d "Merge the AUR's history of a package that's ours there now"
 
 set -l build '__fish_seen_subcommand_from build'
 complete -c aur-packages -n $build -a '(__aur_packages_list --templates)' -d 'Build template'

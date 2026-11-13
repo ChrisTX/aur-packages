@@ -8,6 +8,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'pull'       = 'Pull the packages from the AUR'
         'push'       = 'Check, then push the packages to the AUR'
         'adopt'      = 'Merge the history the AUR has of packages'
+        'publish'    = 'Move packages of local/ to the top level'
         'updates'    = 'Show which packages have a newer upstream version'
         'upgrade'    = 'Upgrade the packages to their latest upstream version'
         'check'      = 'Run the checks of .pre-commit-config.yaml'
@@ -32,10 +33,11 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'commits' = @('--update')
         'sync'    = @('--check')
         'list'    = @('--templates')
+        'publish' = @('--section', '--adopt')
         'build'   = @('--chroot', '--local', '--install', '--dry-run', '-n', '--keep', '--dotnet-bin', '--libs-bin', '--testing',
             '--sanitize', '--target', '--repo')
     }
-    $withPackages = @('pull', 'push', 'adopt', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting', 'maintainers')
+    $withPackages = @('pull', 'push', 'adopt', 'publish', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting', 'maintainers')
 
     # The packages (or with --templates the build templates) of the checkout the command works on, from
     # the command itself
@@ -77,6 +79,8 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'undefined', 'address', 'address,undefined' | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
     } elseif ($command -eq 'build' -and $previous -eq '--repo') {
         Get-PathResult -Directory
+    } elseif ($command -eq 'publish' -and $previous -eq '--section') {
+        'PowerShell', '.NET', 'SourceMod', 'Other' | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
     } elseif ($command -eq 'push' -and $previous -eq '--exclude') {
         Get-AurPackageName | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
     } elseif ($command -in 'commit-msg', 'prepare-commit-msg') {

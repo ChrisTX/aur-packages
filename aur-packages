@@ -65,7 +65,8 @@ Usage: aur-packages COMMAND [PACKAGE...]
 Commands work on all packages unless packages are given, by folder or name. The packages at the top
 level are the AUR's; local/ holds packages of ours that aren't on the AUR, overrides/ Arch Linux's
 packages with changes of ours (subtrees of Arch's packaging, in Arch's style). Both are built,
-checked and tracked here, but never published to the AUR: pull, push and adopt refuse them.
+checked and tracked here, but never published to the AUR: pull, push and adopt refuse them, and
+publish moves a package of local/ to the top level.
 
 Run from a checkout (./aur-packages), it works on that one. From elsewhere, e.g. a symlink or a copy
 on PATH, it works on the checkout of the current directory, else the one $AUR_PACKAGES_HOME names,
@@ -80,6 +81,13 @@ else the one the symlink points into.
             Merge the history the AUR has of packages into their subtrees, keeping their files, so
             that push can push on top of it: for a package that was on the AUR before, deleted or
             taken over from another maintainer (the AUR only accepts pushes on top of its history)
+  publish [--section SECTION] PACKAGE...
+            Move packages of local/ to the top level, to push them to the AUR: with the history
+            push pushes, the package's earlier history at the top level (if it was there before,
+            the AUR's included) followed by its commits in local/, and its row of README.md in the
+            table of SECTION (default: Other). Commits the move (with the checks of the hooks) and
+            the history; doesn't push. Refuses a package the AUR has another history of, unless
+            --adopt merges it, as adopt does, once the package is ours on the AUR
   updates   Show which packages have a newer upstream version with the .nvchecker.toml of each
             (pkgctl version check), without changing anything. --state writes the result to
             ~/.local/state/aur-packages/updates.json for the tray icon instead (see tray), keeping
@@ -312,6 +320,180 @@ EOF_MSG
     # commit of its own
     git show "$head:PKGBUILD" >"$previous"
     "$root/aur-packages-maintainers" adopt "$package" "$previous"
+  done
+}
+
+# Moves the row of the package $1 (pkgbase) in README.md from the table of local/ into the table under
+# the heading "### $2", as $3, in alphabetical order
+readme_move_row() {
+  local base=$1 section=$2 new=$3 line name i heading=-1 at=-1
+  local -a lines=() table=()
+  # Without the row of local/
+  while IFS= read -r line; do
+    [[ "$line" == "| [$base](local/$base) |"* ]] || lines+=("$line")
+  done <README.md
+  # The rows of the section's table: from its heading to the next one
+  for i in "${!lines[@]}"; do
+    if [[ "${lines[i]}" == '### '* ]]; then
+      ((heading >= 0)) && break
+      [[ "${lines[i]}" == "### $section" ]] && heading=$i
+    elif ((heading >= 0)) && [[ "${lines[i]}" == '| ['* ]]; then
+      table+=("$i")
+    fi
+  done
+  if ((${#table[@]} == 0)); then
+    echo "README.md: no table under ### $section" >&2
+    return 1
+  fi
+  # Before the first row that sorts after it, else after the last one
+  for i in "${table[@]}"; do
+    name=${lines[i]#'| ['}
+    name=${name%%']'*}
+    if [[ "$(printf '%s\n' "$base" "$name" | LC_ALL=C sort | head -n 1)" == "$base" ]]; then
+      at=$i
+      break
+    fi
+  done
+  ((at >= 0)) || at=$((${table[-1]} + 1))
+  printf '%s\n' "${lines[@]:0:at}" "$new" "${lines[@]:at}" >README.md
+}
+
+# Moves packages from local/ to the top level, to publish them on the AUR with push: the history
+# push pushes (the subtree's) is the package's earlier history at the top level, if it had one (an
+# AUR package moved to local/ for a while, the AUR's history included), followed by its commits in
+# local/. A plain git mv would leave the package with a history starting at the move, and for a
+# package that was at the top level before, git subtree split would take the whole repository's
+# history. Its row in README.md moves into the table of --section (default: Other).
+cmd_publish() {
+  local section=Other adopt=false package dir name base head last old split tip tree commit move rejoin
+  local count previous
+  local -a selected sign=() parents
+  while (($#)); do
+    case "$1" in
+      --section)
+        shift
+        section=${1:-}
+        ;;
+      --section=*) section=${1#*=} ;;
+      --adopt) adopt=true ;;
+      -*)
+        echo "Unknown option: $1" >&2
+        return 1
+        ;;
+      *) break ;;
+    esac
+    shift
+  done
+  if (($# == 0)); then
+    echo "Usage: aur-packages publish [--section SECTION] [--adopt] PACKAGE..." >&2
+    return 1
+  fi
+  if [[ -z "$section" || "$section" == 'Not on the AUR' ]] || ! grep -qxF "### $section" README.md; then
+    echo "README.md has no table of AUR packages under ### $section" >&2
+    return 1
+  fi
+  # The commits are made from the index, and README.md is rewritten
+  if ! git diff --cached --quiet || ! git diff --quiet -- README.md; then
+    echo "Commit or unstage the staged changes and README.md's first" >&2
+    return 1
+  fi
+  [[ "$(git config --bool commit.gpgsign)" == true ]] && sign=(-S)
+  select_packages "$@"
+  for dir in "${selected[@]}"; do
+    if [[ "$dir" != local/* ]]; then
+      echo "Not a package of local/: $dir" >&2
+      return 1
+    fi
+    name=${dir#local/}
+    if [[ -e "$name" ]]; then
+      echo "$name exists at the top level already" >&2
+      return 1
+    fi
+    if ! git diff --quiet HEAD -- "$dir"; then
+      echo "$dir has uncommitted changes" >&2
+      return 1
+    fi
+  done
+  for dir in "${selected[@]}"; do
+    name=${dir#local/}
+    base=$(srcinfo_field "$dir/.SRCINFO" pkgbase)
+
+    # Its earlier history at the top level: up to the last commit that had it there, the parent of
+    # the one that moved it to local/
+    old=''
+    last=$(git log -1 --format=%H -- "$name")
+    if [[ -n "$last" ]]; then
+      git cat-file -e "$last:$name/PKGBUILD" 2>/dev/null || last=$last^
+      old=$(git subtree split -q -P "$name" "$last")
+    fi
+    # Its commits in local/ on top, the same changes, messages and authors; the commit of the move to
+    # local/ changes nothing in the package
+    split=$(git subtree split -q -P "$dir")
+    tip=$old
+    while read -r commit; do
+      tree=$(git rev-parse "$commit^{tree}")
+      [[ -n "$tip" && "$(git rev-parse "$tip^{tree}")" == "$tree" ]] && continue
+      parents=()
+      [[ -n "$tip" ]] && parents=(-p "$tip")
+      tip=$(
+        GIT_AUTHOR_NAME=$(git log -1 --format=%an "$commit") GIT_AUTHOR_EMAIL=$(git log -1 --format=%ae "$commit") \
+        GIT_AUTHOR_DATE=$(git log -1 --format=%ad --date=raw "$commit") \
+          git commit-tree "${sign[@]}" "${parents[@]}" "$tree" -m "$(git log -1 --format=%B "$commit")"
+      )
+    done < <(git rev-list --reverse "$split")
+
+    # The AUR only accepts it on top of its own history of the package
+    if ! head=$(git ls-remote "https://aur.archlinux.org/$base.git" refs/heads/master | cut -f1); then
+      echo "$name: couldn't reach the AUR" >&2
+      return 1
+    fi
+    if [[ -n "$head" ]] && ! { git cat-file -e "$head^{commit}" 2>/dev/null && git merge-base --is-ancestor "$head" "$tip"; }; then
+      if [[ "$adopt" == false ]]; then
+        echo "$name: the AUR's $base (${head:0:7}) isn't part of its history; once it's yours on the" \
+          "AUR, publish it with --adopt" >&2
+        return 1
+      fi
+      # As adopt does: a merge of the AUR's head, with the package's files
+      git fetch -q "https://aur.archlinux.org/$base.git" master
+      tip=$(git commit-tree "${sign[@]}" -p "$tip" -p "$head" -m "Merge the earlier history of $base on the AUR" \
+        "$tip^{tree}")
+    else
+      head=''
+    fi
+
+    git mv "$dir" "$name"
+    if ! readme_move_row "$base" "$section" "$(readme_row "$name")" || ! git add README.md ||
+      ! git commit -q -m "$name: move out of local/ to publish it on the AUR"; then
+      echo "$name: not moved, the checks failed" >&2
+      git mv "$name" "$dir"
+      git restore --staged --worktree README.md
+      return 1
+    fi
+    move=$(git rev-parse HEAD)
+    rejoin=$(
+      git commit-tree "${sign[@]}" -p "$move" -p "$tip" "$move^{tree}" <<EOF_MSG
+$name: join its history for the AUR
+
+- push pushes the package's history: ${old:+its earlier history at the top level, then }its
+  commits in local/
+
+git-subtree-dir: $name
+git-subtree-mainline: $move
+git-subtree-split: $tip
+EOF_MSG
+    )
+    git merge -q --ff-only "$rejoin"
+    count=$(git rev-list --count "$tip")
+    echo "$name: moved out of local/ with a history of $count commit$( ((count == 1)) || echo s); push it" \
+      "with ./aur-packages push $name"
+    # As adopt does: the AUR's maintainers as # Maintainer:, its other lines as # Contributor:, left
+    # for a commit of its own
+    if [[ -n "$head" ]]; then
+      previous=$(mktemp)
+      git show "$head:PKGBUILD" >"$previous"
+      "$root/aur-packages-maintainers" adopt "$name" "$previous"
+      rm -f "$previous"
+    fi
   done
 }
 
@@ -895,14 +1077,47 @@ srcinfo_field() {
   fi
 }
 
+# Prints the row README.md has for the package in the folder $1 (with $2, as if it were in that folder
+# instead, e.g. at the top level for publish): its link (the AUR's, or its folder for local/ and
+# overrides/), the packages of a split package, its pkgdesc and the AUR version badge. For local/ and
+# overrides/ only the start of the row: the columns after it are free text.
+readme_row() {
+  local srcinfo=$1/.SRCINFO dir=${2:-$1} base desc first list link
+  local -a pkgnames
+  base=$(srcinfo_field "$srcinfo" pkgbase)
+  # The pkgdesc of the pkgbase, or without one, the package named like it has (split packages with a
+  # pkgdesc each)
+  desc=$(srcinfo_field "$srcinfo" pkgdesc)
+  if [[ -z "$desc" ]]; then
+    desc=$(sed -n "/^pkgname = ${base//./\\.}\$/,/^pkgname = /s/^\tpkgdesc = //p" "$srcinfo" | head -n 1)
+  fi
+  # The package named like the pkgbase first, then the others in their order; without debug packages,
+  # which aren't split packages of their own
+  mapfile -t pkgnames < <(srcinfo_field "$srcinfo" pkgname | grep -v -- '-debug$' |
+    awk -v base="$base" '$0 == base { print; next } { rest[++n] = $0 } END { for (i = 1; i <= n; i++) print rest[i] }')
+  case "$dir" in
+    overrides/*) printf '%s\n' "| [$base](overrides/$base) | " ;;
+    local/*) printf '%s\n' "| [$base](local/$base) | $desc | " ;;
+    *)
+      first=${pkgnames[0]}
+      if ((${#pkgnames[@]} == 1)) && [[ "$first" == "$base" ]]; then
+        link="[$base](https://aur.archlinux.org/packages/$base)"
+      else
+        printf -v list "\`%s\`, " "${pkgnames[@]}"
+        link="[$base](https://aur.archlinux.org/pkgbase/$base) (${list%, })"
+      fi
+      printf '%s\n' "| $link | $desc | [![AUR version](https://img.shields.io/aur/version/$first?label=)](https://aur.archlinux.org/packages/$first) |"
+      ;;
+  esac
+}
+
 # Checks README.md's tables of the packages against the packages: every package has exactly one row,
 # with its link (the AUR's, or its folder for local/ and overrides/), the packages of a split package,
 # its pkgdesc and the AUR version badge; and every row is a package's. The columns after the
 # description of local/ and overrides/ (why, until) are free text, as are the changes of overrides/.
 # Prints the row a package should have.
 cmd_readme() {
-  local status=0 dir base desc row expected link first list
-  local -a pkgnames
+  local status=0 dir base row expected
   local -A rows=() seen=()
   while IFS= read -r row; do
     base=${row#'| ['}
@@ -915,31 +1130,8 @@ cmd_readme() {
   done < <(grep -E '^\| \[[^]]+\]\((https://aur\.archlinux\.org/(packages|pkgbase)/|local/|overrides/)' README.md)
   while IFS= read -r dir; do
     base=$(srcinfo_field "$dir/.SRCINFO" pkgbase)
-    # The pkgdesc of the pkgbase, or without one, the package named like it has (split packages with
-    # a pkgdesc each)
-    desc=$(srcinfo_field "$dir/.SRCINFO" pkgdesc)
-    if [[ -z "$desc" ]]; then
-      desc=$(sed -n "/^pkgname = ${base//./\\.}\$/,/^pkgname = /s/^\tpkgdesc = //p" "$dir/.SRCINFO" | head -n 1)
-    fi
-    # The package named like the pkgbase first, then the others in their order; without debug
-    # packages, which aren't split packages of their own
-    mapfile -t pkgnames < <(srcinfo_field "$dir/.SRCINFO" pkgname | grep -v -- '-debug$' |
-      awk -v base="$base" '$0 == base { print; next } { rest[++n] = $0 } END { for (i = 1; i <= n; i++) print rest[i] }')
     seen[$base]=1
-    case "$dir" in
-      overrides/*) expected="| [$base](overrides/$base) | " ;;
-      local/*) expected="| [$base](local/$base) | $desc | " ;;
-      *)
-        first=${pkgnames[0]}
-        if ((${#pkgnames[@]} == 1)) && [[ "$first" == "$base" ]]; then
-          link="[$base](https://aur.archlinux.org/packages/$base)"
-        else
-          printf -v list "\`%s\`, " "${pkgnames[@]}"
-          link="[$base](https://aur.archlinux.org/pkgbase/$base) (${list%, })"
-        fi
-        expected="| $link | $desc | [![AUR version](https://img.shields.io/aur/version/$first?label=)](https://aur.archlinux.org/packages/$first) |"
-        ;;
-    esac
+    expected=$(readme_row "$dir")
     row=${rows[$base]:-}
     if [[ -z "$row" ]]; then
       printf 'README.md: no row for %s, which should start with:\n  %s\n' "$dir" "$expected"
@@ -1933,7 +2125,7 @@ cmd_completion() {
 command=${1-help}
 (($#)) && shift
 case "$command" in
-  pull | push | adopt | updates | upgrade | check | sync | setup | tray | build | commits | overrides | list | completion)
+  pull | push | adopt | publish | updates | upgrade | check | sync | setup | tray | build | commits | overrides | list | completion)
     "cmd_$command" "$@"
     ;;
   commit-msg)

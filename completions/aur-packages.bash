@@ -14,7 +14,7 @@ _aur_packages_complete() {
     fi
   done
   if [[ -z "$command" ]]; then
-    mapfile -t COMPREPLY < <(compgen -W 'pull push adopt updates upgrade check commits build sync setup
+    mapfile -t COMPREPLY < <(compgen -W 'pull push adopt publish updates upgrade check commits build sync setup
       tray commit-msg prepare-commit-msg quoting maintainers list completion help' -- "$cur")
     return
   fi
@@ -25,6 +25,13 @@ _aur_packages_complete() {
   fi
   case "$command" in
     pull | adopt | upgrade | quoting) packages=true ;;
+    publish)
+      if [[ "$prev" == --section ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "PowerShell .NET SourceMod Other" -- "$cur")
+        return
+      fi
+      options='--section --adopt' packages=true
+      ;;
     updates) options='--state --retry' packages=true ;;
     push)
       options='--nocheck --exclude' packages=true

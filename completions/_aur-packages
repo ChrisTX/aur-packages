@@ -25,6 +25,7 @@ _aur-packages() {
     'pull:pull the packages from the AUR'
     'push:check, then push the packages to the AUR'
     'adopt:merge the history the AUR has of packages into their subtrees'
+    'publish:move packages of local/ to the top level, to push them'
     'updates:show which packages have a newer upstream version'
     'upgrade:upgrade the packages to their latest upstream version'
     'check:run the checks of .pre-commit-config.yaml'
@@ -54,6 +55,11 @@ _aur-packages() {
           ;;
         pull | adopt | upgrade | quoting)
           _arguments '*:package:_aur-packages_packages' && ret=0
+          ;;
+        publish)
+          _arguments '--section=[the table of README.md]:section:(PowerShell .NET SourceMod Other)' \
+            "--adopt[merge the AUR's history of a package that's ours there now]" \
+            '*:package:_aur-packages_packages' && ret=0
           ;;
         push)
           _arguments '--nocheck[push without running the checks]' \
