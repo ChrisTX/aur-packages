@@ -13,7 +13,9 @@ obscured in one way: name at domain dot tld.
   aur [--json] [DIR...]
                      The Maintainer lines against the AUR's maintainers, for the packages at the top level;
                      for those in local/, whether the AUR has made us a maintainer (an accepted adoption,
-                     move the package to the top level) or orphaned them (adopt it on the AUR then)
+                     move the package to the top level). Not when it's orphaned: that's the state while an
+                     adoption request is pending, which the AUR accepts 14 days after it was filed at the
+                     earliest, and the RPC doesn't show requests
   adopt DIR FILE     Rewrite the lines of a package just adopted on the AUR (./aur-packages adopt): its
                      maintainers on the AUR as Maintainer, everyone else of its lines and those of the AUR's
                      PKGBUILD (FILE) as Contributor
@@ -187,11 +189,7 @@ def notes(directories: list[str]) -> list[dict]:
             else []
         )
         if directory.startswith("local/"):
-            if package and package["Maintainer"] is None:
-                note(
-                    "orphaned on the AUR: adopt it there, then move it to the top level"
-                )
-            elif us["user"] in maintainers:
+            if us["user"] in maintainers:
                 note(
                     "we maintain it on the AUR now: move it to the top level (and adopt)"
                 )

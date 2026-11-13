@@ -138,7 +138,7 @@ else the one the symlink points into.
             the Maintainer lines first, addresses obscured as name at domain dot tld, ours among them
             (run by the maintainers hook); --aur compares the Maintainer lines with the maintainers and
             co-maintainers on the AUR (maintainers.toml maps their usernames to names), and says when a
-            package of local/ has been orphaned or handed to us there. updates --state does that too,
+            package of local/ has been handed to us there. updates --state does that too,
             for the tray. The commit-msg hook checks that the staged PKGBUILDs list the commit's author
   overrides Compare the packages of overrides/ with Arch Linux's repositories, and fail if Arch has
             caught up with one, which then isn't needed any more
