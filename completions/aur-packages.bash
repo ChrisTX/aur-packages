@@ -4,7 +4,7 @@
 
 _aur_packages_complete() {
   local cur=${COMP_WORDS[COMP_CWORD]} prev=${COMP_WORDS[COMP_CWORD - 1]} command='' word i
-  local options='' packages=false templates=false
+  local options='' packages=false local_packages=false templates=false
   # The command is the first word after the program's name that isn't an option
   for ((i = 1; i < COMP_CWORD; i++)); do
     word=${COMP_WORDS[i]}
@@ -30,7 +30,7 @@ _aur_packages_complete() {
         mapfile -t COMPREPLY < <(compgen -W "PowerShell .NET SourceMod Other" -- "$cur")
         return
       fi
-      options='--section --adopt' packages=true
+      options='--section --adopt' local_packages=true
       ;;
     updates) options='--state --retry' packages=true ;;
     push)
@@ -59,7 +59,7 @@ _aur_packages_complete() {
       options='--chroot --local --install --dry-run -n --keep --dotnet-bin --libs-bin --testing --sanitize --target --repo'
       packages=true templates=true
       ;;
-    list) options=--templates ;;
+    list) options='--templates --local' ;;
     commit-msg | prepare-commit-msg)
       if ((COMP_CWORD == i + 1)); then
         compopt -o filenames
@@ -89,6 +89,10 @@ _aur_packages_complete() {
   # The packages of the checkout the command works on, from the command itself
   if [[ "$packages" == true ]]; then
     words+=$("${COMP_WORDS[0]}" list 2>/dev/null)$'\n'
+  fi
+  # publish only takes the packages of local/
+  if [[ "$local_packages" == true ]]; then
+    words+=$("${COMP_WORDS[0]}" list --local 2>/dev/null)$'\n'
   fi
   if [[ "$templates" == true ]]; then
     words+=$("${COMP_WORDS[0]}" list --templates 2>/dev/null)

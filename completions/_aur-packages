@@ -9,6 +9,11 @@ _aur-packages_packages() {
   local -a packages=(${(f)"$(_call_program packages $_aur_packages_program list 2>/dev/null)"})
   _wanted packages expl package compadd "$@" -a packages
 }
+# The packages of local/, which publish takes
+_aur-packages_local() {
+  local -a packages=(${(f)"$(_call_program packages $_aur_packages_program list --local 2>/dev/null)"})
+  _wanted packages expl 'package of local/' compadd "$@" -a packages
+}
 _aur-packages_templates() {
   local -a templates=(${(f)"$(_call_program templates $_aur_packages_program list --templates 2>/dev/null)"})
   _wanted templates expl 'build template' compadd "$@" -a templates
@@ -59,7 +64,7 @@ _aur-packages() {
         publish)
           _arguments '--section=[the table of README.md]:section:(PowerShell .NET SourceMod Other)' \
             "--adopt[merge the AUR's history of a package that's ours there now]" \
-            '*:package:_aur-packages_packages' && ret=0
+            '*:package of local/:_aur-packages_local' && ret=0
           ;;
         push)
           _arguments '--nocheck[push without running the checks]' \
@@ -96,7 +101,7 @@ _aur-packages() {
             ret=0
           ;;
         list)
-          _arguments '--templates[list the build templates]' && ret=0
+          _arguments '(--local)--templates[list the build templates]' '(--templates)--local[list the packages of local/]' && ret=0
           ;;
         commit-msg | prepare-commit-msg)
           _arguments '1:commit message file:_files' && ret=0

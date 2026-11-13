@@ -32,19 +32,19 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'maintainers' = @('--aur')
         'commits' = @('--update')
         'sync'    = @('--check')
-        'list'    = @('--templates')
+        'list'    = @('--templates', '--local')
         'publish' = @('--section', '--adopt')
         'build'   = @('--chroot', '--local', '--install', '--dry-run', '-n', '--keep', '--dotnet-bin', '--libs-bin', '--testing',
             '--sanitize', '--target', '--repo')
     }
-    $withPackages = @('pull', 'push', 'adopt', 'publish', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting', 'maintainers')
+    $withPackages = @('pull', 'push', 'adopt', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting', 'maintainers')
 
-    # The packages (or with --templates the build templates) of the checkout the command works on, from
+    # The packages (or with --templates the build templates, with -Local those of local/) of the checkout the command works on, from
     # the command itself
     $program = $commandAst.CommandElements[0].Extent.Text
     function Get-AurPackageName {
-        param([switch] $Template)
-        $arguments = @('list') + @(if ($Template) { '--templates' })
+        param([switch] $Template, [switch] $Local)
+        $arguments = @('list') + @(if ($Template) { '--templates' }) + @(if ($Local) { '--local' })
         & $program @arguments 2>$null
     }
 
@@ -97,6 +97,9 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         }
     } elseif ($wordToComplete -like '-*') {
         $options[$command] | ForEach-Object { ConvertTo-CompletionResult -Text $_ -Type 'ParameterName' }
+    } elseif ($command -eq 'publish') {
+        # publish only takes the packages of local/
+        Get-AurPackageName -Local | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
     } elseif ($command -in $withPackages) {
         Get-AurPackageName | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
         if ($command -eq 'build') {

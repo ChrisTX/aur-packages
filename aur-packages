@@ -154,7 +154,8 @@ else the one the symlink points into.
             for the tray. The commit-msg hook checks that the staged PKGBUILDs list the commit's author
   overrides Compare the packages of overrides/ with Arch Linux's repositories, and fail if Arch has
             caught up with one, which then isn't needed any more
-  list      List the packages, or with --templates the build templates
+  list      List the packages, with --local only those of local/, or with --templates the build
+            templates
   completion bash|zsh|fish|pwsh
             Print the completion script for a shell, see CONTRIBUTING.md
   help      Show this help
@@ -2101,10 +2102,18 @@ cmd_overrides() {
 
 cmd_list() {
   local -a selected
-  if [[ "${1-}" == --templates ]]; then
-    printf '%s\n' "${build_templates[@]}"
-    return
-  fi
+  case "${1-}" in
+    --templates)
+      printf '%s\n' "${build_templates[@]}"
+      return
+      ;;
+    # The packages of local/, which publish takes
+    --local)
+      select_packages
+      printf '%s\n' "${selected[@]}" | grep '^local/' || true
+      return
+      ;;
+  esac
   select_packages
   printf '%s\n' "${selected[@]}"
 }

@@ -2,7 +2,7 @@
 # ~/.config/fish/config.fish: aur-packages completion fish | source
 # or saved as ~/.config/fish/completions/aur-packages.fish.
 
-# The packages (or with --templates the build templates) of the checkout the command works on, from
+# The packages (or with --templates the build templates, with --local those of local/) of the checkout the command works on, from
 # the command itself
 function __aur_packages_list
     set -l program (commandline -opc)[1]
@@ -33,7 +33,7 @@ complete -c aur-packages -n $none -a list -d 'List the packages or the build tem
 complete -c aur-packages -n $none -a completion -d 'Print the completion script of a shell'
 complete -c aur-packages -n $none -a help -d 'Show the help'
 
-complete -c aur-packages -n '__fish_seen_subcommand_from pull push adopt publish updates upgrade check commits build sync quoting maintainers' \
+complete -c aur-packages -n '__fish_seen_subcommand_from pull push adopt updates upgrade check commits build sync quoting maintainers' \
     -a '(__aur_packages_list)' -d Package
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l nocheck -d 'Push without running the checks'
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l exclude -x -a '(__aur_packages_list)' -d 'Leave a package out'
@@ -44,6 +44,8 @@ complete -c aur-packages -n '__fish_seen_subcommand_from maintainers' -l aur -d 
 complete -c aur-packages -n '__fish_seen_subcommand_from commits' -l update -d 'Rewrite stale _commit values'
 complete -c aur-packages -n '__fish_seen_subcommand_from sync' -l check -d 'Only report differences'
 complete -c aur-packages -n '__fish_seen_subcommand_from list' -l templates -d 'List the build templates'
+complete -c aur-packages -n '__fish_seen_subcommand_from list' -l local -d 'List the packages of local/'
+complete -c aur-packages -n '__fish_seen_subcommand_from publish' -a '(__aur_packages_list --local)' -d 'Package of local/'
 complete -c aur-packages -n '__fish_seen_subcommand_from publish' -l section -x -a 'PowerShell .NET SourceMod Other' \
     -d 'The table of README.md'
 complete -c aur-packages -n '__fish_seen_subcommand_from publish' -l adopt -d "Merge the AUR's history of a package that's ours there now"
