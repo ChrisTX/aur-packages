@@ -132,6 +132,7 @@ Metamod:Source, SourceMod and their plugins and extensions for Source engine gam
 | [mogui](https://aur.archlinux.org/packages/mogui) | Graphical user interface for Environment Modules | [![AUR version](https://img.shields.io/aur/version/mogui?label=)](https://aur.archlinux.org/packages/mogui) |
 | [nginx-language-server](https://aur.archlinux.org/packages/nginx-language-server) | Language Server for nginx.conf | [![AUR version](https://img.shields.io/aur/version/nginx-language-server?label=)](https://aur.archlinux.org/packages/nginx-language-server) |
 | [python-a2s](https://aur.archlinux.org/packages/python-a2s) | Python package for querying Source and GoldSource servers | [![AUR version](https://img.shields.io/aur/version/python-a2s?label=)](https://aur.archlinux.org/packages/python-a2s) |
+| [sogo](https://aur.archlinux.org/packages/sogo) | Groupware server with a web interface for mail, calendars and contacts, CalDAV, CardDAV and ActiveSync | [![AUR version](https://img.shields.io/aur/version/sogo?label=)](https://aur.archlinux.org/packages/sogo) |
 | [tcos-pkcs11](https://aur.archlinux.org/packages/tcos-pkcs11) | PKCS#11 driver for TeleSec TCOS smartcards | [![AUR version](https://img.shields.io/aur/version/tcos-pkcs11?label=)](https://aur.archlinux.org/packages/tcos-pkcs11) |
 | [tlog](https://aur.archlinux.org/packages/tlog) | Terminal I/O logger | [![AUR version](https://img.shields.io/aur/version/tlog?label=)](https://aur.archlinux.org/packages/tlog) |
 
