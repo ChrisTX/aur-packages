@@ -131,6 +131,8 @@ else the one the symlink points into.
             against the convention in CONTRIBUTING.md (run by the quoting hook)
   pins      Check that the _commit of a version like git describe's (…r83.g4b8b3d3) is the commit
             it names, without the network (run by the pins hook; commits checks all pins online)
+  readme    Check README.md's tables of the packages against the packages: a row for each, with its
+            link, packages and pkgdesc (run by the readme hook)
   overrides Compare the packages of overrides/ with Arch Linux's repositories, and fail if Arch has
             caught up with one, which then isn't needed any more
   list      List the packages, or with --templates the build templates
@@ -844,6 +846,79 @@ cmd_pins() {
     if [[ "$commit" != "${BASH_REMATCH[1]}"* ]]; then
       echo "$package/PKGBUILD: _commit $(short_pin "$commit") isn't the commit pkgver names," \
         "${BASH_REMATCH[1]}: ./aur-packages commits --update $package"
+      status=1
+    fi
+  done
+  return "$status"
+}
+
+# Prints the field $2 of the pkgbase section of the .SRCINFO $1 (before the first pkgname), with $2
+# pkgbase its name, or with pkgname the names of its packages, one per line
+srcinfo_field() {
+  if [[ "$2" == pkgname || "$2" == pkgbase ]]; then
+    sed -n "s/^$2 = //p" "$1"
+  else
+    sed -n "/^pkgname = /q; s/^\t$2 = //p" "$1"
+  fi
+}
+
+# Checks README.md's tables of the packages against the packages: every package has exactly one row,
+# with its link (the AUR's, or its folder for local/ and overrides/), the packages of a split package,
+# its pkgdesc and the AUR version badge; and every row is a package's. The columns after the
+# description of local/ and overrides/ (why, until) are free text, as are the changes of overrides/.
+# Prints the row a package should have.
+cmd_readme() {
+  local status=0 dir base desc row expected link first list
+  local -a pkgnames
+  local -A rows=() seen=()
+  while IFS= read -r row; do
+    base=${row#'| ['}
+    base=${base%%']'*}
+    if [[ -n "${rows[$base]:-}" ]]; then
+      echo "README.md: more than one row for $base"
+      status=1
+    fi
+    rows[$base]=$row
+  done < <(grep -E '^\| \[[^]]+\]\((https://aur\.archlinux\.org/(packages|pkgbase)/|local/|overrides/)' README.md)
+  while IFS= read -r dir; do
+    base=$(srcinfo_field "$dir/.SRCINFO" pkgbase)
+    # The pkgdesc of the pkgbase, or without one, the package named like it has (split packages with
+    # a pkgdesc each)
+    desc=$(srcinfo_field "$dir/.SRCINFO" pkgdesc)
+    if [[ -z "$desc" ]]; then
+      desc=$(sed -n "/^pkgname = ${base//./\\.}\$/,/^pkgname = /s/^\tpkgdesc = //p" "$dir/.SRCINFO" | head -n 1)
+    fi
+    # The package named like the pkgbase first, then the others in their order; without debug
+    # packages, which aren't split packages of their own
+    mapfile -t pkgnames < <(srcinfo_field "$dir/.SRCINFO" pkgname | grep -v -- '-debug$' |
+      awk -v base="$base" '$0 == base { print; next } { rest[++n] = $0 } END { for (i = 1; i <= n; i++) print rest[i] }')
+    seen[$base]=1
+    case "$dir" in
+      overrides/*) expected="| [$base](overrides/$base) | " ;;
+      local/*) expected="| [$base](local/$base) | $desc | " ;;
+      *)
+        first=${pkgnames[0]}
+        if ((${#pkgnames[@]} == 1)) && [[ "$first" == "$base" ]]; then
+          link="[$base](https://aur.archlinux.org/packages/$base)"
+        else
+          printf -v list "\`%s\`, " "${pkgnames[@]}"
+          link="[$base](https://aur.archlinux.org/pkgbase/$base) (${list%, })"
+        fi
+        expected="| $link | $desc | [![AUR version](https://img.shields.io/aur/version/$first?label=)](https://aur.archlinux.org/packages/$first) |"
+        ;;
+    esac
+    row=${rows[$base]:-}
+    if [[ -z "$row" ]]; then
+      printf 'README.md: no row for %s, which should start with:\n  %s\n' "$dir" "$expected"
+      status=1
+    elif [[ "$dir" == */* && "$row" != "$expected"* ]] || [[ "$dir" != */* && "$row" != "$expected" ]]; then
+      printf 'README.md: the row of %s should be (or start with):\n  %s\nnot:\n  %s\n' "$dir" "$expected" "$row"
+      status=1
+    fi
+  done < <(package_dirs)
+  for base in "${!rows[@]}"; do
+    if [[ -z "${seen[$base]:-}" ]]; then
+      echo "README.md: a row for $base, which isn't a package"
       status=1
     fi
   done
@@ -1816,6 +1891,9 @@ case "$command" in
     ;;
   pins)
     cmd_pins "$@"
+    ;;
+  readme)
+    cmd_readme "$@"
     ;;
   help | -h | --help)
     usage
