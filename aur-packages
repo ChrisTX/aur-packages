@@ -412,6 +412,8 @@ updates_state() {
         }')
     jq -e '.error == null' <<<"$output" >/dev/null || status=1
   fi
+  # The packages by name (pkgbase, their folder's name), as pkgctl reports them: by folder, the ones in
+  # local/ and overrides/ never matched, so their old entries stayed after later checks
   state=$(jq -n --argjson new "$output" --argjson previous "$previous" --arg checked "$(date --iso-8601=seconds)" \
     --arg checkout "$root" --args '
     ($previous // {}) as $previous
@@ -432,7 +434,7 @@ updates_state() {
           packages: (($new.rate_limited // []) + [$waiting[] | select(. as $p | $tried | index($p) | not)] | unique),
           retry: null
         }
-      }' "${checked[@]}")
+      }' "${checked[@]##*/}")
   mapfile -t retry < <(jq -r '.rate_limited.packages[]' <<<"$state")
   # Only one retry is pending, the one for the packages that wait now
   if [[ "$schedule" == true ]]; then
