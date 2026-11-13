@@ -1,0 +1,54 @@
+From b3f55bb47257d1ab9e88e8ecc4621c6f2260e53f Mon Sep 17 00:00:00 2001
+From: Steven Loria <git@stevenloria.com>
+Date: Tue, 2 Jun 2026 21:08:43 -0500
+Subject: [PATCH] Fix tests (#1066)
+
+Implicit event loop was removed from pytest-asyncio, so
+add a new fixture that can be used by the synchronous ASGI
+falcon tests
+
+Backported to 8.7.1 without the hunk of tests/test_falconparser.py,
+whose tests differ there and pass without it.
+---
+ tests/conftest.py           | 11 +++++++++++
+ tests/test_tornadoparser.py |  5 +++--
+ 2 files changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/tests/conftest.py b/tests/conftest.py
+index ad2e3ad07..866cde44a 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -1,3 +1,14 @@
++import asyncio
++
+ import pytest
+ 
+ pytest.register_assert_rewrite("webargs.testing")
++
++
++@pytest.fixture
++def current_loop():
++    loop = asyncio.new_event_loop()
++    asyncio.set_event_loop(loop)
++    yield loop
++    asyncio.set_event_loop(None)
++    loop.close()
+diff --git a/tests/test_tornadoparser.py b/tests/test_tornadoparser.py
+index fd155e546..ee92eadde 100644
+--- a/tests/test_tornadoparser.py
++++ b/tests/test_tornadoparser.py
+@@ -139,11 +139,12 @@ def test_it_should_not_include_fieldnames_if_not_present(self):
+         result = parser.load_json(request, author_schema)
+         assert result == {}
+ 
++    @pytest.mark.usefixtures("current_loop")
+     def test_it_should_handle_type_error_on_load_json(self):
+         # but this is different from the test above where the payload was valid
+         # and empty -- missing vs {}
+-        # NOTE: `event_loop` is the pytest-aiohttp event loop fixture, but it's
+-        # important to get an event loop here so that we can construct a future
++        # NOTE: the `current_loop` fixture sets a current event loop,
++        # which is required here so that we can construct a future
+         request = make_request(
+             body=tornado.concurrent.Future(),
+             headers={"Content-Type": "application/json"},

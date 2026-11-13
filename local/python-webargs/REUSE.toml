@@ -1,0 +1,33 @@
+version = 1
+
+[[annotations]]
+path = [
+  "PKGBUILD",
+  "README.md",
+  "keys/**",
+  ".SRCINFO",
+  ".gitignore",
+  ".nvchecker.toml",
+  "*.install",
+  "*.sysusers",
+  "*sysusers.conf",
+  "*.tmpfiles",
+  "*tmpfiles.conf",
+  "*.logrotate",
+  "*.pam",
+  "*.service",
+  "*.socket",
+  "*.timer",
+  "*.desktop",
+  "*.hook",
+  ".editorconfig",
+  ".pre-commit-config.yaml",
+  ".typos.toml",
+]
+SPDX-FileCopyrightText = "Arch Linux contributors"
+SPDX-License-Identifier = "0BSD"
+
+[[annotations]]
+path = "tests-current-loop.patch"
+SPDX-FileCopyrightText = "Steven Loria and contributors"
+SPDX-License-Identifier = "MIT"
