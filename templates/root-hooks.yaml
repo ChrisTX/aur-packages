@@ -21,6 +21,13 @@
         files: (^|/)PKGBUILD$
         # Arch Linux's packages in overrides/ keep Arch's style
         exclude: ^overrides/
+      - id: maintainers
+        name: Maintainer and Contributor lines of the PKGBUILDs
+        language: system
+        entry: ./aur-packages maintainers
+        files: (^|/)PKGBUILD$
+        # Arch Linux's packages in overrides/ keep Arch's style
+        exclude: ^overrides/
       - id: readme
         name: README.md lists every package with its pkgdesc
         language: system
