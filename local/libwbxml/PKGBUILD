@@ -1,7 +1,7 @@
 # Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>
 # Contributor: Deon Spengler <deon at spengler dot co dot za>
-# Contributor: DJ Lucas <dj@linuxfromscratch.org>
-# Contributor: Jaroslav Lichtblau <dragonlord@aur.archlinux.org>
+# Contributor: DJ Lucas <dj at linuxfromscratch dot org>
+# Contributor: Jaroslav Lichtblau <dragonlord at aur dot archlinux dot org>
 # shellcheck disable=SC2034,SC2154
 # shellcheck shell=bash
 
