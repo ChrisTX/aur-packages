@@ -21,6 +21,12 @@
         files: (^|/)PKGBUILD$
         # Arch Linux's packages in overrides/ keep Arch's style
         exclude: ^overrides/
+      - id: readme
+        name: README.md lists every package with its pkgdesc
+        language: system
+        entry: ./aur-packages readme
+        pass_filenames: false
+        always_run: true
       - id: reuse-lint
         name: reuse lint (reuse)
         language: system
