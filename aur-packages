@@ -1495,7 +1495,17 @@ cmd_build() {
         echo ">>> $name is in $repo already" >&2
       else
         echo ">>> Building $name (aur sync)" >&2
-        "${cmd[@]}"
+        # aur sync exits with 22 when the dependencies have a cycle, which checkdepends can make,
+        # e.g. python-celery's on python-pytest-celery, which depends on it: then they're built
+        # without their checkdepends and check(), as aur sync suggests. Any other failure stops.
+        local status=0
+        "${cmd[@]}" || status=$?
+        if ((status == 22)); then
+          echo ">>> $name: its dependencies have a cycle, building them without check()" >&2
+          "${cmd[@]}" --no-check
+        elif ((status)); then
+          return "$status"
+        fi
       fi
     done
     for name in "${aurdeps[@]}"; do
