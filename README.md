@@ -18,8 +18,9 @@ Building all of that takes a while. Selector packages let you pick prebuilt part
 | Install first | to build with |
 | --- | --- |
 | `dotnet-build-deps-10.0` (default) | the source-built .NET of Arch Linux and its artifacts |
-| `dotnet-build-deps-10.0-bin` | Microsoft's .NET (`dotnet-sdk-bin`) and its packages from nuget.org, e.g. on Arch Linux ARM |
-| `dotnet-build-deps-11.0-bin` (only choice) | Microsoft's prerelease of .NET 11 (`dotnet-sdk-preview-bin`) for `powershell-preview`, until Arch Linux has .NET 11 |
+| `dotnet-build-deps` | the same, for the current .NET of Arch Linux (`dotnet-sdk`): stands in for `dotnet-build-deps-10.0` while that's the current version |
+| `dotnet-build-deps-10.0-bin` | Microsoft's .NET 10 (`dotnet-sdk-10.0-bin`) and its packages from nuget.org, e.g. on Arch Linux ARM |
+| `dotnet-build-deps-11.0-bin` (only choice) | Microsoft's .NET 11 (`dotnet-sdk-bin`) for `powershell-preview`, until Arch Linux has .NET 11 |
 | `powershell-build-deps` (default) | the libraries of this repository, built from source |
 | `powershell-build-deps-bin` | the libraries from nuget.org |
 
@@ -59,6 +60,7 @@ makepkg -si
 | --- | --- | --- |
 | [dotnet-azure-core](https://aur.archlinux.org/packages/dotnet-azure-core) | Shared primitives, abstractions and helpers for .NET Azure SDK client libraries, Azure.Core (NuGet package) | [![AUR version](https://img.shields.io/aur/version/dotnet-azure-core?label=)](https://aur.archlinux.org/packages/dotnet-azure-core) |
 | [dotnet-azure-identity](https://aur.archlinux.org/packages/dotnet-azure-identity) | Microsoft Entra ID token authentication for the Azure SDK for .NET, Azure.Identity (NuGet package) | [![AUR version](https://img.shields.io/aur/version/dotnet-azure-identity?label=)](https://aur.archlinux.org/packages/dotnet-azure-identity) |
+| [dotnet-build-deps](https://aur.archlinux.org/packages/dotnet-build-deps) | Build dependencies of the .NET packages from the current source-built .NET of Arch Linux (meta package) | [![AUR version](https://img.shields.io/aur/version/dotnet-build-deps?label=)](https://aur.archlinux.org/packages/dotnet-build-deps) |
 | [dotnet-build-deps-10.0](https://aur.archlinux.org/packages/dotnet-build-deps-10.0) | Build dependencies of the .NET packages from the source-built .NET 10.0 of Arch Linux (meta package) | [![AUR version](https://img.shields.io/aur/version/dotnet-build-deps-10.0?label=)](https://aur.archlinux.org/packages/dotnet-build-deps-10.0) |
 | [dotnet-build-deps-10.0-bin](https://aur.archlinux.org/packages/dotnet-build-deps-10.0-bin) | Build dependencies of the .NET packages from Microsoft's build of .NET 10.0 and nuget.org (meta package) | [![AUR version](https://img.shields.io/aur/version/dotnet-build-deps-10.0-bin?label=)](https://aur.archlinux.org/packages/dotnet-build-deps-10.0-bin) |
 | [dotnet-build-deps-11.0-bin](https://aur.archlinux.org/packages/dotnet-build-deps-11.0-bin) | Build dependencies of the .NET packages from Microsoft's build of .NET 11.0 and nuget.org (meta package) | [![AUR version](https://img.shields.io/aur/version/dotnet-build-deps-11.0-bin?label=)](https://aur.archlinux.org/packages/dotnet-build-deps-11.0-bin) |
