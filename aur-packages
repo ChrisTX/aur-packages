@@ -939,6 +939,57 @@ build_edges() {
   done < <(package_dirs) | sort -u
 }
 
+# Prints the dependencies of the given packages (depends, makedepends and checkdepends, also the
+# architecture-specific ones) that only the AUR has: neither a package of this repository, by name or
+# provides, nor the official repositories ($1, a pacman.conf of devtools, with the host's sync
+# databases; without dependency checks, which would weigh in the host's installed packages) provide
+# them, e.g. lasso for sogo, or the .NET SDK of a -bin selector
+aur_only_deps() {
+  local repoconf=$1 d line key name
+  local -A ours=() wanted=()
+  shift
+  while IFS= read -r d; do
+    while IFS= read -r line; do
+      [[ "$line" == *" = "* ]] || continue
+      key=${line%% = *}
+      key=${key//[[:space:]]/}
+      [[ "$key" == pkgname || "$key" == provides ]] || continue
+      name=${line#* = }
+      ours["${name%%[<>=:]*}"]=1
+    done <"$d/.SRCINFO"
+  done < <(package_dirs)
+  for d; do
+    while IFS= read -r line; do
+      [[ "$line" == *" = "* ]] || continue
+      key=${line%% = *}
+      key=${key//[[:space:]]/}
+      case "$key" in
+        depends | makedepends | checkdepends | depends_* | makedepends_* | checkdepends_*) ;;
+        *) continue ;;
+      esac
+      name=${line#* = }
+      name=${name%%[<>=:]*}
+      [[ -n "$name" && -z "${ours[$name]:-}" ]] || continue
+      wanted[$name]=1
+    done <"$d/.SRCINFO"
+  done
+  for name in "${!wanted[@]}"; do
+    pacman --config "$repoconf" -Sddp --print-format %n "$name" >/dev/null 2>&1 || printf '%s\n' "$name"
+  done | sort
+}
+
+# Succeeds if a package in the repository folder $1 is called $2 or provides it
+repo_provides() {
+  local file
+  for file in "$1"/*.pkg.tar.zst; do
+    [[ -f "$file" ]] || continue
+    if bsdtar -xOf "$file" .PKGINFO | grep -qxE "(pkgname|provides) = ${2//./\\.}([<>=].*)?"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Prints the given root packages and all their repo-local dependencies, dependencies first
 build_order() {
   local edges a b n d induced ordered
@@ -1417,25 +1468,39 @@ cmd_build() {
     fi
   fi
 
-  # Microsoft's .NET from the AUR, built by aurutils into the private repository: the SDK each -bin
+  # Dependencies only the AUR has, built by aurutils into the private repository first (it builds
+  # their own AUR dependencies as well): e.g. lasso for sogo, or Microsoft's .NET, the SDK each -bin
   # selector in the build order depends on, dotnet-sdk-bin (dotnet-core-bin) for
   # dotnet-build-deps-10.0-bin with --dotnet-bin. A .NET only Microsoft builds, e.g. a prerelease
   # (dotnet-build-deps-11.0-bin, dotnet-sdk-preview-bin), has no other selector, so it's always used.
+  # Names that aren't packages in the AUR are provides of the ones built, e.g. dotnet-runtime-11.0
+  # of dotnet-runtime-bin, which dotnet-sdk-bin brings along.
   if [[ "$method" == chroot ]]; then
-    for pkg in "${order[@]}"; do
-      [[ "$pkg" == dotnet-build-deps-*-bin ]] || continue
-      while IFS= read -r name; do
-        cmd=(aur sync --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf"
-          "${chrootargs[@]}" --no-view --noconfirm "$name")
-        if [[ "$dryrun" == true ]]; then
-          printf '%s\n' "${cmd[*]}"
-        elif compgen -G "$repo/$name-[0-9]*.pkg.tar.zst" >/dev/null; then
-          echo ">>> $name is in $repo already" >&2
-        else
-          echo ">>> Building $name (aur sync)" >&2
-          "${cmd[@]}"
-        fi
-      done < <(sed -n -E 's/^\s*depends = ([^<>=]+).*/\1/p' "$pkg/.SRCINFO")
+    local -a aurdeps=() aurnames=()
+    mapfile -t aurdeps < <(aur_only_deps "/usr/share/devtools/pacman.conf.d/$multilibconf.conf" "${order[@]}")
+    if ((${#aurdeps[@]})); then
+      mapfile -t aurnames < <(aur query -t info "${aurdeps[@]}" | jq -r '.results[].Name' | sort)
+    fi
+    for name in "${aurnames[@]}"; do
+      cmd=(aur sync --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf"
+        "${chrootargs[@]}" --no-view --noconfirm "$name")
+      if [[ "$dryrun" == true ]]; then
+        printf '%s\n' "${cmd[*]}"
+      elif compgen -G "$repo/$name-[0-9]*.pkg.tar.zst" >/dev/null; then
+        echo ">>> $name is in $repo already" >&2
+      else
+        echo ">>> Building $name (aur sync)" >&2
+        "${cmd[@]}"
+      fi
+    done
+    for name in "${aurdeps[@]}"; do
+      [[ " ${aurnames[*]} " != *" $name "* ]] || continue
+      if [[ "$dryrun" == true ]]; then
+        echo "# $name: provided by the AUR packages above" >&2
+      elif ! repo_provides "$repo" "$name"; then
+        echo "${0##*/}: $name is neither in the repositories, nor a package of this repository or the AUR, nor provided by one" >&2
+        return 1
+      fi
     done
   fi
   if [[ "$dotnetbin" == true ]]; then
