@@ -95,7 +95,6 @@ Metamod:Source, SourceMod and their plugins and extensions for Source engine gam
 | --- | --- | --- |
 | [ambuild](https://aur.archlinux.org/packages/ambuild) | AlliedModders' build system, used by SourceMod, SourcePawn and Metamod:Source | [![AUR version](https://img.shields.io/aur/version/ambuild?label=)](https://aur.archlinux.org/packages/ambuild) |
 | [hl2sdk](https://aur.archlinux.org/packages/hl2sdk) | Source SDKs of the games Metamod:Source and SourceMod support, with their static libraries built from source (a build dependency) | [![AUR version](https://img.shields.io/aur/version/hl2sdk?label=)](https://aur.archlinux.org/packages/hl2sdk) |
-| [lib32-jansson](https://aur.archlinux.org/packages/lib32-jansson) | C library for encoding, decoding and manipulating JSON data (32-bit) | [![AUR version](https://img.shields.io/aur/version/lib32-jansson?label=)](https://aur.archlinux.org/packages/lib32-jansson) |
 | [lib32-libmaxminddb](https://aur.archlinux.org/packages/lib32-libmaxminddb) | MaxMindDB GeoIP2 database library (32-bit) | [![AUR version](https://img.shields.io/aur/version/lib32-libmaxminddb?label=)](https://aur.archlinux.org/packages/lib32-libmaxminddb) |
 | [lib32-mariadb-connector-c](https://aur.archlinux.org/packages/lib32-mariadb-connector-c) | MariaDB Connector/C, the client library of MariaDB (32-bit) | [![AUR version](https://img.shields.io/aur/version/lib32-mariadb-connector-c?label=)](https://aur.archlinux.org/packages/lib32-mariadb-connector-c) |
 | [lib32-postgresql-libs](https://aur.archlinux.org/packages/lib32-postgresql-libs) | PostgreSQL's client library, libpq, with its OAuth module (32-bit) | [![AUR version](https://img.shields.io/aur/version/lib32-postgresql-libs?label=)](https://aur.archlinux.org/packages/lib32-postgresql-libs) |
@@ -145,6 +144,7 @@ Packages built here for our own use, with `./aur-packages build`, and never publ
 | Package | Description | Why |
 | --- | --- | --- |
 | [ghidra-mcp](local/ghidra-mcp) | MCP server for Ghidra: a Ghidra extension with an HTTP API for reverse engineering, and the MCP bridge to it | A rework of the [AUR package](https://aur.archlinux.org/packages/ghidra-mcp), whose maintainer it's [offered to](https://aur.archlinux.org/packages/ghidra-mcp#comment-1090246) |
+| [lib32-jansson](local/lib32-jansson) | C library for encoding, decoding and manipulating JSON data (32-bit) | An update of the [AUR package](https://aur.archlinux.org/packages/lib32-jansson), orphaned, until its adoption goes through; for sourcemod-smjansson |
 | [pmd](local/pmd) | Extensible cross-language static code analyser | An update of the [AUR package](https://aur.archlinux.org/packages/pmd) (7.12.0, out of date since March 2026), built from source, for the linting of Java code |
 
 `overrides/` has Arch Linux's packages with changes of ours, as subtrees of Arch's packaging in Arch's style, versioned below Arch's next release (e.g. `12.2-0.1`), which replaces them. `./aur-packages overrides` says when Arch has caught up and one can go:
