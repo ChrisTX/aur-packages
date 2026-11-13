@@ -19,6 +19,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'commit-msg' = 'Check a commit message'
         'prepare-commit-msg' = 'Fill in the summary of a commit message'
         'quoting'    = 'Check the quoting of the metadata arrays'
+        'maintainers' = 'Check the Maintainer and Contributor lines'
         'list'       = 'List the packages or the build templates'
         'completion' = 'Print the completion script of a shell'
         'help'       = 'Show the help'
@@ -27,13 +28,14 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'updates' = @('--state', '--retry')
         'push'    = @('--nocheck', '--exclude')
         'check'   = @('--manual')
+        'maintainers' = @('--aur')
         'commits' = @('--update')
         'sync'    = @('--check')
         'list'    = @('--templates')
         'build'   = @('--chroot', '--local', '--install', '--dry-run', '-n', '--keep', '--dotnet-bin', '--libs-bin', '--testing',
             '--sanitize', '--target', '--repo')
     }
-    $withPackages = @('pull', 'push', 'adopt', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting')
+    $withPackages = @('pull', 'push', 'adopt', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting', 'maintainers')
 
     # The packages (or with --templates the build templates) of the checkout the command works on, from
     # the command itself

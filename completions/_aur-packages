@@ -36,6 +36,7 @@ _aur-packages() {
     'commit-msg:check a commit message'
     'prepare-commit-msg:fill in the summary of a commit message'
     'quoting:check the quoting of the metadata arrays'
+    'maintainers:check the Maintainer and Contributor lines'
     'list:list the packages or the build templates'
     'completion:print the completion script of a shell'
     'help:show the help'
@@ -62,6 +63,9 @@ _aur-packages() {
         check)
           _arguments '--manual[also run the checks that only run on request]' \
             '*:package:_aur-packages_packages' && ret=0
+          ;;
+        maintainers)
+          _arguments "--aur[compare with the maintainers on the AUR]" '*:package:_aur-packages_packages' && ret=0
           ;;
         commits)
           _arguments '--update[rewrite stale _commit values]' '*:package:_aur-packages_packages' && ret=0

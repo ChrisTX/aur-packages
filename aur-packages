@@ -133,6 +133,13 @@ else the one the symlink points into.
             it names, without the network (run by the pins hook; commits checks all pins online)
   readme    Check README.md's tables of the packages against the packages: a row for each, with its
             link, packages and pkgdesc (run by the readme hook)
+  maintainers [--aur]
+            Check the # Maintainer: and # Contributor: lines of the PKGBUILDs (aur-packages-maintainers):
+            the Maintainer lines first, addresses obscured as name at domain dot tld, ours among them
+            (run by the maintainers hook); --aur compares the Maintainer lines with the maintainers and
+            co-maintainers on the AUR (maintainers.toml maps their usernames to names), and says when a
+            package of local/ has been orphaned or handed to us there. updates --state does that too,
+            for the tray. The commit-msg hook checks that the staged PKGBUILDs list the commit's author
   overrides Compare the packages of overrides/ with Arch Linux's repositories, and fail if Arch has
             caught up with one, which then isn't needed any more
   list      List the packages, or with --templates the build templates
@@ -256,12 +263,15 @@ cmd_push() {
 # merge of the subtree's history and the AUR's head with the subtree's files, recorded like
 # git subtree split --rejoin, so that later splits build on it
 cmd_adopt() {
-  local package base url head split merge rejoin
+  local package base url head split merge rejoin previous
   local -a selected sign=()
   if (($# == 0)); then
     echo "Usage: aur-packages adopt PACKAGE..." >&2
     return 1
   fi
+  previous=$(mktemp)
+  # shellcheck disable=SC2064 # expand $previous now, when the trap is set
+  trap "rm -f '$previous'" RETURN
   select_packages --aur "$@"
   [[ "$(git config --bool commit.gpgsign)" == true ]] && sign=(-S)
   for package in "${selected[@]}"; do
@@ -294,6 +304,10 @@ EOF_MSG
     )
     git merge -q --ff-only "$rejoin"
     echo "$package: now on top of the AUR's ${head:0:7}"
+    # Its maintainers on the AUR as # Maintainer:, the AUR's other lines as # Contributor:, left for a
+    # commit of its own
+    git show "$head:PKGBUILD" >"$previous"
+    "$root/aur-packages-maintainers" adopt "$package" "$previous"
   done
 }
 
@@ -369,7 +383,7 @@ github_rate_limit_reset() {
 # - If no package could be checked, the error says so, and the command fails.
 # Written atomically under a lock, so the tray never reads half a file and checks don't overlap.
 updates_state() {
-  local dir output errors status=0 previous='null' tmp state pending reset lock
+  local dir output errors status=0 previous='null' tmp state pending reset lock notes
   local -a checked retry environment=(--setenv=PATH)
   local schedule=$1
   shift
@@ -437,6 +451,13 @@ updates_state() {
           retry: null
         }
       }' "${checked[@]##*/}")
+  # The notes on the maintainers on the AUR (maintainers --aur), of all packages; without an answer of the
+  # AUR, the previous ones
+  if notes=$(cmd_maintainers --aur --json 2>/dev/null); then
+    state=$(jq --argjson notes "$notes" '.maintainers = $notes' <<<"$state")
+  else
+    state=$(jq --argjson previous "$previous" '.maintainers = (($previous // {}).maintainers // [])' <<<"$state")
+  fi
   mapfile -t retry < <(jq -r '.rate_limited.packages[]' <<<"$state")
   # Only one retry is pending, the one for the packages that wait now
   if [[ "$schedule" == true ]]; then
@@ -460,6 +481,7 @@ updates_state() {
   mv "$tmp" "$updates_state_file"
   jq -r '(.updates[] | "\(.package) \(.current) -> \(.new)"), (.failures[] | "\(.package): check failed: \(.message)"),
     (.rate_limited | select(.packages != []) | "GitHub'"'"'s rate limit, checked again at \(.retry): \(.packages | join(" "))"),
+    (.maintainers[] | "\(.folder): \(.message)"),
     (.error // empty | "Error: \(.)")' "$updates_state_file"
   return "$status"
 }
@@ -749,6 +771,7 @@ EOF
 # package's staged .SRCINFO, or <scope>: <summary> with a top-level file or folder as scope
 cmd_commit_msg() {
   local summary scope version expected dir file=$1
+  local -a packages
   local upgpkg_pattern='^upgpkg: ([^ ]+) ([^ ]+)$' scope_pattern='^([^ :]+): [^ ]'
   [[ "$file" == /* ]] || file=$cwd/$file
   # The first line that isn't empty or a comment, git strips those afterwards
@@ -796,6 +819,12 @@ cmd_commit_msg() {
     echo "The summary has to be 'upgpkg: <pkg> <ver>-<rel>' or '<scope>: <summary>', see CONTRIBUTING.md: $summary" >&2
     return 1
   fi
+  # Whoever changes a package is one of its # Maintainer:/# Contributor: lines; not the packages of
+  # overrides/, which keep Arch's style
+  mapfile -t packages < <(git diff --cached --name-only --no-renames --diff-filter=d |
+    sed -n -E 's#^((local/)?[^/]+)/PKGBUILD$#\1#p' || true)
+  ((${#packages[@]})) || return 0
+  "$root/aur-packages-maintainers" check --author "${packages[@]}"
 }
 
 # Fills in the summary of the commit message (git's prepare-commit-msg hook, $1 the message's file, $2
@@ -929,6 +958,29 @@ cmd_readme() {
 # single quotes for literal text that needs quotes, double quotes only for expansions (or apostrophes),
 # around the whole word. From the syntax tree of shfmt, so package functions and per-arch arrays count
 # as well. Takes packages or their PKGBUILDs, as the hook passes them.
+# Checks the # Maintainer: and # Contributor: lines of the packages with aur-packages-maintainers, or with
+# --aur against the AUR's maintainers. Takes packages or their PKGBUILDs, as the hook passes them; the
+# packages of overrides/ keep Arch's style
+cmd_maintainers() {
+  local mode=check package
+  local -a selected dirs=() options=()
+  if [[ "${1-}" == --aur ]]; then
+    mode=aur
+    shift
+    # The notes as JSON, for updates --state
+    if [[ "${1-}" == --json ]]; then
+      options=(--json)
+      shift
+    fi
+  fi
+  select_packages "${@%/PKGBUILD}"
+  for package in "${selected[@]}"; do
+    [[ "$package" == overrides/* ]] || dirs+=("$package")
+  done
+  ((${#dirs[@]})) || return 0
+  "$root/aur-packages-maintainers" "$mode" "${options[@]}" "${dirs[@]}"
+}
+
 cmd_quoting() {
   local status=0 package findings
   local -a selected
@@ -1894,6 +1946,9 @@ case "$command" in
     ;;
   readme)
     cmd_readme "$@"
+    ;;
+  maintainers)
+    cmd_maintainers "$@"
     ;;
   help | -h | --help)
     usage

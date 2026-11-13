@@ -9,6 +9,8 @@ path = [
   "CLAUDE.md",
   "aur-packages",
   "aur-packages-tray",
+  "aur-packages-maintainers",
+  "maintainers.toml",
   "systemd/**",
   "completions/**",
   ".gitignore",

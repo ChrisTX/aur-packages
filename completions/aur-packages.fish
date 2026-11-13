@@ -9,7 +9,7 @@ function __aur_packages_list
     $program list $argv 2>/dev/null
 end
 
-set -l commands pull push adopt updates upgrade check commits build sync setup tray commit-msg prepare-commit-msg quoting list completion help
+set -l commands pull push adopt updates upgrade check commits build sync setup tray commit-msg prepare-commit-msg quoting maintainers list completion help
 set -l none "not __fish_seen_subcommand_from $commands"
 
 complete -c aur-packages -f
@@ -27,17 +27,19 @@ complete -c aur-packages -n $none -a tray -d 'Install or remove the daily update
 complete -c aur-packages -n $none -a commit-msg -d 'Check a commit message'
 complete -c aur-packages -n $none -a prepare-commit-msg -d 'Fill in the summary of a commit message'
 complete -c aur-packages -n $none -a quoting -d 'Check the quoting of the metadata arrays'
+complete -c aur-packages -n $none -a maintainers -d 'Check the Maintainer and Contributor lines'
 complete -c aur-packages -n $none -a list -d 'List the packages or the build templates'
 complete -c aur-packages -n $none -a completion -d 'Print the completion script of a shell'
 complete -c aur-packages -n $none -a help -d 'Show the help'
 
-complete -c aur-packages -n '__fish_seen_subcommand_from pull push adopt updates upgrade check commits build sync quoting' \
+complete -c aur-packages -n '__fish_seen_subcommand_from pull push adopt updates upgrade check commits build sync quoting maintainers' \
     -a '(__aur_packages_list)' -d Package
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l nocheck -d 'Push without running the checks'
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l exclude -x -a '(__aur_packages_list)' -d 'Leave a package out'
 complete -c aur-packages -n '__fish_seen_subcommand_from updates' -l state -d 'Write the result for the tray icon'
 complete -c aur-packages -n '__fish_seen_subcommand_from updates' -l retry -d 'Check rate-limited packages again later (with --state)'
 complete -c aur-packages -n '__fish_seen_subcommand_from check' -l manual -d 'Also run the checks that only run on request'
+complete -c aur-packages -n '__fish_seen_subcommand_from maintainers' -l aur -d 'Compare with the maintainers on the AUR'
 complete -c aur-packages -n '__fish_seen_subcommand_from commits' -l update -d 'Rewrite stale _commit values'
 complete -c aur-packages -n '__fish_seen_subcommand_from sync' -l check -d 'Only report differences'
 complete -c aur-packages -n '__fish_seen_subcommand_from list' -l templates -d 'List the build templates'

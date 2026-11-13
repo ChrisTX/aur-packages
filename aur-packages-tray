@@ -3,8 +3,9 @@
 
 Shows the state file of `aur-packages updates --state`, which the user unit aur-packages-updates.service
 writes daily: hidden in the tray's overflow (passive) while every package is up to date, shown while
-packages are outdated. The menu lists them and checks again on request. A desktop notification announces
-each new upstream version once.
+packages are outdated, or while the check has notes on the maintainers on the AUR (maintainers --aur). The
+menu lists them and checks again on request. A desktop notification announces each new upstream version
+once.
 
 The icon is a StatusNotifierItem with a com.canonical.dbusmenu menu, the protocol of Plasma's tray,
 spoken over D-Bus with Gio: libayatana-appindicator is deprecated, and its successor exports menus as
@@ -500,13 +501,16 @@ class Tray(Gio.Application):
         rate_limited = self.state.get("rate_limited") or {}
         if rate_limited.get("packages"):
             lines.append(rate_limit_line(rate_limited))
+        notes = self.state.get("maintainers") or []
+        lines += [f"{note['folder']}: {note['message']}" for note in notes]
         self.title = f"AUR packages: {summary.lower() if count else summary}"
         self.tooltip = "\n".join(lines)
         self.icon = ICON_UPDATES if count else ICON_UP_TO_DATE
         for signal in ("NewTitle", "NewIcon", "NewToolTip"):
             self.emit(ITEM_PATH, ITEM, signal)
-        # Passive puts the icon into the tray's overflow; never NeedsAttention
-        status = "Active" if count else "Passive"
+        # Passive puts the icon into the tray's overflow; never NeedsAttention. Notes on the maintainers
+        # want something done as well, e.g. moving a package adopted on the AUR out of local/
+        status = "Active" if count or notes else "Passive"
         if status != self.status:
             self.status = status
             self.emit(ITEM_PATH, ITEM, "NewStatus", GLib.Variant("(s)", (status,)))
@@ -549,6 +553,18 @@ class Tray(Gio.Application):
                 MenuItem(
                     f"{count} package check{'s' if count != 1 else ''} failed",
                     children=failed,
+                )
+            )
+        notes = self.state.get("maintainers") or []
+        if notes:
+            count = len(notes)
+            items.append(
+                MenuItem(
+                    f"{count} note{'s' if count != 1 else ''} on the AUR's maintainers",
+                    children=[
+                        MenuItem(shorten(f"{note['folder']}: {note['message']}"))
+                        for note in notes
+                    ],
                 )
             )
         items += [

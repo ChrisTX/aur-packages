@@ -15,7 +15,7 @@ _aur_packages_complete() {
   done
   if [[ -z "$command" ]]; then
     mapfile -t COMPREPLY < <(compgen -W 'pull push adopt updates upgrade check commits build sync setup
-      tray commit-msg prepare-commit-msg quoting list completion help' -- "$cur")
+      tray commit-msg prepare-commit-msg quoting maintainers list completion help' -- "$cur")
     return
   fi
   # The package to leave out, of the checkout the command works on
@@ -30,6 +30,7 @@ _aur_packages_complete() {
       options='--nocheck --exclude' packages=true
       ;;
     check) options=--manual packages=true ;;
+    maintainers) options=--aur packages=true ;;
     commits) options=--update packages=true ;;
     sync) options=--check packages=true ;;
     build)

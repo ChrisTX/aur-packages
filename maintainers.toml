@@ -1,0 +1,16 @@
+# The maintainers of the packages, for ./aur-packages maintainers (aur-packages-maintainers): every
+# package has our # Maintainer: line, and one for each other maintainer and co-maintainer it has on the AUR
+
+# Our account on the AUR and our # Maintainer: line
+[us]
+user = "ChrisTX"
+name = "Christian Pfeiffer"
+address = "cpfeiffer at rev-crew dot info"
+
+# The other maintainers on the AUR, by username, and the names of their # Maintainer: lines
+[names]
+AlphaJack = "AlphaJack"
+buzo = "Stephan Springer"
+ChrisTX = "Christian Pfeiffer"
+deons = "Deon Spengler"
+VVL = "Vladislav Minakov"

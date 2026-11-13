@@ -1,0 +1,312 @@
+#!/usr/bin/python3
+"""The # Maintainer: and # Contributor: lines of the PKGBUILDs, against the AUR (./aur-packages maintainers).
+
+A PKGBUILD names its current maintainers, the AUR's maintainer and co-maintainers, as # Maintainer:, and
+everyone who maintained it before, the original submitter included, as # Contributor: (the AUR submission
+guidelines). maintainers.toml maps the AUR's usernames to the names of those lines. The addresses are
+obscured in one way: name at domain dot tld.
+
+  check [DIR...]     The lines of the packages, without the network: Maintainer lines first, obscured
+                     addresses, ours among the maintainers; with --author, the staged PKGBUILDs, which
+                     have to list the author of the commit being made (the commit-msg hook) by name or
+                     address
+  aur [--json] [DIR...]
+                     The Maintainer lines against the AUR's maintainers, for the packages at the top level;
+                     for those in local/, whether the AUR has made us a maintainer (an accepted adoption,
+                     move the package to the top level) or orphaned them (adopt it on the AUR then)
+  adopt DIR FILE     Rewrite the lines of a package just adopted on the AUR (./aur-packages adopt): its
+                     maintainers on the AUR as Maintainer, everyone else of its lines and those of the AUR's
+                     PKGBUILD (FILE) as Contributor
+"""
+
+import json
+import re
+import subprocess
+import sys
+import tomllib
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+
+CONFIG = Path("maintainers.toml")
+RPC = "https://aur.archlinux.org/rpc/v5/info"
+LINE = re.compile(r"# (Maintainer|Contributor):\s*(.*?)\s*(?:<(.*)>)?\s*$")
+# An address as name at domain dot tld: words without @, dots, spaces or angle brackets
+OBSCURED = re.compile(r"[^\s@.<>]+( dot [^\s@.<>]+)* at [^\s@.<>]+( dot [^\s@.<>]+)+")
+
+
+@dataclass
+class Credit:
+    role: str
+    name: str
+    address: str | None
+
+    def line(self) -> str:
+        address = f" <{self.address}>" if self.address else ""
+        return f"# {self.role}: {self.name}{address}"
+
+
+def git(*arguments: str) -> str:
+    return subprocess.run(
+        ["git", *arguments], capture_output=True, text=True, check=True
+    ).stdout
+
+
+def real(address: str) -> str:
+    """The plain address of an obscured one, in any of the spellings PKGBUILDs use."""
+    for pattern, replacement in (
+        (r"\s*\[at\]\s*|_AT_|-at-| at ", "@"),
+        (r"\s*\[dot\]\s*|_DOT_|-dot-| dot ", "."),
+        (r" underscore ", "_"),
+        (r" plus ", "+"),
+    ):
+        address = re.sub(pattern, replacement, address)
+    return address
+
+
+def obscure(address: str) -> str:
+    return real(address).replace("@", " at ").replace(".", " dot ")
+
+
+def key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def header(text: str) -> tuple[list[Credit], list[str]]:
+    """The Maintainer and Contributor lines at the top of a PKGBUILD, and the lines after them."""
+    lines = text.split("\n")
+    credits = []
+    while lines and (match := LINE.fullmatch(lines[0])):
+        credits.append(Credit(match[1], match[2], match[3]))
+        lines.pop(0)
+    return credits, lines
+
+
+def config() -> dict:
+    with CONFIG.open("rb") as file:
+        return tomllib.load(file)
+
+
+def srcinfo(directory: str, field: str) -> list[str]:
+    text = Path(directory, ".SRCINFO").read_text()
+    return re.findall(rf"^{field} = (.+)$", text, re.MULTILINE)
+
+
+def check(directories: list[str], author: bool) -> int:
+    us = config()["us"]
+    ours = key(us["name"])
+    identity = None
+    if author:
+        ident = git("var", "GIT_AUTHOR_IDENT")
+        name, address = re.match(r"(.*?) <(.*)>", ident).groups()
+        identity = (name, key(name), address.lower())
+    status = 0
+
+    def problem(directory: str, message: str) -> None:
+        nonlocal status
+        print(f"{directory}/PKGBUILD: {message}")
+        status = 1
+
+    for directory in directories:
+        # The commit's, the staged one
+        text = (
+            git("show", f":{directory}/PKGBUILD")
+            if author
+            else Path(directory, "PKGBUILD").read_text()
+        )
+        credits, _ = header(text)
+        roles = [credit.role for credit in credits]
+        if roles != sorted(roles, key=lambda role: role != "Maintainer"):
+            problem(
+                directory, "the # Maintainer: lines go before the # Contributor: lines"
+            )
+        for credit in credits:
+            if credit.address and not OBSCURED.fullmatch(credit.address):
+                problem(
+                    directory,
+                    f"obscure the address as {obscure(credit.address)}: {credit.line()}",
+                )
+        names = [key(credit.name) for credit in credits]
+        for name in {name for name in names if names.count(name) > 1}:
+            problem(directory, f"listed more than once: {name}")
+        if not any(
+            credit.role == "Maintainer" and key(credit.name) == ours
+            for credit in credits
+        ):
+            problem(
+                directory, f"# Maintainer: {us['name']} <{us['address']}> is missing"
+            )
+        if identity:
+            name, name_key, address = identity
+            if not any(
+                key(credit.name) == name_key
+                or real(credit.address or "").lower() == address
+                for credit in credits
+            ):
+                problem(
+                    directory,
+                    f"the commit's author, {name}, isn't one of the # Maintainer:/# Contributor: lines",
+                )
+    return status
+
+
+def aur_info(names: list[str]) -> dict[str, dict]:
+    """The AUR's packages by pkgbase, looked up by one of their pkgnames each."""
+    results = {}
+    for start in range(0, len(names), 100):
+        query = "&".join(
+            f"arg[]={urllib.parse.quote(name)}" for name in names[start : start + 100]
+        )
+        with urllib.request.urlopen(f"{RPC}?{query}", timeout=60) as response:
+            answer = json.load(response)
+        if answer.get("type") == "error":
+            raise RuntimeError(answer.get("error"))
+        for package in answer["results"]:
+            results[package["PackageBase"]] = package
+    return results
+
+
+def notes(directories: list[str]) -> list[dict]:
+    settings = config()
+    us, usernames = settings["us"], settings.get("names", {})
+    packages = {
+        directory: srcinfo(directory, "pkgbase")[0] for directory in directories
+    }
+    info = aur_info([srcinfo(directory, "pkgname")[0] for directory in directories])
+    found = []
+    for directory, base in packages.items():
+        package = info.get(base)
+
+        def note(message: str, directory: str = directory, base: str = base) -> None:
+            found.append({"package": base, "folder": directory, "message": message})
+
+        maintainers = (
+            [package["Maintainer"], *(package.get("CoMaintainers") or [])]
+            if package
+            else []
+        )
+        if directory.startswith("local/"):
+            if package and package["Maintainer"] is None:
+                note(
+                    "orphaned on the AUR: adopt it there, then move it to the top level"
+                )
+            elif us["user"] in maintainers:
+                note(
+                    "we maintain it on the AUR now: move it to the top level (and adopt)"
+                )
+            continue
+        if not package:
+            note("not on the AUR yet: push it")
+            continue
+        if us["user"] not in maintainers:
+            note(
+                f"we don't maintain it on the AUR: {', '.join(m or '(orphaned)' for m in maintainers)}"
+            )
+        credits, _ = header(Path(directory, "PKGBUILD").read_text())
+        listed = {key(credit.name) for credit in credits if credit.role == "Maintainer"}
+        expected = set()
+        for user in filter(None, maintainers):
+            if user not in usernames:
+                note(f"{user} maintains it on the AUR: add them to {CONFIG}")
+                continue
+            expected.add(key(usernames[user]))
+            if key(usernames[user]) not in listed:
+                note(
+                    f"{user} maintains it on the AUR: add # Maintainer: {usernames[user]}"
+                )
+        # A line of a maintainer missing from the map may be theirs, unless it's a known name
+        unknown = [user for user in filter(None, maintainers) if user not in usernames]
+        known = {key(name) for name in usernames.values()}
+        for credit in credits:
+            if (
+                credit.role == "Maintainer"
+                and key(credit.name) not in expected
+                and (not unknown or key(credit.name) in known)
+            ):
+                note(
+                    f"{credit.name} doesn't maintain it on the AUR: make them a # Contributor:"
+                )
+    return found
+
+
+def adopt(directory: str, aur_pkgbuild: str) -> int:
+    settings = config()
+    us, usernames = settings["us"], settings.get("names", {})
+    base = srcinfo(directory, "pkgbase")[0]
+    package = aur_info([srcinfo(directory, "pkgname")[0]]).get(base)
+    maintainers = (
+        [package["Maintainer"], *(package.get("CoMaintainers") or [])]
+        if package
+        else []
+    )
+    path = Path(directory, "PKGBUILD")
+    credits, rest = header(path.read_text())
+    previous, _ = header(Path(aur_pkgbuild).read_text())
+    # Everyone of both, ours first, each once
+    pool: dict[str, Credit] = {}
+    for credit in [
+        Credit("Maintainer", us["name"], us["address"]),
+        *credits,
+        *previous,
+    ]:
+        pool.setdefault(key(credit.name), credit)
+    names = [usernames.get(user, "") for user in filter(None, maintainers)]
+    if us["user"] not in maintainers:
+        names.insert(0, us["name"])
+    for user in filter(None, maintainers):
+        if user not in usernames:
+            print(
+                f"{directory}: {user} maintains it on the AUR: add them to {CONFIG} and their # Maintainer: line"
+            )
+    current = [key(name) for name in names if name]
+    lines = []
+    for current_key in current:
+        credit = pool.get(current_key)
+        if credit:
+            lines.append(Credit("Maintainer", credit.name, credit.address))
+        else:
+            name = next(n for n in names if key(n) == current_key)
+            print(
+                f"{directory}: no address for {name}, whose # Maintainer: line is added without one"
+            )
+            lines.append(Credit("Maintainer", name, None))
+    lines += [
+        Credit("Contributor", c.name, c.address)
+        for k, c in pool.items()
+        if k not in current
+    ]
+    for credit in lines:
+        if credit.address:
+            credit.address = obscure(credit.address)
+    text = "\n".join([credit.line() for credit in lines] + rest)
+    if text != path.read_text():
+        path.write_text(text)
+        print(
+            f"{directory}: rewrote its # Maintainer:/# Contributor: lines, check and commit them"
+        )
+    return 0
+
+
+def main(arguments: list[str]) -> int:
+    command, *arguments = arguments or ["help"]
+    if command == "check":
+        author = "--author" in arguments
+        return check([a for a in arguments if a != "--author"], author)
+    if command == "aur":
+        as_json = "--json" in arguments
+        found = notes([a for a in arguments if a != "--json"])
+        if as_json:
+            print(json.dumps(found))
+        else:
+            for note in found:
+                print(f"{note['folder']}: {note['message']}")
+        return 1 if found and not as_json else 0
+    if command == "adopt" and len(arguments) == 2:
+        return adopt(*arguments)
+    print(__doc__, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
