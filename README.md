@@ -152,6 +152,7 @@ Packages built here for our own use, with `./aur-packages build`, and never publ
 | [python-flask-smorest](local/python-flask-smorest) | Flask/Marshmallow-based REST API framework | A dependency of sogo6-server that the AUR doesn't have |
 | [python-sievelib](local/python-sievelib) | Client-side Sieve and ManageSieve library | A fix of the [AUR package](https://aur.archlinux.org/packages/python-sievelib), which lacks python-typing_extensions, for sogo6-server; goes once the AUR's is fixed |
 | [python-webargs](local/python-webargs) | Declarative parsing and validation of HTTP request objects, with built-in support for popular web frameworks | A fix of the [AUR package](https://aur.archlinux.org/packages/python-webargs), which doesn't build with flit_core 4, for sogo6-server; goes once the AUR's is fixed |
+| [sogo6-server](local/sogo6-server) | API server of SOGo 6, the groupware for mail, calendars and contacts (alpha, not for production) | An alpha, to try SOGo 6 next to SOGo 5 (`/etc/sogo6`), until upstream releases it |
 
 `overrides/` has Arch Linux's packages with changes of ours, as subtrees of Arch's packaging in Arch's style, versioned below Arch's next release (e.g. `12.2-0.1`), which replaces them. `./aur-packages overrides` says when Arch has caught up and one can go:
 
