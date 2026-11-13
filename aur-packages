@@ -42,10 +42,14 @@ unset AUR_PACKAGES_CWD
 cd "$root" || exit
 
 # prek, the faster reimplementation of pre-commit, where it's installed
+# prek caches its workspace, the projects it found: --refresh finds them again, so a package that
+# was just added or moved (git mv local/<package> .) is checked too, instead of prek not knowing it
 if command -v prek >/dev/null; then
   hook_runner=prek
+  refresh=(--refresh)
 else
   hook_runner=pre-commit
+  refresh=()
 fi
 
 # Names the build graph resolves to another package than the one of that name, set by build's
@@ -567,7 +571,7 @@ run_package_hooks() {
   local package
   local -a package_files
   if [[ "$hook_runner" == prek ]]; then
-    prek run "${stage_args[@]}" "$@" --files "${files[@]}"
+    prek run "${refresh[@]}" "${stage_args[@]}" "$@" --files "${files[@]}"
   else
     # pre-commit has no workspaces, one package after the other with its configuration
     for package; do
@@ -605,9 +609,9 @@ cmd_check() {
     cmd_pins "${selected[@]}" || status=1
     return "$status"
   else
-    "$hook_runner" run --all-files
+    "$hook_runner" run "${refresh[@]}" --all-files
     if [[ "$manual" == true ]]; then
-      "$hook_runner" run --hook-stage manual --all-files
+      "$hook_runner" run "${refresh[@]}" --hook-stage manual --all-files
     fi
   fi
 }
