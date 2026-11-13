@@ -1,8 +1,8 @@
 # Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>
 # Contributor: Daniel Poellmann <aur at poellmanndaniel dot de>
 # Contributor: Luis Martinez <luis dot martinez at disroot dot org>
-# Contributor: Simon Legner <Simon.Legner@gmail.com>
-# Contributor: David Pugnasse <david.pugnasse@gmail.com>
+# Contributor: Simon Legner <Simon dot Legner at gmail dot com>
+# Contributor: David Pugnasse <david dot pugnasse at gmail dot com>
 # shellcheck disable=SC2034,SC2154
 # shellcheck shell=bash
 
