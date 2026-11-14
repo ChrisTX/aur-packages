@@ -68,6 +68,7 @@ _aur-packages() {
           ;;
         push)
           _arguments '--nocheck[push without running the checks]' \
+            '--force[also push packages without commits since their last push]' \
             '*--exclude=[leave a package out]:package:_aur-packages_packages' \
             '*:package:_aur-packages_packages' && ret=0
           ;;

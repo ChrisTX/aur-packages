@@ -74,9 +74,11 @@ else the one the symlink points into.
 
   pull      Pull the packages from the AUR (aurpublish --pull)
   push      Check, then push the packages to the AUR (aurpublish), or with --nocheck without the
-            checks, e.g. while a linter isn't installed. --exclude PACKAGE leaves a package out
-            (repeatable), e.g. one whose AUR request is still pending. A pushed package leaves the
-            tray's list of outdated packages once its version is at least the new one
+            checks, e.g. while a linter isn't installed. Leaves out packages without commits since
+            their last push (refs/aur-packages/pushed/PACKAGE), which --force pushes anyway.
+            --exclude PACKAGE leaves a package out (repeatable), e.g. one whose AUR request is still
+            pending. A pushed package leaves the tray's list of outdated packages once its version is
+            at least the new one
   adopt PACKAGE...
             Merge the history the AUR has of packages into their subtrees, keeping their files, so
             that push can push on top of it: for a package that was on the AUR before, deleted or
@@ -225,13 +227,32 @@ cmd_pull() {
   done
 }
 
+# The ref that records the commit whose subtree push last pushed of a package
+pushed_ref() {
+  printf 'refs/aur-packages/pushed/%s\n' "$1"
+}
+
+# Whether HEAD's subtree of the package $1, what aurpublish pushes, can differ from the one pushed
+# last: no push recorded, a rewritten history, commits since that change the package, or a merge that
+# joins a history to it (adopt's and publish's, git subtree's), which leaves its files as they are.
+# Not --full-history: it would count every merge of a history without the package, like the subtree
+# pulls of overrides/, for all packages.
+push_needed() {
+  local pushed
+  pushed=$(git rev-parse -q --verify "$(pushed_ref "$1")^{commit}") || return 0
+  git merge-base --is-ancestor "$pushed" HEAD || return 0
+  [[ -n "$(git rev-list -n 1 "$pushed..HEAD" -- "$1")" ]] ||
+    [[ -n "$(git rev-list -n 1 --merges --grep="^git-subtree-dir: $1\$" "$pushed..HEAD")" ]]
+}
+
 cmd_push() {
-  local nocheck=false package
-  local -a selected excluded=() pushed=()
+  local nocheck=false force=false package head
+  local -a selected excluded=() pushed=() unchanged=()
   local -A exclude=()
   while (($#)); do
     case "$1" in
       --nocheck) nocheck=true ;;
+      --force) force=true ;;
       --exclude)
         shift
         excluded+=("${1:-}")
@@ -258,15 +279,27 @@ cmd_push() {
   done
   select_packages --aur "$@"
   for package in "${selected[@]}"; do
-    [[ -n "${exclude[$package]-}" ]] || pushed+=("$package")
+    if [[ -n "${exclude[$package]-}" ]]; then
+      continue
+    elif [[ "$force" == true ]] || push_needed "$package"; then
+      pushed+=("$package")
+    else
+      unchanged+=("$package")
+    fi
   done
   selected=("${pushed[@]}")
+  if ((${#unchanged[@]})); then
+    echo "Nothing new since the last push of ${#unchanged[@]} package$( ((${#unchanged[@]} == 1)) || echo s)" \
+      "(--force pushes them anyway): ${unchanged[*]}"
+  fi
   ((${#selected[@]})) || return 0
   if [[ "$nocheck" == false ]]; then
     cmd_check "${selected[@]}"
   fi
+  head=$(git rev-parse HEAD)
   for package in "${selected[@]}"; do
     aurpublish "$package"
+    git update-ref -m "aur-packages push" "$(pushed_ref "$package")" "$head"
     # The tray's update list, which only the next check would clear otherwise
     updates_forget_pushed "$package"
   done

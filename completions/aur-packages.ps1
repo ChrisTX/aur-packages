@@ -27,7 +27,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
     }
     $options = @{
         'updates' = @('--state', '--retry')
-        'push'    = @('--nocheck', '--exclude')
+        'push'    = @('--nocheck', '--force', '--exclude')
         'check'   = @('--manual')
         'maintainers' = @('--aur')
         'commits' = @('--update')

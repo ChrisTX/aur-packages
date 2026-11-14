@@ -36,6 +36,7 @@ complete -c aur-packages -n $none -a help -d 'Show the help'
 complete -c aur-packages -n '__fish_seen_subcommand_from pull push adopt updates upgrade check commits build sync quoting maintainers' \
     -a '(__aur_packages_list)' -d Package
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l nocheck -d 'Push without running the checks'
+complete -c aur-packages -n '__fish_seen_subcommand_from push' -l force -d 'Also push packages without commits since their last push'
 complete -c aur-packages -n '__fish_seen_subcommand_from push' -l exclude -x -a '(__aur_packages_list)' -d 'Leave a package out'
 complete -c aur-packages -n '__fish_seen_subcommand_from updates' -l state -d 'Write the result for the tray icon'
 complete -c aur-packages -n '__fish_seen_subcommand_from updates' -l retry -d 'Check rate-limited packages again later (with --state)'

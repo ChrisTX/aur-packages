@@ -34,7 +34,7 @@ _aur_packages_complete() {
       ;;
     updates) options='--state --retry' packages=true ;;
     push)
-      options='--nocheck --exclude' packages=true
+      options='--nocheck --force --exclude' packages=true
       ;;
     check) options=--manual packages=true ;;
     maintainers) options=--aur packages=true ;;
