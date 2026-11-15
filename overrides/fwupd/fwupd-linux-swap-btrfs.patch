@@ -1,4 +1,4 @@
-From 694d1a72ead6bbb0dc156a54fd92455c074be384 Mon Sep 17 00:00:00 2001
+From a5519b2533cc939b668d254183333648bc9f174f Mon Sep 17 00:00:00 2001
 From: Christian Pfeiffer <cpfeiffer@rev-crew.info>
 Date: Sun, 15 Nov 2026 06:33:12 +0100
 Subject: [PATCH] linux-swap: Detect encrypted swap files on btrfs
@@ -17,14 +17,14 @@ Fixes https://github.com/fwupd/fwupd/issues/11154
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  meson.build                                   |   3 +
- plugins/linux-swap/fu-linux-swap.c            | 140 +++++++++++++++++-
+ plugins/linux-swap/fu-linux-swap.c            | 141 +++++++++++++++++-
  plugins/linux-swap/fu-linux-swap.h            |   5 +
  plugins/linux-swap/fu-self-test.c             |  54 +++++++
  .../tests/btrfs/sys/class/block/dm-0/dm/uuid  |   1 +
  .../devices/dm-0/dev                          |   1 +
  .../devices/dm-0/dev                          |   1 +
  .../devices/sdb1/dev                          |   1 +
- 8 files changed, 203 insertions(+), 3 deletions(-)
+ 8 files changed, 204 insertions(+), 3 deletions(-)
  create mode 100644 plugins/linux-swap/tests/btrfs/sys/class/block/dm-0/dm/uuid
  create mode 100644 plugins/linux-swap/tests/btrfs/sys/fs/btrfs/0d2b6c1e-5a4f-4a3b-9c8d-7e6f5a4b3c2d/devices/dm-0/dev
  create mode 100644 plugins/linux-swap/tests/btrfs/sys/fs/btrfs/f1e2d3c4-b5a6-4978-8695-a4b3c2d1e0f9/devices/dm-0/dev
@@ -45,7 +45,7 @@ index 8bc03c5..8a8e3fd 100644
    conf.set('HAVE_POLL_H', '1')
  endif
 diff --git a/plugins/linux-swap/fu-linux-swap.c b/plugins/linux-swap/fu-linux-swap.c
-index 2f81b33..3f08274 100644
+index 2f81b33..3a77bca 100644
 --- a/plugins/linux-swap/fu-linux-swap.c
 +++ b/plugins/linux-swap/fu-linux-swap.c
 @@ -8,8 +8,20 @@
@@ -69,7 +69,7 @@ index 2f81b33..3f08274 100644
  #include "fu-linux-swap.h"
  
  #define FU_LINUX_SWAP_DM_MAX_DEPTH 16
-@@ -138,6 +150,113 @@ fu_linux_swap_block_name_for_devnum(FuPathStore *pstore, guint32 devnum, GError
+@@ -138,6 +150,114 @@ fu_linux_swap_block_name_for_devnum(FuPathStore *pstore, guint32 devnum, GError
  	return g_path_get_basename(target);
  }
  
@@ -148,7 +148,8 @@ index 2f81b33..3f08274 100644
 +		return NULL;
 +	}
 +
-+	/* any file of the filesystem will do, and the directory is readable */
++	/* the ioctl works on any file of the filesystem; the directory is readable where a
++	 * 0600 swap file isn't */
 +	dirname = g_path_get_dirname(fn);
 +	fd = open(dirname, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 +	if (fd < 0) {
@@ -183,7 +184,7 @@ index 2f81b33..3f08274 100644
  static gboolean
  fu_linux_swap_verify_partition(FuLinuxSwap *self,
  			       FuPathStore *pstore,
-@@ -214,12 +333,14 @@ fu_linux_swap_verify_file(FuLinuxSwap *self, FuPathStore *pstore, const gchar *f
+@@ -214,12 +334,14 @@ fu_linux_swap_verify_file(FuLinuxSwap *self, FuPathStore *pstore, const gchar *f
  {
  	gboolean encrypted_below = FALSE;
  	guint32 devnum;
@@ -198,7 +199,7 @@ index 2f81b33..3f08274 100644
  	g_autoptr(GError) error_walk = NULL;
  
  	/* get the device number for the file */
-@@ -246,9 +367,22 @@ fu_linux_swap_verify_file(FuLinuxSwap *self, FuPathStore *pstore, const gchar *f
+@@ -246,9 +368,22 @@ fu_linux_swap_verify_file(FuLinuxSwap *self, FuPathStore *pstore, const gchar *f
  	/* walk the backing block device for a CRYPT- node */
  	name = fu_linux_swap_block_name_for_devnum(pstore, devnum, &error_name);
  	if (name == NULL) {

@@ -159,7 +159,7 @@ Packages built here for our own use, with `./aur-packages build`, and never publ
 
 | Package | Changes | Until |
 | --- | --- | --- |
-| [fwupd](overrides/fwupd) | Swap files on an encrypted btrfs detected as encrypted, which fwupdmgr security reports as unencrypted | [fwupd#11154](https://github.com/fwupd/fwupd/issues/11154) is fixed in a release Arch Linux has |
+| [fwupd](overrides/fwupd) | Swap files on an encrypted btrfs detected as encrypted, which fwupdmgr security reports as unencrypted | [fwupd#11415](https://github.com/fwupd/fwupd/pull/11415) is released, and Arch Linux has that release |
 | [ghidra](overrides/ghidra) | 12.2, and fixes of the no-return analysis that truncates functions in 32-bit GCC binaries | [ghidra#9770](https://github.com/NationalSecurityAgency/ghidra/pull/9770) and [ghidra#10173](https://github.com/NationalSecurityAgency/ghidra/issues/10173) are released, and Arch Linux has 12.2 |
 
 ## Repository layout

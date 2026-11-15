@@ -10,7 +10,8 @@ pkgname=(
 )
 pkgver=2.1.9
 # Below Arch's next release, which replaces it: a local build with the fix of
-# fwupd/fwupd#11154 (swap files on an encrypted btrfs reported as unencrypted)
+# fwupd/fwupd#11154 (swap files on an encrypted btrfs reported as unencrypted),
+# PR #11415, not merged yet
 pkgrel=1.1
 pkgdesc="Simple daemon to allow session software to update firmware"
 arch=(x86_64)
@@ -73,17 +74,17 @@ source=(
 sha512sums=('79c3e94d962526efea7e07ac5ad19ed9e34f349ab2fd7f86e88d5bff503d7373ccede1fa9dc70ee5bb4984710ca9e95d4a63e781616575fab9127d9d1222c3aa'
             'f9a99c60786a2b98e0de439a9288af61b2c0716f8339a4c93e2df7108d2a7f9ef8128967dcaa1e12022ffa647945bf5eb3749e38cac83e00a28cbc5b015fbee9'
             '21e04acbae83d8ca548d6e7f9b2344e7b4dc8e1ab1c0a7799ded3160c99c54c2116b158a559d2b3243e960a6e4c72a3391599d68327209fa79a291622de3c1b8'
-            'ad2f9f45d213abb8cc48a7ace492f824167c2b97797538eb183ab35f76cd544844ea5b82d8b72ca679ec9ec285c28fe8cc2ffba085895375303924f395f8ef72')
+            'feeacfade0d49086b121d65ef601bf02e76e72105b16bf882b81254942b75b2ee8a2483d7ad18af931374dff18c16ae86758596aa8663bfcafecacdf36c6574e')
 b2sums=('257c0dee1f6171369bce28c63df63807dc284282b57345bf71d8a7916ba7928aa9e1e457f16ba4d2eb50609ef053c11dc60c75e833612692db99b8254cd8d194'
         'c294c6dd324c0ad0d752affdc459d427d34f4bf865def099ac0e25db6b5dfbfcf645ca325e4e7732d1256e75c624ff27094d5c814726909c7e348128a9dd93f9'
         'b9e1c1c66452adb29378cbb42bd18152a2760750696644ee8dd4c09c6f23116d3e66fd405fc69c4694a5ea0f47b75d5959356a12da56ab1cc8345fe926098b3b'
-        '37e15f714181c542beaf6f1075471e12c0234c6abf937a2fdaa1e44c87d903895d8f543320ed0a0153a76aebda5aa93b50a965b562072a1460ec3ec84d5376d8')
+        '54c3eb1c4e150d90c9b5dbcf90ae7268486659fb20a3b929f2453f3064a2e2bc5eaf1618c8a62bdf5dd9fd7e7615aa119794dedc6083b370621ff5845ea0e93c')
 validpgpkeys=(163EB50119225DB3DF8F49EA17ACBA8DFA970E17) # Richard Hughes <richard@hughsie.com>
 
 prepare() {
   cd fwupd
   # linux-swap: detect encrypted swap files on btrfs
-  # https://github.com/fwupd/fwupd/issues/11154
+  # https://github.com/fwupd/fwupd/pull/11415 for #11154
   patch -Np1 -i ../fwupd-linux-swap-btrfs.patch
 }
 
