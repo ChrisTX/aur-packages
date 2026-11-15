@@ -37,7 +37,7 @@ _aur_packages_complete() {
       options='--nocheck --force --exclude' packages=true
       ;;
     check) options=--manual packages=true ;;
-    sysupgrade) options=--sign ;;
+    sysupgrade) options='--sign --no-sign' ;;
     maintainers) options=--aur packages=true ;;
     commits) options=--update packages=true ;;
     sync) options=--check packages=true ;;
@@ -57,7 +57,7 @@ _aur_packages_complete() {
           return
           ;;
       esac
-      options='--chroot --local --install --dry-run -n --keep --add --sign --dotnet-bin --libs-bin --testing --sanitize --target --repo'
+      options='--chroot --local --install --dry-run -n --keep --add --sign --no-sign --dotnet-bin --libs-bin --testing --sanitize --target --repo'
       packages=true templates=true
       ;;
     list) options='--templates --local' ;;

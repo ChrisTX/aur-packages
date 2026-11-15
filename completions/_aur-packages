@@ -87,7 +87,8 @@ _aur-packages() {
           _arguments '--check[only report differences]' '*:package:_aur-packages_packages' && ret=0
           ;;
         sysupgrade)
-          _arguments '--sign[sign the packages added]' '*::aur sync option:' && ret=0
+          _arguments '(--no-sign)--sign[sign the packages added]' "(--sign)--no-sign[don't sign the packages added]" \
+            '*::aur sync option:' && ret=0
           ;;
         build)
           _arguments \
@@ -97,7 +98,8 @@ _aur-packages() {
             '(-n --dry-run)'{-n,--dry-run}'[print the plan]' \
             '--keep[keep the chroot repo]' \
             "--add[add the packages to the system's aurutils repository]" \
-            '--sign[sign the packages --add adds]' \
+            '(--no-sign)--sign[sign the packages --add adds]' \
+            "(--sign)--no-sign[don't sign the packages --add adds]" \
             "--dotnet-bin[build with Microsoft's .NET]" \
             '--libs-bin[build with the libraries from nuget.org]' \
             "--testing[build against Arch Linux's testing repositories]" \

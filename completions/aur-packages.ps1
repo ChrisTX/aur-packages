@@ -35,8 +35,8 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'sync'    = @('--check')
         'list'    = @('--templates', '--local')
         'publish' = @('--section', '--adopt')
-        'sysupgrade' = @('--sign')
-        'build'   = @('--chroot', '--local', '--install', '--dry-run', '-n', '--keep', '--add', '--sign', '--dotnet-bin', '--libs-bin', '--testing',
+        'sysupgrade' = @('--sign', '--no-sign')
+        'build'   = @('--chroot', '--local', '--install', '--dry-run', '-n', '--keep', '--add', '--sign', '--no-sign', '--dotnet-bin', '--libs-bin', '--testing',
             '--sanitize', '--target', '--repo')
     }
     $withPackages = @('pull', 'push', 'adopt', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting', 'maintainers')

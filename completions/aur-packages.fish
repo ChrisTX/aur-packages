@@ -61,7 +61,9 @@ complete -c aur-packages -n $build -s n -l dry-run -d 'Print the plan'
 complete -c aur-packages -n $build -l keep -d 'Keep the chroot repo'
 complete -c aur-packages -n $build -l add -d "Add the packages to the system's aurutils repository"
 complete -c aur-packages -n $build -l sign -d 'Sign the packages --add adds'
+complete -c aur-packages -n $build -l no-sign -d "Don't sign the packages --add adds"
 complete -c aur-packages -n '__fish_seen_subcommand_from sysupgrade' -l sign -d 'Sign the packages added'
+complete -c aur-packages -n '__fish_seen_subcommand_from sysupgrade' -l no-sign -d "Don't sign the packages added"
 complete -c aur-packages -n $build -l dotnet-bin -d "Build with Microsoft's .NET"
 complete -c aur-packages -n $build -l libs-bin -d 'Build with the libraries from nuget.org'
 complete -c aur-packages -n $build -l testing -d "Build against Arch Linux's testing repositories"

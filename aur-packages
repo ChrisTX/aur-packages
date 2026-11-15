@@ -127,13 +127,15 @@ else the one the symlink points into.
             The chroots are in /var/lib/aur-packages-chroot ($AUR_BUILD_CHROOT), next to the
             Arch Linux ARM root (aarch64), not in aurutils' /var/lib/aurbuild.
             --add adds the packages, their -debug packages and the AUR dependencies built to the
-            system's aurutils repository (aur repo) once all have been built, signed with --sign
-            ($GPGKEY, else gpg's default key, as aur build), and against the testing repositories
-            if the system uses them; run it as the repository's owner, e.g. the aurutils user
-  sysupgrade [--sign] [-- AUR_SYNC_OPTION...]
+            system's aurutils repository (aur repo) once all have been built, and against the
+            testing repositories if the system uses them; run it as the repository's owner, e.g. the
+            aurutils user. They're signed ($GPGKEY, else gpg's default key, as aur build) if the
+            database is or makepkg signs (sign in BUILDENV), or as --sign or --no-sign say
+  sysupgrade [--sign|--no-sign] [-- AUR_SYNC_OPTION...]
             aur sync -u with our packages first: the packages of the top level, local/ and
             overrides/ in the aurutils repository with a newer version here are built and added
-            (build --add), then aur sync -u updates the rest, leaving all of ours out
+            (build --add), then aur sync -u updates the rest, leaving all of ours out; both sign
+            as build --add does
   sync      Copy templates/package into the packages and write the configuration at the top level,
             or with --check only report differences
   setup     Install the git hooks that run the checks before each commit, replacing aurpublish's,
@@ -1654,6 +1656,36 @@ sign_package() {
   gpg --detach-sign --no-armor --batch --yes "${key[@]}" --output "$1.sig" -- "$1"
 }
 
+# Succeeds if makepkg signs the packages it builds: sign in its BUILDENV, from its configuration as
+# makepkg loads it (/etc/makepkg.conf, its .d, the user's own, the environment)
+makepkg_signs() {
+  (
+    # makepkg's library relies on unset variables being empty
+    set +u
+    # shellcheck disable=SC1091 # makepkg's library
+    source /usr/share/makepkg/util.sh
+    load_makepkg_config
+    [[ " ${BUILDENV[*]} " == *" sign "* ]]
+  )
+}
+
+# Prints true or false, whether to sign the packages added to the system's aurutils repository
+# (system_repo): what --sign or --no-sign ($1 true or false) say, else (auto) if its database is signed
+# or makepkg signs the packages it builds
+system_repo_signing() {
+  if [[ "$1" != auto ]]; then
+    printf '%s\n' "$1"
+  elif [[ -f "$sysrepo_root/$sysrepo_name.db.sig" ]]; then
+    echo "Signing the packages, the database of $sysrepo_name is signed" >&2
+    echo true
+  elif makepkg_signs; then
+    echo "Signing the packages, as makepkg does (sign in BUILDENV)" >&2
+    echo true
+  else
+    echo false
+  fi
+}
+
 # Fails unless packages can be added to the system's aurutils repository (system_repo), signed or not
 # ($1 true or false): its owner can write to it, and a signed database needs signed packages, as with
 # aur build. Before the builds, so they aren't for nothing.
@@ -1665,7 +1697,7 @@ system_repo_check() {
     return 1
   fi
   if [[ "$1" == false && -f "$sysrepo_root/$sysrepo_name.db.sig" ]]; then
-    echo "The database of $sysrepo_name is signed, add the packages with --sign" >&2
+    echo "The database of $sysrepo_name is signed, the packages need signing too (without --no-sign)" >&2
     return 1
   fi
 }
@@ -1701,14 +1733,16 @@ system_repo_add() {
 # Updates the system's aurutils repository like aur sync -u, but with our packages first: those of
 # the top level, local/ and overrides/ that are in the repository and have a newer version here are
 # built with their dependencies and added (build --add), then aur sync -u updates the rest, leaving out
-# all our packages, which it would replace with the AUR's
+# all our packages, which it would replace with the AUR's. Signs the packages of both as build --add
+# decides (system_repo_signing), unless --sign or --no-sign says.
 cmd_sysupgrade() {
-  local signing=false dir name version
+  local signing=auto dir name version
   local -a selected=() names=() ignore=() buildargs=() syncargs=()
   local -A repover=()
   while (($#)); do
     case "$1" in
       --sign | -S) signing=true ;;
+      --no-sign) signing=false ;;
       --)
         shift
         break
@@ -1721,6 +1755,7 @@ cmd_sysupgrade() {
     shift
   done
   system_repo
+  signing=$(system_repo_signing "$signing")
   while IFS=$'\t' read -r name version; do
     repover[$name]=$version
   done < <(aur repo --database "$sysrepo_name" --list)
@@ -1739,6 +1774,8 @@ cmd_sysupgrade() {
   if [[ "$signing" == true ]]; then
     buildargs+=(--sign)
     syncargs+=(--sign)
+  else
+    buildargs+=(--no-sign)
   fi
   if ((${#selected[@]})); then
     # In a subshell, as its traps outlive it
@@ -1754,7 +1791,7 @@ cmd_sysupgrade() {
 
 cmd_build() {
   local method=chroot install=false dryrun=false keep=false dotnetbin=false libsbin=false testing=false
-  local target='' native=false cross=false reuse='' sanitise='' sanitiser add=false signing=false
+  local target='' native=false cross=false reuse='' sanitise='' sanitiser add=false signing=auto
   local arg pkg name file dir repo='' conf='' reponame=aur-build
   local makepkgconf=/usr/share/devtools/makepkg.conf.d/x86_64.conf
   local crossrepo='' crossconf='' crossmakepkg='' crossname=aur-build-aarch64
@@ -1775,6 +1812,7 @@ cmd_build() {
       --keep) keep=true ;;
       --add) add=true ;;
       --sign) signing=true ;;
+      --no-sign) signing=false ;;
       --dotnet-bin) dotnetbin=true ;;
       --libs-bin) libsbin=true ;;
       --testing) testing=true ;;
@@ -1806,7 +1844,7 @@ cmd_build() {
     shift
   done
   if (($# == 0)); then
-    echo "Usage: aur-packages build [--chroot|--local] [--install] [--dry-run] [--keep] [--add [--sign]] [--repo DIR]" \
+    echo "Usage: aur-packages build [--chroot|--local] [--install] [--dry-run] [--keep] [--add [--sign|--no-sign]] [--repo DIR]" \
       "[--dotnet-bin]" \
       "[--libs-bin] [--testing] [--sanitize undefined|address|address,undefined] [--target aarch64|aarch64-native]" \
       "<template|package>..." >&2
@@ -1844,8 +1882,8 @@ cmd_build() {
   fi
   # Into the system's aurutils repository: x86_64 packages, built against the repositories the system
   # uses, as a package built against stable can depend on a library soname testing has replaced
-  if [[ "$signing" == true && "$add" == false ]]; then
-    echo "--sign signs the packages --add adds" >&2
+  if [[ "$signing" != auto && "$add" == false ]]; then
+    echo "--sign and --no-sign are for the packages --add adds" >&2
     return 1
   fi
   if [[ "$add" == true ]]; then
@@ -1853,6 +1891,8 @@ cmd_build() {
       echo "--add needs a chroot build for x86_64, without --sanitize (test builds aren't to be installed)" >&2
       return 1
     fi
+    system_repo
+    signing=$(system_repo_signing "$signing")
     if [[ "$dryrun" == false ]]; then system_repo_check "$signing"; fi
     if system_uses_testing; then
       if [[ "$testing" == false ]]; then
