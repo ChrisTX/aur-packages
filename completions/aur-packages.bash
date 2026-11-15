@@ -14,7 +14,7 @@ _aur_packages_complete() {
     fi
   done
   if [[ -z "$command" ]]; then
-    mapfile -t COMPREPLY < <(compgen -W 'pull push adopt publish updates upgrade check commits build sysupgrade sync setup
+    mapfile -t COMPREPLY < <(compgen -W 'pull push adopt publish updates upgrade check commits build sysupgrade sync setup overrides
       tray commit-msg prepare-commit-msg quoting maintainers list completion help' -- "$cur")
     return
   fi
@@ -38,6 +38,14 @@ _aur_packages_complete() {
       ;;
     check) options=--manual packages=true ;;
     sysupgrade) options='--sign --no-sign' ;;
+    overrides)
+      if ((COMP_CWORD == i + 1)); then
+        mapfile -t COMPREPLY < <(compgen -W 'check add pull remove' -- "$cur")
+        return
+      fi
+      [[ "${COMP_WORDS[i + 1]}" != remove ]] || options=--force
+      [[ "${COMP_WORDS[i + 1]}" == add ]] || packages=true
+      ;;
     maintainers) options=--aur packages=true ;;
     commits) options=--update packages=true ;;
     sync) options=--check packages=true ;;

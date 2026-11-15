@@ -38,6 +38,7 @@ _aur-packages() {
     'build:build packages or a template with their dependencies'
     'sysupgrade:aur sync -u with our packages first'
     'sync:copy templates/package into the packages'
+    'overrides:compare, add, pull or remove the packages of overrides/'
     'setup:install the git hooks'
     'tray:install or remove the daily update check and its tray icon'
     'commit-msg:check a commit message'
@@ -117,6 +118,17 @@ _aur-packages() {
           ;;
         completion)
           _arguments '1:shell:(bash zsh fish pwsh)' && ret=0
+          ;;
+        overrides)
+          _arguments '1:action:((check\:"compare with Arch Linux'"'"'s repositories" add\:"import Arch Linux'"'"'s packaging of a package" pull\:"merge Arch Linux'"'"'s updates" remove\:"remove overrides Arch Linux has caught up with"))' \
+            '*::argument:->override' && ret=0
+          if [[ $state == override ]]; then
+            case ${words[1]} in
+              add) _message 'package of Arch Linux' && ret=0 ;;
+              remove) _arguments '--force[remove it even if Arch Linux has not caught up]' '*:package:_aur-packages_packages' && ret=0 ;;
+              *) _arguments '*:package:_aur-packages_packages' && ret=0 ;;
+            esac
+          fi
           ;;
         tray)
           _arguments '1:action:((install\:"install the update check and the tray icon" remove\:"remove them"))' && ret=0

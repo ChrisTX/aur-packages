@@ -9,7 +9,7 @@ function __aur_packages_list
     $program list $argv 2>/dev/null
 end
 
-set -l commands pull push adopt publish updates upgrade check commits build sysupgrade sync setup tray commit-msg prepare-commit-msg quoting maintainers list completion help
+set -l commands pull push adopt publish updates upgrade check commits build sysupgrade sync setup overrides tray commit-msg prepare-commit-msg quoting maintainers list completion help
 set -l none "not __fish_seen_subcommand_from $commands"
 
 complete -c aur-packages -f
@@ -26,6 +26,7 @@ complete -c aur-packages -n $none -a sysupgrade -d 'aur sync -u with our package
 complete -c aur-packages -n $none -a sync -d 'Copy templates/package into the packages'
 complete -c aur-packages -n $none -a setup -d 'Install the git hooks'
 complete -c aur-packages -n $none -a tray -d 'Install or remove the daily update check and its tray icon'
+complete -c aur-packages -n $none -a overrides -d 'Compare, add, pull or remove the packages of overrides/'
 complete -c aur-packages -n $none -a commit-msg -d 'Check a commit message'
 complete -c aur-packages -n $none -a prepare-commit-msg -d 'Fill in the summary of a commit message'
 complete -c aur-packages -n $none -a quoting -d 'Check the quoting of the metadata arrays'
@@ -75,4 +76,9 @@ complete -c aur-packages -n $build -l repo -x -a '(__fish_complete_directories)'
 
 complete -c aur-packages -n '__fish_seen_subcommand_from commit-msg prepare-commit-msg' -F
 complete -c aur-packages -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish pwsh' -d Shell
+set -l overrides '__fish_seen_subcommand_from overrides'
+complete -c aur-packages -n "$overrides; and not __fish_seen_subcommand_from check add pull remove" -x \
+    -a 'check\t"Compare with Arch Linux\'s repositories" add\t"Import Arch Linux\'s packaging of a package" pull\t"Merge Arch Linux\'s updates" remove\t"Remove overrides Arch Linux has caught up with"'
+complete -c aur-packages -n "$overrides; and __fish_seen_subcommand_from check pull remove" -x -a '(__aur_packages_list)'
+complete -c aur-packages -n "$overrides; and __fish_seen_subcommand_from remove" -l force -d 'Remove it even if Arch Linux has not caught up'
 complete -c aur-packages -n '__fish_seen_subcommand_from tray' -a 'install\t"Install the update check and the tray icon" remove\t"Remove them"'

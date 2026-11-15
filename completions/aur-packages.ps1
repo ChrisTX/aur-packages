@@ -18,6 +18,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'sync'       = 'Copy templates/package into the packages'
         'setup'      = 'Install the git hooks'
         'tray'       = 'Install or remove the daily update check and its tray icon'
+        'overrides'  = 'Compare, add, pull or remove the packages of overrides/'
         'commit-msg' = 'Check a commit message'
         'prepare-commit-msg' = 'Fill in the summary of a commit message'
         'quoting'    = 'Check the quoting of the metadata arrays'
@@ -92,6 +93,14 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
     } elseif ($command -eq 'completion') {
         if ($afterCommand -eq 0) {
             'bash', 'zsh', 'fish', 'pwsh' | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
+        }
+    } elseif ($command -eq 'overrides') {
+        if ($afterCommand -eq 0) {
+            'check', 'add', 'pull', 'remove' | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
+        } elseif ($wordToComplete -like '-*') {
+            ConvertTo-CompletionResult -Text '--force' -Type 'ParameterName'
+        } else {
+            Get-AurPackageName | ForEach-Object { ConvertTo-CompletionResult -Text $_ }
         }
     } elseif ($command -eq 'tray') {
         if ($afterCommand -eq 0) {
