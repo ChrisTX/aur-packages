@@ -64,6 +64,29 @@ The conventions below apply to every package. GitHub Actions runs `./aur-package
 
 The signatures use the key of `$GPGKEY` in the environment, else gpg's default key, as `aur build --sign` and `repo-add --sign` do; neither reads the `GPGKEY` of makepkg.conf. A user that signs the repository with a key of its own sets it as `default-key` in its `~/.gnupg/gpg.conf`, which works without a login shell as well, and keeps `GPGKEY` out of `/etc/makepkg.conf`, where it would be every user's (makepkg reads `~/.config/pacman/makepkg.conf` per user).
 
+#### Commands run as root
+
+`build` and `sysupgrade` run these as root, with `sudo` or what `$AUR_PACMAN_AUTH` names (as aurutils does), so a user without a password prompt, like a dedicated aurutils user, needs sudoers rules for them:
+
+| Command | Run by | For |
+| --- | --- | --- |
+| `/usr/bin/install` | `aur chroot` | creating a chroot's folder in `/var/lib/aur-packages-chroot` (`$AUR_BUILD_CHROOT`) |
+| `/usr/bin/mkarchroot` | `aur chroot` | creating a chroot |
+| `/usr/bin/arch-nspawn` | `aur chroot` | updating a chroot before each build |
+| `/usr/bin/makechrootpkg` | `aur chroot` | the builds, with `--preserve-env` (`SRCDEST`, `PKGDEST`, `PACKAGER`, `GNUPGHOME`, …), which needs `SETENV` |
+| `/usr/bin/pacsync` | `build --add`, `sysupgrade` | syncing pacman's copy of the repository after adding to it |
+| `/usr/lib/aurutils/aur-build--sync` | `aur sync`, in `sysupgrade` | aurutils' own sync and install, only for builds without `--chroot` |
+
+`build --target` uses `sudo` itself, once, to set up the Arch Linux ARM root: `install`, `bsdtar`, `tee`, `systemd-nspawn` and `arch-nspawn`; set it up as a user with a password prompt instead of allowing those. For an aurutils user, e.g. in `/etc/sudoers.d/aurutils` (`visudo -f`):
+
+```text
+aurutils ALL=(root) NOPASSWD: /usr/bin/install, /usr/bin/mkarchroot, \
+  /usr/bin/arch-nspawn, /usr/bin/pacsync, /usr/lib/aurutils/aur-build--sync
+aurutils ALL=(root) NOPASSWD:SETENV: /usr/bin/makechrootpkg
+```
+
+These are as good as root for that user: `install` writes any file, and the chroot tools take a configuration of the user's choosing. Keep the user's password and SSH key to itself, or narrow the arguments where they're fixed, e.g. `/usr/bin/install -d /var/lib/aur-packages-chroot/* -m 755 -v`.
+
 ### Update check in the tray
 
 `./aur-packages tray install` sets up a daily check of the packages of the checkout it's run from, and a tray icon that shows its result:
