@@ -58,7 +58,7 @@ The conventions below apply to every package. GitHub Actions runs `./aur-package
 
 ### Installing them with aurutils
 
-`./aur-packages build --add` adds the packages it built to the system's aurutils repository (the one `aur repo` picks), with their `-debug` packages and the AUR dependencies it built, once all of them have been built. It signs them and the database if the database is signed already or makepkg signs the packages it builds (`sign` in `BUILDENV` of its configuration), unless `--sign` or `--no-sign` says otherwise; a signed database needs signed packages. That includes the packages of `local/` and `overrides/`, which aren't on the AUR. Run it as the owner of the repository, e.g. from a clone in the home of the aurutils user. On a system that uses Arch Linux's testing repositories, it builds against them (`--testing`), as a package built against the stable ones can depend on a library soname that testing has replaced.
+`./aur-packages build --add` adds the packages it built to the system's aurutils repository (the one `aur repo` picks), with their `-debug` packages and the AUR dependencies it built, once all of them have been built. It signs them and the database if the database is signed already or makepkg signs the packages it builds (`sign` in `BUILDENV` of its configuration), unless `--sign` or `--no-sign` says otherwise; a signed database needs signed packages. That includes the packages of `local/` and `overrides/`, which aren't on the AUR. Run it as the owner of the repository, e.g. from a clone in the home of the aurutils user. On a system that uses Arch Linux's testing repositories, it builds against them (`--testing`), as a package built against the stable ones can depend on a library soname that testing has replaced. Like `aur build --chroot`, it leaves pacman's copy of the repository's database alone: `pacman -Syu` syncs it and installs the new packages.
 
 `./aur-packages sysupgrade [--sign|--no-sign] [-- AUR_SYNC_OPTION…]` replaces `aur sync -u`: it builds and adds our packages that are in the repository and have a newer version here, then runs `aur sync -u` with the options given (e.g. `-- -K`) for the rest, leaving all of ours out, which it would otherwise replace with the AUR's; both sign as `build --add` does.
 
@@ -66,7 +66,7 @@ The signatures use the key of `$GPGKEY` in the environment, else gpg's default k
 
 #### Commands run as root
 
-`build` and `sysupgrade` run these as root, with `sudo` or what `$AUR_PACMAN_AUTH` names (as aurutils does), so a user without a password prompt, like a dedicated aurutils user, needs sudoers rules for them:
+The builds of `build` and `sysupgrade` run these as root, through aurutils, with `sudo` or what `$AUR_PACMAN_AUTH` names, so a user without a password prompt, like a dedicated aurutils user, needs sudoers rules for them:
 
 | Command | Run by | For |
 | --- | --- | --- |
@@ -74,14 +74,13 @@ The signatures use the key of `$GPGKEY` in the environment, else gpg's default k
 | `/usr/bin/mkarchroot` | `aur chroot` | creating a chroot |
 | `/usr/bin/arch-nspawn` | `aur chroot` | updating a chroot before each build |
 | `/usr/bin/makechrootpkg` | `aur chroot` | the builds, with `--preserve-env` (`SRCDEST`, `PKGDEST`, `PACKAGER`, `GNUPGHOME`, …), which needs `SETENV` |
-| `/usr/bin/pacsync` | `build --add`, `sysupgrade` | syncing pacman's copy of the repository after adding to it |
 | `/usr/lib/aurutils/aur-build--sync` | `aur sync`, in `sysupgrade` | aurutils' own sync and install, only for builds without `--chroot` |
 
 `build --target` uses `sudo` itself, once, to set up the Arch Linux ARM root: `install`, `bsdtar`, `tee`, `systemd-nspawn` and `arch-nspawn`; set it up as a user with a password prompt instead of allowing those. For an aurutils user, e.g. in `/etc/sudoers.d/aurutils` (`visudo -f`):
 
 ```text
 aurutils ALL=(root) NOPASSWD: /usr/bin/install, /usr/bin/mkarchroot, \
-  /usr/bin/arch-nspawn, /usr/bin/pacsync, /usr/lib/aurutils/aur-build--sync
+  /usr/bin/arch-nspawn, /usr/lib/aurutils/aur-build--sync
 aurutils ALL=(root) NOPASSWD:SETENV: /usr/bin/makechrootpkg
 ```
 

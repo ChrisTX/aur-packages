@@ -1726,11 +1726,12 @@ system_repo_check() {
 }
 
 # Adds the package files given to the system's aurutils repository (system_repo), signed with --sign
-# ($1 true) like the database, then syncs pacman's copy of it
+# ($1 true) like the database. Not pacman's copy of it, as aur build --chroot doesn't: the next pacman -Syu
+# syncs it, without a sudo rule for pacsync.
 system_repo_add() {
   local signing=$1 file name
   # Not over a newer version, e.g. of an AUR dependency aur sync has updated there since
-  local -a added=() repoadd=(--wait-for-lock --prevent-downgrade) auth
+  local -a added=() repoadd=(--wait-for-lock --prevent-downgrade)
   shift
   system_repo_check "$signing" || return
   if [[ "$signing" == true ]]; then repoadd+=(--sign); fi
@@ -1746,11 +1747,7 @@ system_repo_add() {
     added+=("$sysrepo_root/$name")
   done
   (cd "$sysrepo_root" && LANG=C repo-add "${repoadd[@]}" -- "$sysrepo_db" "${added[@]}")
-  echo "Added ${#added[@]} files to $sysrepo_name ($sysrepo_root)" >&2
-  # pacman's copy of the database, as aurutils syncs it (AUR_PACMAN_AUTH, default sudo)
-  read -ra auth <<<"${AUR_PACMAN_AUTH:-sudo}"
-  "${auth[@]}" pacsync "$sysrepo_name"
-  "${auth[@]}" pacsync --dbext=.files "$sysrepo_name"
+  echo "Added ${#added[@]} files to $sysrepo_name ($sysrepo_root), pacman -Syu installs them" >&2
 }
 
 # Updates the system's aurutils repository like aur sync -u, but with our packages first: those of
@@ -1899,7 +1896,7 @@ cmd_build() {
     tools+=(aur:aurutils makechrootpkg:devtools arch-nspawn:devtools)
   fi
   if [[ "$add" == true ]]; then
-    tools+=(aur:aurutils repo-add:pacman pacsync:pacutils gpg:gnupg)
+    tools+=(aur:aurutils repo-add:pacman gpg:gnupg)
   fi
   if [[ -n "$target" ]]; then
     tools+=(curl:curl gpg:gnupg)
