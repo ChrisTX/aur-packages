@@ -1827,6 +1827,10 @@ cmd_build() {
   local -a roots=() order=() expand cmd preinstall=() files arches names chrootargs=() crossargs=() pkgargs
   local ver
   local -A built=()
+  # The private repository's files, the packages and the copies --add puts into the system's repository
+  # are read by pacman's DownloadUser (alpm) in the chroots, and by pacman, whatever the umask of the
+  # user building (027 for a dedicated aurutils user, say)
+  umask 022
   while (($#)); do
     case "$1" in
       --chroot) method=chroot ;;
