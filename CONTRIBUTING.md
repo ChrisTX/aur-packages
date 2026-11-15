@@ -66,25 +66,18 @@ The signatures use the key of `$GPGKEY` in the environment, else gpg's default k
 
 #### Commands run as root
 
-The builds of `build` and `sysupgrade` run these as root, through aurutils, with `sudo` or what `$AUR_PACMAN_AUTH` names, so a user without a password prompt, like a dedicated aurutils user, needs sudoers rules for them:
+The builds of `build` and `sysupgrade` go through aurutils, which runs its chroot tools as root with `sudo`, or what `$AUR_PACMAN_AUTH` names. A user without a password prompt, like a dedicated aurutils user, needs the sudoers rules of aurutils' manual pages, which change with its releases, so they aren't repeated here:
 
-| Command | Run by | For |
-| --- | --- | --- |
-| `/usr/bin/install` | `aur chroot` | creating a chroot's folder in `/var/lib/aur-packages-chroot` (`$AUR_BUILD_CHROOT`) |
-| `/usr/bin/mkarchroot` | `aur chroot` | creating a chroot |
-| `/usr/bin/arch-nspawn` | `aur chroot` | updating a chroot before each build |
-| `/usr/bin/makechrootpkg` | `aur chroot` | the builds, with `--preserve-env` (`SRCDEST`, `PKGDEST`, `PACKAGER`, `GNUPGHOME`, …), which needs `SETENV` |
-| `/usr/lib/aurutils/aur-build--sync` | `aur sync`, in `sysupgrade` | aurutils' own sync and install, only for builds without `--chroot` |
+- aur-chroot(1), *Avoiding password prompts*: `makechrootpkg` (with `SETENV`), `mkarchroot` and `arch-nspawn`, for all builds here
+- aur-build(1), *Using a dedicated build user*: `aur-build--sync`, only for what the `aur sync` of `sysupgrade` builds without `--chroot`
 
-`build --target` uses `sudo` itself, once, to set up the Arch Linux ARM root: `install`, `bsdtar`, `tee`, `systemd-nspawn` and `arch-nspawn`; set it up as a user with a password prompt instead of allowing those. For an aurutils user, e.g. in `/etc/sudoers.d/aurutils` (`visudo -f`):
+Our builds use chroots of their own, in `/var/lib/aur-packages-chroot` (`$AUR_BUILD_CHROOT`) rather than aurutils' `/var/lib/aurbuild`: `x86_64` and `multilib-x86_64`, with `--testing` (which `--add` uses on a system with the testing repositories) `x86_64-testing` and `multilib-x86_64-testing`. The first build of each creates it with `mkarchroot`, but aur chroot creates a missing folder for it with `install -d` as root beforehand, which those rules don't cover; create the folders once instead:
 
-```text
-aurutils ALL=(root) NOPASSWD: /usr/bin/install, /usr/bin/mkarchroot, \
-  /usr/bin/arch-nspawn, /usr/lib/aurutils/aur-build--sync
-aurutils ALL=(root) NOPASSWD:SETENV: /usr/bin/makechrootpkg
+```bash
+sudo install -d -m 755 /var/lib/aur-packages-chroot/{x86_64,multilib-x86_64}{,-testing}
 ```
 
-These are as good as root for that user: `install` writes any file, and the chroot tools take a configuration of the user's choosing. Keep the user's password and SSH key to itself, or narrow the arguments where they're fixed, e.g. `/usr/bin/install -d /var/lib/aur-packages-chroot/* -m 755 -v`.
+`build --target` also uses `x86_64-cross-aarch64`, and sets up the Arch Linux ARM root in `aarch64` with `sudo` itself (`install`, `bsdtar`, `tee`, `systemd-nspawn`, `arch-nspawn`), once: run it the first time as a user with a password prompt rather than allowing those.
 
 ### Update check in the tray
 
