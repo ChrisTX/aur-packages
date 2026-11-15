@@ -21,3 +21,13 @@ path = [
 ]
 SPDX-FileCopyrightText = "Arch Linux contributors"
 SPDX-License-Identifier = "0BSD"
+
+[[annotations]]
+path = ".gitignore"
+SPDX-FileCopyrightText = "Arch Linux contributors"
+SPDX-License-Identifier = "0BSD"
+
+[[annotations]]
+path = "dracut-systemd-pcrextend-socket.patch"
+SPDX-FileCopyrightText = "dracut contributors"
+SPDX-License-Identifier = "GPL-2.0-or-later"
