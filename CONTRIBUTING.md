@@ -14,7 +14,7 @@ sudo pacman -S --needed base-devel devtools pacman-contrib namcap nvchecker jq \
   editorconfig-checker reuse
 ```
 
-`./aur-packages build` also needs aurutils, and the aarch64 builds `qemu-user-static-binfmt`; publishing to the AUR (`./aur-packages pull` and `push`) needs aurpublish. Then install the git hooks, which run the checks on the staged files before each commit and check the commit message; `setup` checks first that the tools of the checks are installed:
+`./aur-packages build` also needs aurutils, and the aarch64 builds `qemu-user-static-binfmt`; publishing to the AUR (`./aur-packages pull` and `push`) needs aurpublish. Each command checks first that the tools it needs are installed, and names their packages otherwise. Then install the git hooks, which run the checks on the staged files before each commit and check the commit message; `setup` checks first that the tools of the checks are installed:
 
 ```bash
 ./aur-packages setup

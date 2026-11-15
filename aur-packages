@@ -51,6 +51,11 @@ else
   hook_runner=pre-commit
   refresh=()
 fi
+# The runner for require: prek, unless pre-commit is installed
+hook_runner_tool=prek:prek
+if [[ "$hook_runner" == pre-commit ]] && command -v pre-commit >/dev/null; then
+  hook_runner_tool=pre-commit:pre-commit
+fi
 
 # Names the build graph resolves to another package than the one of that name, set by build's
 # --dotnet-bin and --libs-bin to pick the -bin variant of a selector package
@@ -231,6 +236,7 @@ select_packages() {
 cmd_pull() {
   local package
   local -a selected
+  require pull aurpublish:aurpublish
   select_packages --aur "$@"
   for package in "${selected[@]}"; do
     aurpublish --pull "$package"
@@ -287,6 +293,8 @@ cmd_push() {
     fi
     exclude[$package]=1
   done
+  require push aurpublish:aurpublish
+  if [[ "$nocheck" == false ]]; then require "push (the checks)" "$hook_runner_tool"; fi
   select_packages --aur "$@"
   for package in "${selected[@]}"; do
     if [[ -n "${exclude[$package]-}" ]]; then
@@ -554,6 +562,7 @@ select_checked_packages() {
 
 cmd_updates() {
   local -a checked
+  require updates pkgctl:devtools nvchecker:nvchecker jq:jq
   if [[ "${1-}" == --state ]]; then
     shift
     if [[ "${1-}" == --retry ]]; then
@@ -759,6 +768,7 @@ updates_forget_pushed() {
 cmd_upgrade() {
   local package pin name cur new
   local -a checked changed=() pins unresolved=()
+  require upgrade pkgctl:devtools nvchecker:nvchecker updpkgsums:pacman-contrib shfmt:shfmt curl:curl jq:jq
   select_checked_packages "$@"
   ((${#checked[@]})) || return 0
   pkgctl version upgrade "${checked[@]}"
@@ -819,6 +829,7 @@ run_package_hooks() {
 cmd_check() {
   local manual=false package status=0
   local -a selected files=() projects=() stage_args=()
+  require check "$hook_runner_tool"
   if [[ "${1-}" == --manual ]]; then
     manual=true
     shift
@@ -890,23 +901,35 @@ hook_tools=(makepkg:pacman jq:jq shfmt:shfmt shellcheck:shellcheck shellharden:s
   biome:biome tombi:tombi rumdl:rumdl typos:typos systemd-lsp:systemd-lsp
   editorconfig-checker:editorconfig-checker reuse:reuse mago:mago pwsh:powershell)
 
-# Fails, saying what to install, unless the hook runner and the commands of the hooks are there, and
-# PSScriptAnalyzer (powershell-editor-services)
-check_hook_tools() {
-  local tool
+# Fails, naming the packages to install, unless the commands given as command:package are installed,
+# before a command does anything; $1 says what needs them
+require() {
+  local what=$1 tool
   local -a missing=()
-  if ! command -v "$hook_runner" >/dev/null; then missing+=(prek); fi
-  for tool in "${hook_tools[@]}"; do
-    if ! command -v "${tool%%:*}" >/dev/null; then missing+=("${tool#*:}"); fi
+  local -A seen=()
+  shift
+  for tool; do
+    [[ -z "${seen[$tool]-}" ]] || continue
+    seen[$tool]=1
+    if ! command -v "${tool%%:*}" >/dev/null; then missing+=("${tool%%:*} (${tool#*:})"); fi
   done
-  if command -v pwsh >/dev/null &&
-    ! pwsh -NoProfile -NonInteractive -Command 'if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { exit 1 }'; then
-    missing+=(powershell-editor-services)
-  fi
   ((${#missing[@]})) || return 0
-  echo "The hooks need packages that aren't installed: ${missing[*]}" >&2
-  echo "Install them (mago, powershell and powershell-editor-services from the AUR), see CONTRIBUTING.md" >&2
+  echo "$what: these commands aren't installed: $(
+    IFS=,
+    printf '%s' "${missing[*]}" | sed 's/,/, /g'
+  )" >&2
   return 1
+}
+
+# Fails, saying what to install, unless the hook runner and the commands of the hooks are there, and
+# PSScriptAnalyzer (powershell-editor-services); mago, powershell and powershell-editor-services are
+# in the AUR
+check_hook_tools() {
+  require "setup (the hooks)" "$hook_runner_tool" "${hook_tools[@]}"
+  if ! pwsh -NoProfile -NonInteractive -Command 'if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { exit 1 }'; then
+    echo "setup (the hooks): PSScriptAnalyzer isn't installed (powershell-editor-services)" >&2
+    return 1
+  fi
 }
 
 cmd_setup() {
@@ -1754,6 +1777,7 @@ cmd_sysupgrade() {
     esac
     shift
   done
+  require sysupgrade aur:aurutils
   system_repo
   signing=$(system_repo_signing "$signing")
   while IFS=$'\t' read -r name version; do
@@ -1862,6 +1886,25 @@ cmd_build() {
   if [[ "$method" == local && ("$dotnetbin" == true || "$libsbin" == true || "$testing" == true || -n "$target" ||
     -n "$reuse") ]]; then
     echo "--dotnet-bin, --libs-bin, --testing, --target and --repo need a chroot build, a local one uses what's installed" >&2
+    return 1
+  fi
+  # What the build needs, before it changes anything (--target sets up the Arch Linux ARM root first),
+  # even for --dry-run, so the plan it prints can run
+  local -a tools=(makepkg:pacman)
+  if [[ "$method" == chroot ]]; then
+    tools+=(aur:aurutils makechrootpkg:devtools arch-nspawn:devtools)
+  fi
+  if [[ "$add" == true ]]; then
+    tools+=(aur:aurutils repo-add:pacman pacsync:pacutils gpg:gnupg)
+  fi
+  if [[ -n "$target" ]]; then
+    tools+=(curl:curl gpg:gnupg)
+  fi
+  require build "${tools[@]}"
+  # Programs for aarch64 run in the Arch Linux ARM root under QEMU, registered with binfmt_misc
+  if [[ -n "$target" && ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]]; then
+    echo "--target needs QEMU for aarch64 programs: qemu-user-static-binfmt, then" \
+      "systemctl restart systemd-binfmt" >&2
     return 1
   fi
   if [[ -n "$sanitise" ]]; then
@@ -2300,6 +2343,7 @@ update_checksums() {
 cmd_commits() {
   local update=false pkg pin name cur new changed ok
   local -a selected pins
+  require commits curl:curl jq:jq
   if [[ "${1-}" == --update ]]; then
     update=true
     shift
