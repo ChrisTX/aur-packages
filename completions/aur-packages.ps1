@@ -14,6 +14,7 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'check'      = 'Run the checks of .pre-commit-config.yaml'
         'commits'    = 'Show the upstream commits of the pinned _commit values'
         'build'      = 'Build packages or a template with their dependencies'
+        'sysupgrade' = 'aur sync -u with our packages first'
         'sync'       = 'Copy templates/package into the packages'
         'setup'      = 'Install the git hooks'
         'tray'       = 'Install or remove the daily update check and its tray icon'
@@ -34,7 +35,8 @@ Register-ArgumentCompleter -Native -CommandName 'aur-packages', './aur-packages'
         'sync'    = @('--check')
         'list'    = @('--templates', '--local')
         'publish' = @('--section', '--adopt')
-        'build'   = @('--chroot', '--local', '--install', '--dry-run', '-n', '--keep', '--dotnet-bin', '--libs-bin', '--testing',
+        'sysupgrade' = @('--sign')
+        'build'   = @('--chroot', '--local', '--install', '--dry-run', '-n', '--keep', '--add', '--sign', '--dotnet-bin', '--libs-bin', '--testing',
             '--sanitize', '--target', '--repo')
     }
     $withPackages = @('pull', 'push', 'adopt', 'updates', 'upgrade', 'check', 'commits', 'build', 'sync', 'quoting', 'maintainers')

@@ -36,6 +36,7 @@ _aur-packages() {
     'check:run the checks of .pre-commit-config.yaml'
     'commits:show the upstream commits of the pinned _commit values'
     'build:build packages or a template with their dependencies'
+    'sysupgrade:aur sync -u with our packages first'
     'sync:copy templates/package into the packages'
     'setup:install the git hooks'
     'tray:install or remove the daily update check and its tray icon'
@@ -85,6 +86,9 @@ _aur-packages() {
         sync)
           _arguments '--check[only report differences]' '*:package:_aur-packages_packages' && ret=0
           ;;
+        sysupgrade)
+          _arguments '--sign[sign the packages added]' '*::aur sync option:' && ret=0
+          ;;
         build)
           _arguments \
             '(--local)--chroot[build in a clean chroot (default)]' \
@@ -92,6 +96,8 @@ _aur-packages() {
             '--install[install each result of a local build]' \
             '(-n --dry-run)'{-n,--dry-run}'[print the plan]' \
             '--keep[keep the chroot repo]' \
+            "--add[add the packages to the system's aurutils repository]" \
+            '--sign[sign the packages --add adds]' \
             "--dotnet-bin[build with Microsoft's .NET]" \
             '--libs-bin[build with the libraries from nuget.org]' \
             "--testing[build against Arch Linux's testing repositories]" \

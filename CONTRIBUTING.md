@@ -20,7 +20,7 @@ sudo pacman -S --needed base-devel devtools pacman-contrib namcap nvchecker jq \
 ./aur-packages setup
 ```
 
-`./aur-packages` manages all packages, or the packages given: `pull` and `push` (aurpublish; `push` leaves out the packages without commits since their last push, which it records in `refs/aur-packages/pushed/`, `--force` pushes them anyway, and `--exclude` leaves packages out), `adopt` (merges the AUR's history of a package that was on the AUR before, deleted or taken over, so it can be pushed), `publish` (moves a package of `local/` to the top level, with its history, see [below](#packages-outside-the-aur)), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `build` (clean-chroot builds of packages and their dependencies from this repository, with aurutils), `sync` (copies `templates/package` into the packages), `setup` (installs the git hooks), `tray` (a daily update check with a tray icon, see [below](#update-check-in-the-tray)) and `list` (the packages). See `./aur-packages help`.
+`./aur-packages` manages all packages, or the packages given: `pull` and `push` (aurpublish; `push` leaves out the packages without commits since their last push, which it records in `refs/aur-packages/pushed/`, `--force` pushes them anyway, and `--exclude` leaves packages out), `adopt` (merges the AUR's history of a package that was on the AUR before, deleted or taken over, so it can be pushed), `publish` (moves a package of `local/` to the top level, with its history, see [below](#packages-outside-the-aur)), `updates` and `upgrade` (`pkgctl version check` and `upgrade` with each `.nvchecker.toml`), `check` (the hooks of `.pre-commit-config.yaml`), `build` (clean-chroot builds of packages and their dependencies from this repository, with aurutils), `sysupgrade` (`aur sync -u` with our packages first, see [below](#installing-them-with-aurutils)), `sync` (copies `templates/package` into the packages), `setup` (installs the git hooks), `tray` (a daily update check with a tray icon, see [below](#update-check-in-the-tray)) and `list` (the packages). See `./aur-packages help`.
 
 ### `aur-packages` in your shell
 
@@ -55,6 +55,14 @@ A typical change:
 4. Commit each package on its own, with a message as described in [Commits](#commits-and-aurpublish).
 
 The conventions below apply to every package. GitHub Actions runs `./aur-packages check` on every push and pull request.
+
+### Installing them with aurutils
+
+`./aur-packages build --add` adds the packages it built to the system's aurutils repository (the one `aur repo` picks), with their `-debug` packages and the AUR dependencies it built, once all of them have been built; `--sign` signs them and the database, which a signed database needs. That includes the packages of `local/` and `overrides/`, which aren't on the AUR. Run it as the owner of the repository, e.g. from a clone in the home of the aurutils user. On a system that uses Arch Linux's testing repositories, it builds against them (`--testing`), as a package built against the stable ones can depend on a library soname that testing has replaced.
+
+`./aur-packages sysupgrade [--sign] [-- AUR_SYNC_OPTION…]` replaces `aur sync -u`: it builds and adds our packages that are in the repository and have a newer version here, then runs `aur sync -u` with the options given (e.g. `-- -K`) for the rest, leaving all of ours out, which it would otherwise replace with the AUR's.
+
+The signatures use the key of `$GPGKEY` in the environment, else gpg's default key, as `aur build --sign` and `repo-add --sign` do; neither reads the `GPGKEY` of makepkg.conf. A user that signs the repository with a key of its own sets it as `default-key` in its `~/.gnupg/gpg.conf`, which works without a login shell as well, and keeps `GPGKEY` out of `/etc/makepkg.conf`, where it would be every user's (makepkg reads `~/.config/pacman/makepkg.conf` per user).
 
 ### Update check in the tray
 

@@ -14,7 +14,7 @@ _aur_packages_complete() {
     fi
   done
   if [[ -z "$command" ]]; then
-    mapfile -t COMPREPLY < <(compgen -W 'pull push adopt publish updates upgrade check commits build sync setup
+    mapfile -t COMPREPLY < <(compgen -W 'pull push adopt publish updates upgrade check commits build sysupgrade sync setup
       tray commit-msg prepare-commit-msg quoting maintainers list completion help' -- "$cur")
     return
   fi
@@ -37,6 +37,7 @@ _aur_packages_complete() {
       options='--nocheck --force --exclude' packages=true
       ;;
     check) options=--manual packages=true ;;
+    sysupgrade) options=--sign ;;
     maintainers) options=--aur packages=true ;;
     commits) options=--update packages=true ;;
     sync) options=--check packages=true ;;
@@ -56,7 +57,7 @@ _aur_packages_complete() {
           return
           ;;
       esac
-      options='--chroot --local --install --dry-run -n --keep --dotnet-bin --libs-bin --testing --sanitize --target --repo'
+      options='--chroot --local --install --dry-run -n --keep --add --sign --dotnet-bin --libs-bin --testing --sanitize --target --repo'
       packages=true templates=true
       ;;
     list) options='--templates --local' ;;

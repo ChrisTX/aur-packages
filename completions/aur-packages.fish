@@ -9,7 +9,7 @@ function __aur_packages_list
     $program list $argv 2>/dev/null
 end
 
-set -l commands pull push adopt publish updates upgrade check commits build sync setup tray commit-msg prepare-commit-msg quoting maintainers list completion help
+set -l commands pull push adopt publish updates upgrade check commits build sysupgrade sync setup tray commit-msg prepare-commit-msg quoting maintainers list completion help
 set -l none "not __fish_seen_subcommand_from $commands"
 
 complete -c aur-packages -f
@@ -22,6 +22,7 @@ complete -c aur-packages -n $none -a upgrade -d 'Upgrade the packages to their l
 complete -c aur-packages -n $none -a check -d 'Run the checks of .pre-commit-config.yaml'
 complete -c aur-packages -n $none -a commits -d 'Show the upstream commits of the pinned _commit values'
 complete -c aur-packages -n $none -a build -d 'Build packages or a template with their dependencies'
+complete -c aur-packages -n $none -a sysupgrade -d 'aur sync -u with our packages first'
 complete -c aur-packages -n $none -a sync -d 'Copy templates/package into the packages'
 complete -c aur-packages -n $none -a setup -d 'Install the git hooks'
 complete -c aur-packages -n $none -a tray -d 'Install or remove the daily update check and its tray icon'
@@ -58,6 +59,9 @@ complete -c aur-packages -n $build -l local -d 'Build with makepkg -fCd'
 complete -c aur-packages -n $build -l install -d 'Install each result of a local build'
 complete -c aur-packages -n $build -s n -l dry-run -d 'Print the plan'
 complete -c aur-packages -n $build -l keep -d 'Keep the chroot repo'
+complete -c aur-packages -n $build -l add -d "Add the packages to the system's aurutils repository"
+complete -c aur-packages -n $build -l sign -d 'Sign the packages --add adds'
+complete -c aur-packages -n '__fish_seen_subcommand_from sysupgrade' -l sign -d 'Sign the packages added'
 complete -c aur-packages -n $build -l dotnet-bin -d "Build with Microsoft's .NET"
 complete -c aur-packages -n $build -l libs-bin -d 'Build with the libraries from nuget.org'
 complete -c aur-packages -n $build -l testing -d "Build against Arch Linux's testing repositories"

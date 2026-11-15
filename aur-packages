@@ -125,7 +125,15 @@ else the one the symlink points into.
             --testing builds against Arch Linux's testing repositories (devtools' extra-testing and
             multilib-testing), in chroots of their own, for a system that uses them.
             The chroots are in /var/lib/aur-packages-chroot ($AUR_BUILD_CHROOT), next to the
-            Arch Linux ARM root (aarch64), not in aurutils' /var/lib/aurbuild
+            Arch Linux ARM root (aarch64), not in aurutils' /var/lib/aurbuild.
+            --add adds the packages, their -debug packages and the AUR dependencies built to the
+            system's aurutils repository (aur repo) once all have been built, signed with --sign
+            ($GPGKEY, else gpg's default key, as aur build), and against the testing repositories
+            if the system uses them; run it as the repository's owner, e.g. the aurutils user
+  sysupgrade [--sign] [-- AUR_SYNC_OPTION...]
+            aur sync -u with our packages first: the packages of the top level, local/ and
+            overrides/ in the aurutils repository with a newer version here are built and added
+            (build --add), then aur sync -u updates the rest, leaving all of ours out
   sync      Copy templates/package into the packages and write the configuration at the top level,
             or with --check only report differences
   setup     Install the git hooks that run the checks before each commit, replacing aurpublish's,
@@ -709,8 +717,15 @@ updates_state() {
 # Prints the full version ([epoch:]pkgver-pkgrel) of a .SRCINFO in git, given as git show takes it
 # (":package/.SRCINFO" for the staged one, "HEAD:package/.SRCINFO")
 srcinfo_version() {
-  local srcinfo epoch pkgver pkgrel
+  local srcinfo
   srcinfo=$(git show "$1" 2>/dev/null) || return
+  srcinfo_text_version <<<"$srcinfo"
+}
+
+# Prints the full version of the .SRCINFO on stdin, e.g. a package's file in the working tree
+srcinfo_text_version() {
+  local srcinfo epoch pkgver pkgrel
+  srcinfo=$(cat)
   epoch=$(sed -n -E 's/^\tepoch = //p' <<<"$srcinfo")
   pkgver=$(sed -n -E 's/^\tpkgver = //p' <<<"$srcinfo")
   pkgrel=$(sed -n -E 's/^\tpkgrel = //p' <<<"$srcinfo")
@@ -1587,9 +1602,131 @@ sanitise_makepkg_conf() {
   printf 'export UBSAN_OPTIONS=print_stacktrace=1\n'
 }
 
+# Sets $sysrepo_name, $sysrepo_root and $sysrepo_db to the system's aurutils repository, the one
+# aur repo picks: $AUR_REPO, else the only file:// repository of pacman.conf
+system_repo() {
+  local status
+  status=$(aur repo --status) || return
+  sysrepo_name=$(sed -n 's/^repo://p' <<<"$status")
+  sysrepo_root=$(sed -n 's/^root://p' <<<"$status")
+  sysrepo_db=$(sed -n 's/^path://p' <<<"$status")
+}
+
+# Succeeds if pacman.conf enables Arch Linux's testing repositories
+system_uses_testing() {
+  pacman-conf --repo-list | grep -q -x -E '(core|extra|multilib)-testing'
+}
+
+# Signs the file $1 with a detached signature ($1.sig), as aur build --sign does: with the key of
+# $GPGKEY in the environment, else gpg's default key (default-key in gpg.conf). Not makepkg.conf's
+# GPGKEY, which neither aur build nor repo-add read.
+sign_package() {
+  local -a key=()
+  [[ -z "${GPGKEY:-}" ]] || key=(-u "$GPGKEY")
+  gpg --detach-sign --no-armor --batch --yes "${key[@]}" --output "$1.sig" -- "$1"
+}
+
+# Fails unless packages can be added to the system's aurutils repository (system_repo), signed or not
+# ($1 true or false): its owner can write to it, and a signed database needs signed packages, as with
+# aur build. Before the builds, so they aren't for nothing.
+system_repo_check() {
+  system_repo || return
+  if [[ ! -w "$sysrepo_root" ]]; then
+    echo "Can't write to $sysrepo_root (the repository $sysrepo_name): run as its owner," \
+      "$(stat -c %U "$sysrepo_root")" >&2
+    return 1
+  fi
+  if [[ "$1" == false && -f "$sysrepo_root/$sysrepo_name.db.sig" ]]; then
+    echo "The database of $sysrepo_name is signed, add the packages with --sign" >&2
+    return 1
+  fi
+}
+
+# Adds the package files given to the system's aurutils repository (system_repo), signed with --sign
+# ($1 true) like the database, then syncs pacman's copy of it
+system_repo_add() {
+  local signing=$1 file name
+  # Not over a newer version, e.g. of an AUR dependency aur sync has updated there since
+  local -a added=() repoadd=(--wait-for-lock --prevent-downgrade) auth
+  shift
+  system_repo_check "$signing" || return
+  if [[ "$signing" == true ]]; then repoadd+=(--sign); fi
+  for file; do
+    name=${file##*/}
+    cp -f -- "$file" "$sysrepo_root/$name"
+    if [[ "$signing" == true ]]; then
+      sign_package "$sysrepo_root/$name"
+    else
+      # One of an earlier build of the same file wouldn't match it
+      rm -f -- "$sysrepo_root/$name.sig"
+    fi
+    added+=("$sysrepo_root/$name")
+  done
+  (cd "$sysrepo_root" && LANG=C repo-add "${repoadd[@]}" -- "$sysrepo_db" "${added[@]}")
+  echo "Added ${#added[@]} files to $sysrepo_name ($sysrepo_root)" >&2
+  # pacman's copy of the database, as aurutils syncs it (AUR_PACMAN_AUTH, default sudo)
+  read -ra auth <<<"${AUR_PACMAN_AUTH:-sudo}"
+  "${auth[@]}" pacsync "$sysrepo_name"
+  "${auth[@]}" pacsync --dbext=.files "$sysrepo_name"
+}
+
+# Updates the system's aurutils repository like aur sync -u, but with our packages first: those of
+# the top level, local/ and overrides/ that are in the repository and have a newer version here are
+# built with their dependencies and added (build --add), then aur sync -u updates the rest, leaving out
+# all our packages, which it would replace with the AUR's
+cmd_sysupgrade() {
+  local signing=false dir name version
+  local -a selected=() names=() ignore=() buildargs=() syncargs=()
+  local -A repover=()
+  while (($#)); do
+    case "$1" in
+      --sign | -S) signing=true ;;
+      --)
+        shift
+        break
+        ;;
+      *)
+        echo "Unknown option: $1 (options of aur sync go after --)" >&2
+        return 1
+        ;;
+    esac
+    shift
+  done
+  system_repo
+  while IFS=$'\t' read -r name version; do
+    repover[$name]=$version
+  done < <(aur repo --database "$sysrepo_name" --list)
+  while IFS= read -r dir; do
+    mapfile -t names < <(build_pkgnames "$dir")
+    ignore+=("${names[@]}")
+    version=$(srcinfo_text_version <"$dir/.SRCINFO")
+    for name in "${names[@]}"; do
+      if [[ -n "${repover[$name]-}" ]] && (($(vercmp "$version" "${repover[$name]}") > 0)); then
+        echo "$dir: ${repover[$name]} -> $version" >&2
+        selected+=("$dir")
+        break
+      fi
+    done
+  done < <(package_dirs)
+  if [[ "$signing" == true ]]; then
+    buildargs+=(--sign)
+    syncargs+=(--sign)
+  fi
+  if ((${#selected[@]})); then
+    # In a subshell, as its traps outlive it
+    (cmd_build --add "${buildargs[@]}" -- "${selected[@]}")
+  else
+    echo "Our packages in $sysrepo_name are up to date" >&2
+  fi
+  aur sync --database "$sysrepo_name" --upgrades --ignore "$(
+    IFS=,
+    printf '%s' "${ignore[*]}"
+  )" "${syncargs[@]}" "$@"
+}
+
 cmd_build() {
   local method=chroot install=false dryrun=false keep=false dotnetbin=false libsbin=false testing=false
-  local target='' native=false cross=false reuse='' sanitise='' sanitiser
+  local target='' native=false cross=false reuse='' sanitise='' sanitiser add=false signing=false
   local arg pkg name file dir repo='' conf='' reponame=aur-build
   local makepkgconf=/usr/share/devtools/makepkg.conf.d/x86_64.conf
   local crossrepo='' crossconf='' crossmakepkg='' crossname=aur-build-aarch64
@@ -1608,6 +1745,8 @@ cmd_build() {
       --install) install=true ;;
       --dry-run | -n) dryrun=true ;;
       --keep) keep=true ;;
+      --add) add=true ;;
+      --sign) signing=true ;;
       --dotnet-bin) dotnetbin=true ;;
       --libs-bin) libsbin=true ;;
       --testing) testing=true ;;
@@ -1639,7 +1778,8 @@ cmd_build() {
     shift
   done
   if (($# == 0)); then
-    echo "Usage: aur-packages build [--chroot|--local] [--install] [--dry-run] [--keep] [--repo DIR] [--dotnet-bin]" \
+    echo "Usage: aur-packages build [--chroot|--local] [--install] [--dry-run] [--keep] [--add [--sign]] [--repo DIR]" \
+      "[--dotnet-bin]" \
       "[--libs-bin] [--testing] [--sanitize undefined|address|address,undefined] [--target aarch64|aarch64-native]" \
       "<template|package>..." >&2
     return 1
@@ -1673,6 +1813,28 @@ cmd_build() {
     fi
     # The test builds are no use without their packages
     keep=true
+  fi
+  # Into the system's aurutils repository: x86_64 packages, built against the repositories the system
+  # uses, as a package built against stable can depend on a library soname testing has replaced
+  if [[ "$signing" == true && "$add" == false ]]; then
+    echo "--sign signs the packages --add adds" >&2
+    return 1
+  fi
+  if [[ "$add" == true ]]; then
+    if [[ "$method" == local || -n "$sanitise" || -n "$target" ]]; then
+      echo "--add needs a chroot build for x86_64, without --sanitize (test builds aren't to be installed)" >&2
+      return 1
+    fi
+    if [[ "$dryrun" == false ]]; then system_repo_check "$signing"; fi
+    if system_uses_testing; then
+      if [[ "$testing" == false ]]; then
+        echo "The system uses the testing repositories, building against them (--testing)" >&2
+        testing=true
+      fi
+    elif [[ "$testing" == true ]]; then
+      echo "--testing builds against the testing repositories, which the system doesn't use" >&2
+      return 1
+    fi
   fi
   if [[ "$testing" == true && -n "$target" ]]; then
     echo "--testing is for Arch Linux's testing repositories, Arch Linux ARM has none" >&2
@@ -1949,6 +2111,15 @@ cmd_build() {
     fi
   done
 
+  if [[ "$add" == true ]]; then
+    if [[ "$dryrun" == true ]]; then
+      echo "# then add $repo/*.pkg.tar.zst to the system's aurutils repository$([[ "$signing" == false ]] || echo ", signed")" >&2
+    else
+      # Only once all have been built, so a failed build leaves the repository as it was
+      system_repo_add "$signing" "$repo"/*.pkg.tar.zst
+    fi
+  fi
+
   if [[ "$method" == chroot && "$keep" == true && "$dryrun" == false ]]; then
     echo "Repository kept at $repo" >&2
     if [[ -n "$sanitise" ]]; then
@@ -2167,7 +2338,7 @@ cmd_completion() {
 command=${1-help}
 (($#)) && shift
 case "$command" in
-  pull | push | adopt | publish | updates | upgrade | check | sync | setup | tray | build | commits | overrides | list | completion)
+  pull | push | adopt | publish | updates | upgrade | check | sync | setup | tray | build | sysupgrade | commits | overrides | list | completion)
     "cmd_$command" "$@"
     ;;
   commit-msg)
