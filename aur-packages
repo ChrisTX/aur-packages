@@ -881,8 +881,36 @@ cmd_sync() {
   return "$status"
 }
 
+# The commands the hooks of .pre-commit-config.yaml run (not the ones of check --manual), as
+# command:package, the packages of CONTRIBUTING.md's pacman line; mago, and pwsh (powershell) for
+# PSScriptAnalyzer, are in the AUR
+hook_tools=(makepkg:pacman jq:jq shfmt:shfmt shellcheck:shellcheck shellharden:shellharden ruff:ruff
+  biome:biome tombi:tombi rumdl:rumdl typos:typos systemd-lsp:systemd-lsp
+  editorconfig-checker:editorconfig-checker reuse:reuse mago:mago pwsh:powershell)
+
+# Fails, saying what to install, unless the hook runner and the commands of the hooks are there, and
+# PSScriptAnalyzer (powershell-editor-services)
+check_hook_tools() {
+  local tool
+  local -a missing=()
+  if ! command -v "$hook_runner" >/dev/null; then missing+=(prek); fi
+  for tool in "${hook_tools[@]}"; do
+    if ! command -v "${tool%%:*}" >/dev/null; then missing+=("${tool#*:}"); fi
+  done
+  if command -v pwsh >/dev/null &&
+    ! pwsh -NoProfile -NonInteractive -Command 'if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { exit 1 }'; then
+    missing+=(powershell-editor-services)
+  fi
+  ((${#missing[@]})) || return 0
+  echo "The hooks need packages that aren't installed: ${missing[*]}" >&2
+  echo "Install them (mago, powershell and powershell-editor-services from the AUR), see CONTRIBUTING.md" >&2
+  return 1
+}
+
 cmd_setup() {
   local hooks hook
+  # Before changing any hook, so a missing tool doesn't leave them half installed
+  check_hook_tools
   hooks=$(git rev-parse --path-format=absolute --git-common-dir)/hooks
   # aurpublish's hooks regenerate .SRCINFO, downloading the sources, and rewrite the commit message.
   # The srcinfo hook checks it instead.
