@@ -1223,34 +1223,49 @@ def upgrades(
     return selected, ignore
 
 
-def losing(
+def misplaced(
     checkout: Checkout,
     arch: Callable[[str], tuple[str, str] | None] = overrides.arch_version,
     aur: Callable[[list[str]], dict[str, dict[str, Any]]] = maintainers.aur_info,
 ) -> list[str]:
-    """Our packages that wouldn't win over the package they're there to replace: an override not newer
-    than Arch Linux's package (the version pacman would install), a package of local/ not newer than
-    the AUR's of the same name. Each needs a newer version, or should go."""
+    """Our packages of overrides/ and local/ that wouldn't do what they're there for.
+
+    An override replaces Arch Linux's package (the version pacman would install), so it has to be
+    newer, and belongs in local/ once Arch has dropped the package. A package of local/ replaces the
+    AUR's of the same name, if there is one, so it has to be newer than that; it belongs in overrides/
+    once Arch Linux has the package. Each note says what to do.
+    """
     found = []
-    folders = [f for f in checkout.package_dirs() if f.startswith(OUTSIDE_AUR_PREFIXES)]
-    for folder in (f for f in folders if f.startswith("overrides/")):
-        srcinfo = Srcinfo.load(checkout.root / folder)
-        theirs = arch(srcinfo.pkgbase)
-        if theirs and not newer(srcinfo.version(), theirs[0]):
-            found.append(
-                f"{folder} {srcinfo.version()} doesn't replace Arch Linux's {theirs[0]} ({theirs[1]}): "
-                "give it a newer version, or remove it (overrides remove)"
-            )
-    local = {f: Srcinfo.load(checkout.root / f) for f in folders if f.startswith("local/")}
-    if local:
-        on_aur = aur([name for srcinfo in local.values() for name in srcinfo.pkgnames()])
-        for folder, srcinfo in local.items():
-            package = on_aur.get(srcinfo.pkgbase)
-            if package and not newer(srcinfo.version(), str(package["Version"])):
+    folders = {
+        f: Srcinfo.load(checkout.root / f)
+        for f in checkout.package_dirs()
+        if f.startswith(OUTSIDE_AUR_PREFIXES)
+    }
+    on_aur = aur([name for srcinfo in folders.values() for name in srcinfo.pkgnames()]) if folders else {}
+    for folder, srcinfo in folders.items():
+        ours, theirs = srcinfo.version(), arch(srcinfo.pkgbase)
+        in_aur = on_aur.get(srcinfo.pkgbase)
+        if folder.startswith("overrides/"):
+            if theirs is None:
+                where = "the AUR has it" if in_aur else "nor does the AUR"
                 found.append(
-                    f"{folder} {srcinfo.version()} doesn't replace the AUR's {package['Version']}: "
-                    "give it a newer version, or drop it"
+                    f"{folder}: Arch Linux doesn't have it anymore, {where}: move it to local/, or drop it"
                 )
+            elif not newer(ours, theirs[0]):
+                found.append(
+                    f"{folder} {ours} doesn't replace Arch Linux's {theirs[0]} ({theirs[1]}): "
+                    "give it a newer version, or remove it (overrides remove)"
+                )
+        elif theirs is not None:
+            found.append(
+                f"{folder}: Arch Linux has it now ({theirs[0]}, {theirs[1]}): move it to overrides/, "
+                "or drop it"
+            )
+        elif in_aur and not newer(ours, str(in_aur["Version"])):
+            found.append(
+                f"{folder} {ours} doesn't replace the AUR's {in_aur['Version']}: "
+                "give it a newer version, or drop it"
+            )
     return found
 
 
@@ -1278,9 +1293,9 @@ def run_sysupgrade(
         ).stdout.splitlines()
         if " " in line
     )
-    # Ours that are there to replace a package, but wouldn't: told, as the replaced one stays
+    # Ours that are there to replace a package, but wouldn't, or are in the wrong folder for it
     try:
-        problems = losing(checkout)
+        problems = misplaced(checkout)
     except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
         problems = [f"couldn't compare local/ and overrides/ with what they replace: {error}"]
     for problem in problems:

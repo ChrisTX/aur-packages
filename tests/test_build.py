@@ -261,7 +261,7 @@ def test_upgrades(tmp_path: Path) -> None:
     assert sorted(ignore) == ["current", "fwupd", "ghidra", "notinstalled", "old", "ours", "rework"]
 
 
-def test_losing(tmp_path: Path) -> None:
+def test_misplaced(tmp_path: Path) -> None:
     def package(folder: str, name: str, version: str) -> None:
         (tmp_path / folder).mkdir(parents=True)
         (tmp_path / folder / "PKGBUILD").write_text("")
@@ -273,24 +273,35 @@ def test_losing(tmp_path: Path) -> None:
     package("overrides/ahead", "ahead", "2.1.10-1.1")
     package("overrides/caught", "caught", "2.1.10-1.1")
     package("overrides/same", "same", "1-1")
+    package("overrides/demoted", "demoted", "1-1.1")
     package("overrides/gone", "gone", "1-1.1")
     package("local/rework", "rework", "2-1")
     package("local/behind", "behind", "1-1")
     package("local/ours", "ours", "1-1")
+    package("local/promoted", "promoted", "3-1")
     package("top", "top", "0.1-1")
-    arch = {"ahead": ("2.1.10-1", "extra"), "caught": ("2.1.10-2", "extra"), "same": ("1-1", "core")}
+    arch = {
+        "ahead": ("2.1.10-1", "extra"),
+        "caught": ("2.1.10-2", "extra"),
+        "same": ("1-1", "core"),
+        "promoted": ("3-1", "extra"),
+    }
     asked = []
 
     def aur(names: list[str]) -> dict[str, dict[str, object]]:
         asked.extend(names)
-        return {"rework": {"Version": "1-3"}, "behind": {"Version": "1.1-1"}}
+        return {"rework": {"Version": "1-3"}, "behind": {"Version": "1.1-1"}, "demoted": {"Version": "1-1"}}
 
-    found = build.losing(Checkout(tmp_path, tmp_path), lambda name: arch.get(name), aur)
-    # Overrides Arch Linux has caught up with or has the same version of, local/ that the AUR is ahead
-    # of; not one Arch doesn't have, nor one of local/ the AUR doesn't, nor the top level
-    assert [problem.split(" ", 1)[0] for problem in found] == [
-        "overrides/caught",
-        "overrides/same",
-        "local/behind",
-    ]
-    assert sorted(asked) == ["behind", "ours", "rework"]
+    found = build.misplaced(Checkout(tmp_path, tmp_path), lambda name: arch.get(name), aur)
+    notes = {problem.split(" ", 1)[0].rstrip(":"): problem for problem in found}
+    # Overrides Arch Linux has caught up with, or dropped (to the AUR, or entirely); local/ that the
+    # AUR is ahead of, or that Arch Linux has now. Not the top level, nor local/ without the AUR's
+    assert sorted(notes) == [
+        "local/behind", "local/promoted", "overrides/caught", "overrides/demoted", "overrides/gone", "overrides/same",
+    ]  # fmt: skip
+    assert (
+        "move it to local/" in notes["overrides/demoted"] and "the AUR has it" in notes["overrides/demoted"]
+    )
+    assert "nor does the AUR" in notes["overrides/gone"]
+    assert "move it to overrides/" in notes["local/promoted"]
+    assert "top" not in asked
