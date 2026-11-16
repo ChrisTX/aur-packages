@@ -47,16 +47,24 @@ def shipped(folder: Path, fingerprint: str) -> Path:
 
 
 def file_fingerprints(path: Path) -> list[str]:
-    """The fingerprints of the keys in a file, read without a keyring."""
+    """The fingerprints of the primary keys in a file, read without a keyring: makepkg compares
+    validpgpkeys with the primary key's, also for a signature of a subkey."""
     result = subprocess.run(
         ["gpg", "--batch", "--with-colons", "--show-keys", str(path)],
         capture_output=True,
         text=True,
         check=False,
     )
-    # The fingerprint records: 40 hexadecimal digits in their tenth field
-    fields = [line.split(":") for line in result.stdout.splitlines()]
-    return [f[9] for f in fields if len(f) > 9 and re.fullmatch(r"[0-9A-F]{40}", f[9])]
+    # The record right after a primary key's (pub) is its fingerprint: 40 hexadecimal digits in its
+    # tenth field; those of the subkeys follow their own records (sub)
+    found = []
+    previous = ""
+    for line in result.stdout.splitlines():
+        fields = line.split(":")
+        if previous == "pub" and len(fields) > 9 and re.fullmatch(r"[0-9A-F]{40}", fields[9]):
+            found.append(fields[9])
+        previous = fields[0]
+    return found
 
 
 def keyring() -> Path:
@@ -157,7 +165,9 @@ def run_keys(checkout: Checkout, paths: Sequence[str], fetch: bool) -> int:
                 print(f"{name}: keys/pgp/{fingerprint}.asc is missing: ./aur-packages keys --fetch {name}")
                 status = 1
             elif fingerprint not in file_fingerprints(path):
-                print(f"{name}: keys/pgp/{fingerprint}.asc doesn't have the key {fingerprint}")
+                # makepkg compares validpgpkeys with the primary key's fingerprint, also for a
+                # signature of one of its subkeys
+                print(f"{name}: keys/pgp/{fingerprint}.asc doesn't have the primary key {fingerprint}")
                 status = 1
         # Arch Linux's packaging in overrides/ keeps the keys it has, e.g. of earlier sources
         stray = [] if name.startswith("overrides/") else sorted((folder / "keys" / "pgp").glob("*.asc"))
