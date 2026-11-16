@@ -250,7 +250,7 @@ for _command in (
         "Run the checks of .pre-commit-config.yaml with prek or pre-commit, or with --manual also the "
         "ones that only run on request (termux-language-server). Packages given, only theirs: the "
         "hooks of their own .pre-commit-config.yaml, and those of the top level that check single "
-        "packages (templates, gitignore, keys, quoting, pins, upstream, maintainers; for overrides/ only templates, gitignore and keys)",
+        "packages (templates, gitignore, keys, quoting, pins, pkgrel, upstream, maintainers; for overrides/ only templates, gitignore and keys)",
         options=(Option(("--manual",), "also run the checks that only run on request"),),
         arguments="packages",
         run=lambda checkout, args: checks.run_check(checkout, args.arguments, args.manual),
@@ -429,6 +429,14 @@ for _command in (
         "as CONTRIBUTING.md asks, next to its own (run by the gitignore hook)",
         arguments="packages",
         run=lambda checkout, args: checks.run_gitignore(checkout, args.arguments),
+    ),
+    Command(
+        "pkgrel",
+        "",
+        "Check that the packages published to the AUR (the top level) have a whole pkgrel: the .1 of "
+        "local/ and overrides/, above what they replace, has no reason there (run by the pkgrel hook)",
+        arguments="packages",
+        run=lambda checkout, args: checks.run_pkgrel(checkout, args.arguments),
     ),
     Command(
         "quoting",

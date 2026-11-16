@@ -180,6 +180,35 @@ def run_maintainers(checkout: Checkout, packages: Sequence[str], aur: bool, as_j
     return 1 if found else 0
 
 
+# A pkgrel of the AUR: a whole number, the .1 of local/ and overrides/ (above what they replace,
+# below its next release) has no reason there
+AUR_PKGREL = re.compile(r"^[1-9][0-9]*$")
+
+
+def pkgrel_problem(srcinfo: Srcinfo) -> str | None:
+    """What's wrong with the pkgrel of a package published to the AUR, if anything."""
+    pkgrel = srcinfo.first("pkgrel")
+    if AUR_PKGREL.match(pkgrel):
+        return None
+    return (
+        f"pkgrel {pkgrel} isn't a whole number: a .1 is for local/ and overrides/, which sit above what "
+        "they replace; on the AUR, give it the next whole one"
+    )
+
+
+def run_pkgrel(checkout: Checkout, packages: Sequence[str]) -> int:
+    """That the packages published to the AUR (the top level) have a whole pkgrel (the hook)."""
+    status = 0
+    names = [re.sub(r"/(\.SRCINFO|PKGBUILD)$", "", path) for path in packages]
+    for package in checkout.select(list(dict.fromkeys(names))):
+        if package.startswith(("local/", "overrides/")):
+            continue
+        if problem := pkgrel_problem(Srcinfo.load(checkout.root / package)):
+            print(f"{package}: {problem}", file=sys.stderr)
+            status = 1
+    return status
+
+
 def gitignore_missing(text: str) -> list[str]:
     """The patterns of the archlinuxpackages template (GITIGNORE) a .gitignore lacks; its comments
     and where a package adds its own lines don't matter."""
@@ -278,7 +307,8 @@ def run_check(checkout: Checkout, packages: Sequence[str], manual: bool) -> int:
     """The checks of .pre-commit-config.yaml, with manual also those that only run on request.
 
     Packages given, only theirs: the hooks of their own .pre-commit-config.yaml, and those of the
-    top level that check single packages (templates, gitignore, quoting, pins, upstream, maintainers), not for
+    top level that check single packages (templates, gitignore, quoting, pins, pkgrel, upstream,
+    maintainers), not for
     overrides/ where the hooks leave them out either. The top level's copies of the package hooks would check
     the same files again, and its other hooks check every package.
     """
@@ -304,6 +334,7 @@ def run_check(checkout: Checkout, packages: Sequence[str], manual: bool) -> int:
     if ours:
         status |= run_quoting(checkout, ours)
         status |= pins.run_pins(checkout, ours)
+        status |= run_pkgrel(checkout, ours)
         status |= upstream.run_check(checkout, ours)
         status |= run_maintainers(checkout, ours, aur=False, as_json=False)
     return 1 if status else 0

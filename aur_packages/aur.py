@@ -222,6 +222,9 @@ def run_publish(checkout: Checkout, packages: Sequence[str], section: str, adopt
             raise SelectionError(f"{name} exists at the top level already")
         if not ok("diff", "--quiet", "HEAD", "--", folder):
             raise SelectionError(f"{folder} has uncommitted changes")
+        # Its .1 of local/, above the AUR's, has no reason on the AUR
+        if problem := checks.pkgrel_problem(Srcinfo.load(root / folder)):
+            raise SelectionError(f"{folder}: {problem}, in a commit before publishing it")
     signing = sign()
     for folder in selected:
         name = folder.removeprefix("local/")

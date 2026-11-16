@@ -175,3 +175,20 @@ def test_gitignore(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     (tmp_path / "one" / ".gitignore").write_text(GITIGNORE)
     (tmp_path / "overrides" / "arch" / ".gitignore").write_text(GITIGNORE)
     assert checks.run_gitignore(checkout, []) == 0
+
+
+def test_pkgrel(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def srcinfo(pkgrel: str) -> str:
+        return f"pkgbase = x\n\tpkgver = 1\n\tpkgrel = {pkgrel}\n\npkgname = x\n"
+
+    package(tmp_path, "whole", srcinfo("2"))
+    package(tmp_path, "fraction", srcinfo("1.1"))
+    package(tmp_path, "zero", srcinfo("0"))
+    # local/ and overrides/ sit above what they replace with a .1
+    package(tmp_path, "local/rework", srcinfo("1.1"))
+    package(tmp_path, "overrides/fix", srcinfo("1.1"))
+    checkout = Checkout(tmp_path, tmp_path)
+    assert checks.run_pkgrel(checkout, ["whole/.SRCINFO", "local/rework", "overrides/fix"]) == 0
+    for name in ("fraction", "zero"):
+        assert checks.run_pkgrel(checkout, [f"{name}/.SRCINFO"]) == 1
+        assert "isn't a whole number" in capsys.readouterr().err
