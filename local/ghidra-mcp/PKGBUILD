@@ -75,6 +75,7 @@ prepare() {
   # Ghidra 12.2 support, from upstream's dev branch (bethington/ghidra-mcp@b06c679d, after 7.0.0): it
   # compiles at the installed Ghidra's Java release, and uses the APIs that moved in 12.2 in a way
   # that works with 12.1 as well
+  # upstream: backport bethington/ghidra-mcp@b06c679d
   patch -Np1 -i ../ghidra-12.2.patch
 }
 
