@@ -35,7 +35,8 @@ package() {
   # its shell script, the example's), and the libraries like those of the system
   local file magic
   while IFS= read -r -d '' file; do
-    magic=$(head -c 4 "$file")
+    # Without the NUL bytes of binary files, which bash would warn about dropping
+    magic=$(head -c 4 "$file" | tr -d '\0')
     if [[ "$magic" == '#!'* || "$magic" == $'\x7fELF' ]]; then chmod 755 "$file"; fi
   done < <(find "$pkgdir/opt/steamworks-sdk" -type f -print0)
   install -Dm644 steamworks-sdk.txt -t "$pkgdir/usr/share/licenses/$pkgname"
