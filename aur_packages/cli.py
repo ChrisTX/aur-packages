@@ -250,7 +250,7 @@ for _command in (
         "Run the checks of .pre-commit-config.yaml with prek or pre-commit, or with --manual also the "
         "ones that only run on request (termux-language-server). Packages given, only theirs: the "
         "hooks of their own .pre-commit-config.yaml, and those of the top level that check single "
-        "packages (templates, quoting, pins, maintainers; for overrides/ only templates)",
+        "packages (templates, quoting, pins, upstream, maintainers; for overrides/ only templates)",
         options=(Option(("--manual",), "also run the checks that only run on request"),),
         arguments="packages",
         run=lambda checkout, args: checks.run_check(checkout, args.arguments, args.manual),
@@ -269,14 +269,18 @@ for _command in (
     ),
     Command(
         "upstream",
-        "[PACKAGE...]",
+        "[--check] [PACKAGE...]",
         "Show the upstream issues, pull requests and commits on GitHub the comments of the PKGBUILDs "
         "refer to (https://github.com/…/pull/1, owner/repo#1, #1 of the package's own repository, "
         "owner/repo@commit) with their state, and for a merged pull request or a commit whether the "
-        "upstream version the package builds contains it (its repository at the tag or commit of the "
-        "source, or a git submodule of it), else which release does: what backports one can go then",
+        "upstream version the package builds contains it (its source of that repository at its tag or "
+        "commit, or a git submodule of its own), else which release does; with the verb of their "
+        "'# upstream:' directive, and what the directives want done: a backport that can go, say. "
+        "--check checks the directives, offline (run by the upstream hook): every patch a PKGBUILD "
+        "applies has one in the comment right above it",
+        options=(Option(("--check",), "check the directives of the patches, offline"),),
         arguments="packages",
-        run=lambda checkout, args: upstream.run_upstream(checkout, args.arguments),
+        run=lambda checkout, args: upstream.run_upstream(checkout, args.arguments, args.check),
     ),
     Command(
         "commits",

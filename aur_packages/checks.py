@@ -8,7 +8,7 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
-from aur_packages import git, keys, pins
+from aur_packages import git, keys, pins, upstream
 from aur_packages import maintainers as maintainer_lines
 from aur_packages.repo import Checkout
 from aur_packages.srcinfo import Srcinfo
@@ -250,8 +250,8 @@ def run_check(checkout: Checkout, packages: Sequence[str], manual: bool) -> int:
     """The checks of .pre-commit-config.yaml, with manual also those that only run on request.
 
     Packages given, only theirs: the hooks of their own .pre-commit-config.yaml, and those of the
-    top level that check single packages (templates, quoting, pins, maintainers), not for overrides/
-    where the hooks leave them out either. The top level's copies of the package hooks would check
+    top level that check single packages (templates, quoting, pins, upstream, maintainers), not for
+    overrides/ where the hooks leave them out either. The top level's copies of the package hooks would check
     the same files again, and its other hooks check every package.
     """
     require("check", [hook_runner_tool()])
@@ -275,5 +275,6 @@ def run_check(checkout: Checkout, packages: Sequence[str], manual: bool) -> int:
     if ours:
         status |= run_quoting(checkout, ours)
         status |= pins.run_pins(checkout, ours)
+        status |= upstream.run_check(checkout, ours)
         status |= run_maintainers(checkout, ours, aur=False, as_json=False)
     return 1 if status else 0

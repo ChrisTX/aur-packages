@@ -1,5 +1,7 @@
 """The upstream references of the packages, read offline."""
 
+import pytest
+
 from aur_packages import upstream
 from aur_packages.srcinfo import Srcinfo
 from aur_packages.upstream import Reference
@@ -57,3 +59,81 @@ def test_final_keeps_what_cant_change() -> None:
     assert upstream.final(f"{api}/compare/abc...v1", {"status": "ahead", "files": []}) == {"status": "ahead"}
     assert upstream.final(f"{api}/compare/abc...v1", {"status": "behind"}) is None
     assert upstream.final(f"{api}/releases?per_page=1", [{"tag_name": "v1"}]) is None
+
+
+DIRECTIVES = """\
+prepare() {
+  # A fix of upstream's
+  # upstream: backport owner/project#12
+  patch -Np1 -i "$srcdir/fix.patch"
+  # upstream: pending #13 and other/lib@abcdef1
+  patch -Np1 -d lib -i "$srcdir/lib.patch"
+  # upstream: none, the system's zlib
+  git -C sub apply "$srcdir/zlib.patch"
+  # Not a directive above it
+  patch -Np1 -i "$srcdir/bare.patch"
+  # upstream: workaround
+  # upstream: none
+  # upstream: fixed owner/project#1
+  patch -Np1 -i "$srcdir/broken.patch"
+
+  # upstream: backport owner/project#14
+  sed -i 's/a/b/' file
+  # upstream: backport owner/project#15
+  cd sub || exit
+  patch -Np1 -i "$srcdir/far.patch"
+}
+"""
+
+
+def test_directives() -> None:
+    found, problems = upstream.directives(DIRECTIVES, "owner/project")
+    assert [(d.line, d.verb, d.references) for d in found] == [
+        (3, "backport", (Reference("owner/project", number=12),)),
+        (5, "pending", (Reference("owner/project", number=13), Reference("other/lib", commit="abcdef1"))),
+        (7, "none", ()),
+        (16, "backport", (Reference("owner/project", number=14),)),
+        (18, "backport", (Reference("owner/project", number=15),)),
+    ]
+    assert found[2].text == "the system's zlib"
+    # The patch without a directive, the malformed ones, and a directive that isn't right above
+    assert [line for line, _ in problems] == [10, 11, 12, 13, 20]
+    assert "verb is one of" in problems[3][1]
+
+
+def test_note() -> None:
+    assert upstream.note("merged, in the packaged 1.0", True)
+    assert upstream.note("commit, in the packaged 1.0", True)
+    assert upstream.note("closed, not merged", False)
+    assert upstream.note("issue closed (completed)", False)
+    assert upstream.note("merged, not in the packaged 1.0, in 1.1", False) is None
+    assert upstream.note("open", False) is None
+    assert upstream.note("issue open", False) is None
+
+
+def test_released_in_another_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked = []
+
+    def contains(repository: str, commit: str, ref: str) -> bool:
+        asked.append((repository, commit, ref))
+        return True
+
+    monkeypatch.setattr(upstream, "contains", contains)
+    reference = Reference("other/lib", number=7)
+    others = {"owner/project": "1.0", "Other/Lib": "v2.0"}
+    # Its own source of the other repository, rather than a submodule of the package's
+    assert upstream.released(reference, "abc", "owner/project", "1.0", others) == (
+        "in the packaged v2.0",
+        True,
+    )
+    assert asked == [("other/lib", "abc", "v2.0")]
+
+
+def test_sources() -> None:
+    srcinfo = Srcinfo.parse(
+        "pkgbase = x\n"
+        "\tsource = git+https://github.com/a/b.git#tag=1.0\n"
+        "\tsource = git+https://github.com/c/d.git#commit=0123abc\n"
+        "\tsource = git+https://github.com/e/f.git\n"
+    )
+    assert upstream.sources(srcinfo) == {"a/b": "1.0", "c/d": "0123abc", "e/f": ""}
