@@ -122,6 +122,14 @@ def signing(args: argparse.Namespace) -> bool | None:
     return True if args.sign else False if args.no_sign else None
 
 
+def system_repo(args: argparse.Namespace) -> bool | None:
+    """--system-repo or --no-system-repo; None without either, for the default."""
+    if args.system_repo and args.no_system_repo:
+        print("aur-packages: --system-repo and --no-system-repo contradict each other", file=sys.stderr)
+        raise SystemExit(2)
+    return True if args.system_repo else False if args.no_system_repo else None
+
+
 def run_build(checkout: Checkout, args: argparse.Namespace) -> int:
     if args.chroot and args.local:
         print("aur-packages: --chroot and --local contradict each other", file=sys.stderr)
@@ -134,12 +142,13 @@ def run_build(checkout: Checkout, args: argparse.Namespace) -> int:
         add=args.add,
         signing=signing(args),
         dotnet_bin=args.dotnet_bin,
-        libs_bin=args.libs_bin,
+        nuget_bin=args.nuget_bin,
         testing=args.testing,
         sanitise=args.sanitize or "",
         target=args.target or "",
         reuse=args.repo or "",
         fetch_keys=args.auto_key_retrieve,
+        system_repo=system_repo(args),
     )
     return build.run_build(checkout, args.arguments, settings)
 
@@ -285,7 +294,7 @@ for _command in (
         "order, in a clean chroot into a private throwaway repo (default), or --local (makepkg -fCd, "
         "--install to install each result). --dry-run prints the plan, --keep keeps the chroot repo. "
         "In a chroot, --dotnet-bin builds with Microsoft's .NET (dotnet-build-deps-10.0-bin, "
-        "the SDK of the current .NET built by aur sync) and --libs-bin with the libraries from nuget.org "
+        "the SDK of the current .NET built by aur sync) and --nuget-bin with the libraries from nuget.org "
         "(powershell-build-deps-bin) instead of the source-built ones. A .NET Arch Linux doesn't "
         "have (dotnet-build-deps-11.0-bin) is always Microsoft's. --target aarch64 also cross-builds "
         "the architecture-specific packages for aarch64 against an Arch Linux ARM root, --target "
@@ -313,12 +322,18 @@ for _command in (
             Option(("--sign",), "sign the packages --add adds"),
             Option(("--no-sign",), "don't sign the packages --add adds"),
             Option(("--dotnet-bin",), "build with Microsoft's .NET"),
-            Option(("--libs-bin",), "build with the libraries from nuget.org"),
+            Option(
+                ("--nuget-bin",),
+                "build with the libraries from nuget.org (powershell-build-deps-bin)",
+                aliases=("--libs-bin",),
+            ),
             Option(("--testing",), "build against Arch Linux's testing repositories"),
             Option(("--sanitize",), "make test builds with the sanitisers", "SANITISERS", SANITISERS),
             Option(("--target",), "build for another architecture", "TARGET", TARGETS),
             Option(("--repo",), "continue in the repo of an earlier --keep", "DIR", "dirs"),
             Option(("-K", "--auto-key-retrieve"), "fetch the PGP keys the packages need, like aur sync -K"),
+            Option(("--system-repo",), "take dependencies from the system's aurutils repository"),
+            Option(("--no-system-repo",), "build every dependency from this repository"),
         ),
         arguments="buildables",
         run=lambda checkout, args: run_build(checkout, args),
@@ -333,10 +348,18 @@ for _command in (
             Option(("-S", "--sign"), "sign the packages added"),
             Option(("--no-sign",), "don't sign the packages added"),
             Option(("-K", "--auto-key-retrieve"), "fetch the PGP keys the packages need, like aur sync -K"),
+            Option(("--system-repo",), "take dependencies from the system's aurutils repository"),
+            Option(("--no-system-repo",), "build every dependency from this repository"),
+            Option(("--repo",), "continue in the repo of a failed sysupgrade", "DIR", "dirs"),
         ),
         passthrough=True,
         run=lambda checkout, args: build.run_sysupgrade(
-            checkout, signing(args), args.passthrough, args.auto_key_retrieve
+            checkout,
+            signing(args),
+            args.passthrough,
+            build.Build(
+                fetch_keys=args.auto_key_retrieve, reuse=args.repo or "", system_repo=system_repo(args)
+            ),
         ),
     ),
     Command(

@@ -62,7 +62,7 @@ def edges(checkout: Checkout, alias: dict[str, str]) -> set[tuple[str, str]]:
 
     depends, makedepends and checkdepends, of any architecture. A package's own name wins over what
     others provide, e.g. dotnet-build-deps-10.0 over the dotnet-build-deps-10.0-bin that provides it;
-    alias redirects names, as --dotnet-bin and --libs-bin do.
+    alias redirects names, as --dotnet-bin and --nuget-bin do.
     """
     folders = checkout.package_dirs()
     name_dir: dict[str, str] = {}
@@ -184,12 +184,15 @@ def repo_provides(repo: Path, name: str) -> bool:
     return False
 
 
-def devtools_pacman_conf(name: str, repo: Path) -> str:
-    """A pacman.conf of devtools (extra.conf, …) with the private repository first, so its packages win."""
+def devtools_pacman_conf(name: str, repo: Path, system: tuple[str, Path] | None = None) -> str:
+    """A pacman.conf of devtools (extra.conf, …) with the private repository first, so its packages win,
+    then the system's aurutils repository if given (--system-repo)."""
     out, inserted = [], False
     for line in (DEVTOOLS / "pacman.conf.d" / name).read_text().splitlines():
         if line.startswith("[") and line != "[options]" and not inserted:
             out += [f"[{REPO_NAME}]", "SigLevel = Never", f"Server = file://{repo}", ""]
+            if system:
+                out += [f"[{system[0]}]", "SigLevel = Never", f"Server = file://{system[1]}", ""]
             inserted = True
         out.append(line)
     return "\n".join(out) + "\n"
@@ -496,12 +499,16 @@ class Build:
     add: bool = False
     signing: bool | None = None
     dotnet_bin: bool = False
-    libs_bin: bool = False
+    nuget_bin: bool = False
     testing: bool = False
     sanitise: str = ""
     target: str = ""
     reuse: str = ""
     fetch_keys: bool = False
+    # Dependencies from the system's aurutils repository: None for the default, with --add
+    system_repo: bool | None = None
+    system: tuple[str, Path] | None = None
+    targets: list[str] = field(default_factory=list)
     alias: dict[str, str] = field(default_factory=dict)
     preinstall: list[str] = field(default_factory=list)
 
@@ -533,10 +540,10 @@ def validate(build: Build) -> SystemRepo | None:
             f"Unknown target: {build.target} (aarch64 cross-builds, aarch64-native builds under QEMU)"
         )
     if build.method == "local" and (
-        build.dotnet_bin or build.libs_bin or build.testing or build.target or build.reuse
+        build.dotnet_bin or build.nuget_bin or build.testing or build.target or build.reuse
     ):
         raise BuildError(
-            "--dotnet-bin, --libs-bin, --testing, --target and --repo need a chroot build, a local one uses what's installed"
+            "--dotnet-bin, --nuget-bin, --testing, --target and --repo need a chroot build, a local one uses what's installed"
         )
     tools = [("makepkg", "pacman")]
     if build.method == "chroot":
@@ -609,7 +616,7 @@ def selectors(checkout: Checkout, build: Build) -> None:
     selectors in another repository: a selector depends on Microsoft's packages by their own names,
     which aur sync built into the private repository, and those provide the names of Arch's.
     --dotnet-bin: one per .NET version with a source-built selector (not dotnet-build-deps-11.0-bin,
-    the only provider of its .NET anyway); --libs-bin: the packages of the split
+    the only provider of its .NET anyway); --nuget-bin: the packages of the split
     powershell-build-deps-bin.
     """
     if build.dotnet_bin:
@@ -618,7 +625,7 @@ def selectors(checkout: Checkout, build: Build) -> None:
                 continue
             build.alias[selector.removesuffix("-bin")] = selector
             build.preinstall.append(selector)
-    if build.libs_bin:
+    if build.nuget_bin:
         names = list(Srcinfo.load(checkout.root / "powershell-build-deps-bin").packages)
         for name in names:
             build.alias[name.removesuffix("-bin")] = "powershell-build-deps-bin"
@@ -666,9 +673,19 @@ def build_all(checkout: Checkout, names: Sequence[str], build: Build) -> int:
     selectors(checkout, build)
 
     graph = edges(checkout, build.alias)
-    packages = order(checkout, roots(checkout, names), graph)
+    build.targets = roots(checkout, names)
+    packages = order(checkout, build.targets, graph)
     if not packages:
         raise BuildError("Nothing to build")
+    # The dependencies the system's aurutils repository has in their current version come from there
+    # (--system-repo), by default for its own packages (--add, sysupgrade)
+    if build.system_repo and (build.method == "local" or build.target):
+        raise BuildError("--system-repo needs a chroot build for x86_64")
+    if build.system_repo is None:
+        build.system_repo = build.add
+    if build.system_repo:
+        repository = system or SystemRepo.find()
+        build.system = (repository.name, repository.root)
 
     # The private repository: each build resolves the packages built before it from there
     makepkg_conf = MAKEPKG_CONF
@@ -692,15 +709,24 @@ def build_all(checkout: Checkout, names: Sequence[str], build: Build) -> int:
             conf_text = (
                 alarm_pacman_conf(alarm, (REPO_NAME, repo))
                 if native
-                else devtools_pacman_conf(devtools_conf, repo)
+                else devtools_pacman_conf(devtools_conf, repo, build.system)
             )
             (repo / "pacman.conf").write_text(conf_text)
             empty_database(repo, REPO_NAME)
+    status = 1
     try:
-        return build_packages(checkout, build, packages, graph, repo, makepkg_conf, system,
-                              chroot_dir, multilib_dir, alarm, cross_dir, multilib_conf, native, cross)  # fmt: skip
+        status = build_packages(checkout, build, packages, graph, repo, makepkg_conf, system,
+                                chroot_dir, multilib_dir, alarm, cross_dir, multilib_conf, native, cross)  # fmt: skip
+        return status
     finally:
-        if temporary:
+        # A failed build keeps what it built, to continue where it stopped
+        if temporary and status and package_files(repo):
+            print(
+                f"Kept the repository of the packages built so far, {repo}: continue where the build "
+                f"stopped with --repo {repo}",
+                file=sys.stderr,
+            )
+        elif temporary:
             shutil.rmtree(repo, ignore_errors=True)
 
 
@@ -768,10 +794,14 @@ def build_packages(
         for name in aur_names:
             command = ["aur", "sync", "--chroot", "--no-sync", "--database", REPO_NAME, "--root", str(repo),
                        "--pacman-conf", str(conf), *chroot_args, "--no-view", "--noconfirm", name]  # fmt: skip
-            if dry:
+            if dry and build.system and package_files(build.system[1], name):
+                print(f"# {name}: in {build.system[0]} already", file=sys.stderr)
+            elif dry:
                 print(" ".join(command))
             elif package_files(repo, name):
                 print(f">>> {name} is in {repo} already", file=sys.stderr)
+            elif build.system and package_files(build.system[1], name):
+                print(f">>> {name} is in {build.system[0]} already", file=sys.stderr)
             else:
                 print(f">>> Building {name} (aur sync)", file=sys.stderr)
                 # 22: the dependencies have a cycle, which checkdepends can make (python-celery's on
@@ -790,14 +820,17 @@ def build_packages(
                 continue
             if dry:
                 print(f"# {name}: provided by the AUR packages above", file=sys.stderr)
-            elif not repo_provides(repo, name):
+            elif not repo_provides(repo, name) and not (
+                build.system and repo_provides(build.system[1], name)
+            ):
                 raise BuildError(
                     f"aur-packages: {name} is neither in the repositories, nor a package of this repository or the AUR, nor provided by one"
                 )
-    # The packages of this repository built so far, by the names of their packages
     if build.method == "local" and not dry:
         # makepkg with the builder's own configuration and keyring, only checked
         keys.prepare([root / p for p in packages], None, fetch=False)
+    # The packages of this repository built so far, or taken from the system's repository, by the
+    # names of their packages
     built: set[str] = set()
 
     for package in packages:
@@ -820,7 +853,7 @@ def build_packages(
                     *sanitise_args,
                 ]
                 if not dry and not package_conf.exists():
-                    package_conf.write_text(devtools_pacman_conf(multilib_conf, repo))
+                    package_conf.write_text(devtools_pacman_conf(multilib_conf, repo, build.system))
             command = ["aur", "build", "--chroot", "--no-sync", "--database", REPO_NAME, "--root", str(repo),
                        "--pacman-conf", str(package_conf), *package_args, "--force"]  # fmt: skip
             # The packages to preinstall that are built by now
@@ -831,7 +864,10 @@ def build_packages(
                 if dry:
                     preinstalled.append(f"{repo}/{name}-<version>.pkg.tar<compression>")
                 else:
-                    preinstalled += [str(file) for file in package_files(repo, name)]
+                    found = package_files(repo, name)
+                    if not found and build.system:
+                        found = package_files(build.system[1], name)
+                    preinstalled += [str(file) for file in found]
             if preinstalled:
                 files = ["--cargs=" + ",".join(f"-I,{p}" for p in preinstalled)]
             command += files
@@ -843,7 +879,14 @@ def build_packages(
                 "--nodeps",
                 *(["--install"] if build.install else []),
             ]
-        if dry:
+        in_system = (
+            build.system is not None
+            and package not in build.targets
+            and built_already(folder, build.system[1], makepkg_conf)
+        )
+        if in_system and build.system:
+            print(f">>> {package} is in {build.system[0]} already", file=sys.stderr)
+        elif dry:
             print(f"(cd {package} && {' '.join(command)})")
         elif build.reuse and built_already(folder, repo, makepkg_conf):
             print(f">>> {package} is in {repo} already", file=sys.stderr)
@@ -887,7 +930,7 @@ def build_packages(
 
 
 def run_sysupgrade(
-    checkout: Checkout, sign: bool | None, sync_options: Sequence[str], fetch_keys: bool = False
+    checkout: Checkout, sign: bool | None, sync_options: Sequence[str], settings: Build | None = None
 ) -> int:
     """aur sync -u with our packages first.
 
@@ -922,13 +965,15 @@ def run_sysupgrade(
                 selected.append(folder)
                 break
     if selected:
-        status = run_build(checkout, selected, Build(add=True, signing=signing, fetch_keys=fetch_keys))
+        settings = settings or Build()
+        settings.add, settings.signing = True, signing
+        status = run_build(checkout, selected, settings)
         if status:
             return status
     else:
         print(f"Our packages in {system.name} are up to date", file=sys.stderr)
     command = ["aur", "sync", "--database", system.name, "--upgrades", "--ignore", ",".join(ignore)]
-    if fetch_keys:
+    if settings and settings.fetch_keys:
         command.append("--auto-key-retrieve")
     elif not {"-K", "--auto-key-retrieve", "--autokeyretrieve"} & set(sync_options):
         # Its keys before it builds anything, in the keyring of its makepkg, the builder's own
