@@ -7,7 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from aur_packages import aur, build, checks, hooks, overrides, pins, tray, updates, upstream
+from aur_packages import aur, build, checks, hooks, keys, overrides, pins, tray, updates, upstream
 from aur_packages.repo import BUILD_TEMPLATES, Checkout, SelectionError
 from aur_packages.tools import MissingTools
 
@@ -139,6 +139,7 @@ def run_build(checkout: Checkout, args: argparse.Namespace) -> int:
         sanitise=args.sanitize or "",
         target=args.target or "",
         reuse=args.repo or "",
+        fetch_keys=args.auto_key_retrieve,
     )
     return build.run_build(checkout, args.arguments, settings)
 
@@ -246,6 +247,18 @@ for _command in (
         run=lambda checkout, args: checks.run_check(checkout, args.arguments, args.manual),
     ),
     Command(
+        "keys",
+        "[--fetch] [PACKAGE...]",
+        "Check that each package ships the PGP keys of its validpgpkeys, as "
+        "keys/pgp/<fingerprint>.asc like Arch Linux's packaging, and only those (run by the keys "
+        "hook): so that its sources can be verified without a keyserver. --fetch adds the missing "
+        "ones from a keyserver, through a temporary keyring. build and sysupgrade import the shipped "
+        "keys before building, and stop with the missing ones (-K fetches them)",
+        options=(Option(("--fetch",), "add the missing keys from a keyserver"),),
+        arguments="packages",
+        run=lambda checkout, args: keys.run_keys(checkout, args.arguments, args.fetch),
+    ),
+    Command(
         "upstream",
         "[PACKAGE...]",
         "Show the upstream issues, pull requests and commits on GitHub the comments of the PKGBUILDs "
@@ -305,6 +318,7 @@ for _command in (
             Option(("--sanitize",), "make test builds with the sanitisers", "SANITISERS", SANITISERS),
             Option(("--target",), "build for another architecture", "TARGET", TARGETS),
             Option(("--repo",), "continue in the repo of an earlier --keep", "DIR", "dirs"),
+            Option(("-K", "--auto-key-retrieve"), "fetch the PGP keys the packages need, like aur sync -K"),
         ),
         arguments="buildables",
         run=lambda checkout, args: run_build(checkout, args),
@@ -318,9 +332,12 @@ for _command in (
         options=(
             Option(("-S", "--sign"), "sign the packages added"),
             Option(("--no-sign",), "don't sign the packages added"),
+            Option(("-K", "--auto-key-retrieve"), "fetch the PGP keys the packages need, like aur sync -K"),
         ),
         passthrough=True,
-        run=lambda checkout, args: build.run_sysupgrade(checkout, signing(args), args.passthrough),
+        run=lambda checkout, args: build.run_sysupgrade(
+            checkout, signing(args), args.passthrough, args.auto_key_retrieve
+        ),
     ),
     Command(
         "sync",

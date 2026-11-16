@@ -8,7 +8,7 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
-from aur_packages import git, pins
+from aur_packages import git, keys, pins
 from aur_packages import maintainers as maintainer_lines
 from aur_packages.repo import Checkout
 from aur_packages.srcinfo import Srcinfo
@@ -270,6 +270,7 @@ def run_check(checkout: Checkout, packages: Sequence[str], manual: bool) -> int:
     if manual and configured:
         status |= run_package_hooks(configured, ["--hook-stage", "manual"])
     status |= run_sync(checkout, selected, dry_run=True)
+    status |= keys.run_keys(checkout, selected, fetch=False)
     ours = [p for p in selected if not p.startswith("overrides/")]
     if ours:
         status |= run_quoting(checkout, ours)

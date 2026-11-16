@@ -21,6 +21,11 @@
         files: (^|/)PKGBUILD$
         # Arch Linux's packages in overrides/ keep Arch's style
         exclude: ^overrides/
+      - id: keys
+        name: the PGP keys of validpgpkeys are shipped in keys/pgp
+        language: system
+        entry: ./aur-packages keys
+        files: (^|/)(\.SRCINFO|keys/pgp/[^/]+\.asc)$
       - id: maintainers
         name: Maintainer and Contributor lines of the PKGBUILDs
         language: system

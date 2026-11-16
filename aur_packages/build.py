@@ -18,6 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from aur_packages import keys
 from aur_packages.repo import BUILD_TEMPLATES, Checkout, SelectionError
 from aur_packages.srcinfo import Srcinfo
 from aur_packages.tools import require
@@ -500,6 +501,7 @@ class Build:
     sanitise: str = ""
     target: str = ""
     reuse: str = ""
+    fetch_keys: bool = False
     alias: dict[str, str] = field(default_factory=dict)
     preinstall: list[str] = field(default_factory=list)
 
@@ -646,6 +648,9 @@ def run_build(checkout: Checkout, names: Sequence[str], build: Build) -> int:
         return error.code
     except subprocess.CalledProcessError as error:
         return error.returncode
+    except keys.MissingKeys as error:
+        print(error, file=sys.stderr)
+        return 1
 
 
 def build_all(checkout: Checkout, names: Sequence[str], build: Build) -> int:
@@ -755,6 +760,11 @@ def build_packages(
                 ["aur", "query", "-t", "info", *aur_deps], capture_output=True, text=True, check=True
             )
             aur_names = sorted(r["Name"] for r in json.loads(info.stdout).get("results", []))
+        if not dry:
+            # Verified with the keyring of aur sync -K, which aur build passes to makepkg in the chroot
+            home = keys.keyring()
+            os.environ["AUR_MAKEPKG_GNUPGHOME"] = str(home)
+            keys.prepare([root / p for p in packages] + keys.aur_queue(aur_names), home, build.fetch_keys)
         for name in aur_names:
             command = ["aur", "sync", "--chroot", "--no-sync", "--database", REPO_NAME, "--root", str(repo),
                        "--pacman-conf", str(conf), *chroot_args, "--no-view", "--noconfirm", name]  # fmt: skip
@@ -785,6 +795,9 @@ def build_packages(
                     f"aur-packages: {name} is neither in the repositories, nor a package of this repository or the AUR, nor provided by one"
                 )
     # The packages of this repository built so far, by the names of their packages
+    if build.method == "local" and not dry:
+        # makepkg with the builder's own configuration and keyring, only checked
+        keys.prepare([root / p for p in packages], None, fetch=False)
     built: set[str] = set()
 
     for package in packages:
@@ -873,7 +886,9 @@ def build_packages(
     return 0
 
 
-def run_sysupgrade(checkout: Checkout, sign: bool | None, sync_options: Sequence[str]) -> int:
+def run_sysupgrade(
+    checkout: Checkout, sign: bool | None, sync_options: Sequence[str], fetch_keys: bool = False
+) -> int:
     """aur sync -u with our packages first.
 
     Ours (top level, local/, overrides/) that are in the aurutils repository with a newer version here
@@ -907,10 +922,20 @@ def run_sysupgrade(checkout: Checkout, sign: bool | None, sync_options: Sequence
                 selected.append(folder)
                 break
     if selected:
-        status = run_build(checkout, selected, Build(add=True, signing=signing))
+        status = run_build(checkout, selected, Build(add=True, signing=signing, fetch_keys=fetch_keys))
         if status:
             return status
     else:
         print(f"Our packages in {system.name} are up to date", file=sys.stderr)
     command = ["aur", "sync", "--database", system.name, "--upgrades", "--ignore", ",".join(ignore)]
+    if fetch_keys:
+        command.append("--auto-key-retrieve")
+    elif not {"-K", "--auto-key-retrieve", "--autokeyretrieve"} & set(sync_options):
+        # Its keys before it builds anything, in the keyring of its makepkg, the builder's own
+        queue = keys.aur_queue([], command[2:])
+        try:
+            keys.prepare(queue, None, fetch=False)
+        except keys.MissingKeys as error:
+            print(f"{error}\nOr run sysupgrade with -K", file=sys.stderr)
+            return 1
     return subprocess.run([*command, *(["--sign"] if signing else []), *sync_options], check=False).returncode
