@@ -576,8 +576,9 @@ class SystemRepo:
                 f"The database of {self.name} is signed, the packages need signing too (without --no-sign)"
             )
 
-    def add(self, files: Sequence[Path], signing: bool) -> None:
-        """Add package files, signed like the database (as aur build --sign does).
+    def add(self, files: Sequence[Path], signing: bool, remove: bool = False) -> None:
+        """Add package files, signed like the database (as aur build --sign does), with remove
+        deleting the files of the versions they replace (repo-add -R, as aur build -R).
 
         Not over a newer version (--prevent-downgrade), e.g. of an AUR dependency aur sync has updated
         there since. Not pacman's copy of the database, as aur build --chroot doesn't: pacman -Syu
@@ -614,6 +615,7 @@ class SystemRepo:
             "--wait-for-lock",
             "--prevent-downgrade",
             *(["--sign"] if signing else []),
+            *(["--remove"] if remove else []),
             "--",
             str(self.db),
             *added,
@@ -649,6 +651,8 @@ class Build:
     keep: bool = False
     add: bool = False
     signing: bool | None = None
+    # Delete the files of the versions --add replaces (repo-add -R)
+    remove: bool = False
     dotnet_bin: bool = False
     nuget_bin: bool = False
     testing: bool = False
@@ -793,6 +797,8 @@ def validate(build: Build) -> SystemRepo | None:
         build.keep = True
     if build.signing is not None and not build.add:
         raise BuildError("--sign and --no-sign are for the packages --add adds")
+    if build.remove and not build.add:
+        raise BuildError("--remove is for the packages --add adds")
     system: SystemRepo | None = None
     if build.add:
         if build.method == "local" or build.sanitise or build.target:
@@ -1164,12 +1170,13 @@ def build_packages(
         if dry:
             print(
                 f"# then add the packages of {repo} to the system's aurutils repository"
-                + (", signed" if build.signing else ""),
+                + (", signed" if build.signing else "")
+                + (", removing the files they replace" if build.remove else ""),
                 file=sys.stderr,
             )
         else:
             # Only once all have been built, so a failed build leaves the repository as it was
-            system.add(package_files(repo), bool(build.signing))
+            system.add(package_files(repo), bool(build.signing), build.remove)
     if build.method == "chroot" and build.keep and not dry:
         print(f"Repository kept at {repo}", file=sys.stderr)
         if build.sanitise:
@@ -1270,14 +1277,19 @@ def misplaced(
 
 
 def run_sysupgrade(
-    checkout: Checkout, sign: bool | None, sync_options: Sequence[str], settings: Build | None = None
+    checkout: Checkout,
+    sign: bool | None,
+    sync_options: Sequence[str],
+    settings: Build | None = None,
+    remove: bool = False,
 ) -> int:
     """aur sync -u with our packages first.
 
     Ours (top level, local/, overrides/) that are in the aurutils repository with a newer version here,
     and overrides newer than the installed package they replace, are built and added (build --add),
     then aur sync -u updates the rest, leaving all of ours out, which it would replace with the AUR's;
-    both sign as build --add decides.
+    both sign as build --add decides, and with remove delete the files of the versions they
+    replace (repo-add -R, aur sync -R).
     """
     require("sysupgrade", [("aur", "aurutils")])
     system = SystemRepo.find()
@@ -1303,7 +1315,7 @@ def run_sysupgrade(
     selected, ignore = upgrades(checkout, in_repo, installed)
     if selected:
         settings = settings or Build()
-        settings.add, settings.signing = True, signing
+        settings.add, settings.signing, settings.remove = True, signing, remove
         status = run_build(checkout, selected, settings)
         if status:
             return status
@@ -1320,4 +1332,6 @@ def run_sysupgrade(
         except keys.MissingKeys as error:
             print(f"{error}\nOr run sysupgrade with -K", file=sys.stderr)
             return 1
-    return subprocess.run([*command, *(["--sign"] if signing else []), *sync_options], check=False).returncode
+    command += ["--sign"] if signing else []
+    command += ["--remove"] if remove else []
+    return subprocess.run([*command, *sync_options], check=False).returncode

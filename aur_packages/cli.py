@@ -141,6 +141,7 @@ def run_build(checkout: Checkout, args: argparse.Namespace) -> int:
         keep=args.keep,
         add=args.add,
         signing=signing(args),
+        remove=args.remove,
         dotnet_bin=args.dotnet_bin,
         nuget_bin=args.nuget_bin,
         testing=args.testing,
@@ -317,7 +318,8 @@ for _command in (
         "repository (aur repo) once all have been built, and against the testing repositories if "
         "the system uses them; run it as the repository's owner, e.g. the aurutils user. They're "
         "signed ($GPGKEY, else gpg's default key, as aur build) if the database is or makepkg signs "
-        "(sign in BUILDENV), or as --sign or --no-sign say",
+        "(sign in BUILDENV), or as --sign or --no-sign say; -R deletes the files of the versions "
+        "they replace (repo-add -R, as aur build -R)",
         options=(
             Option(("--chroot",), "build in a clean chroot (default)"),
             Option(("--local",), "build with makepkg -fCd"),
@@ -327,6 +329,7 @@ for _command in (
             Option(("--add",), "add the packages to the system's aurutils repository"),
             Option(("--sign",), "sign the packages --add adds"),
             Option(("--no-sign",), "don't sign the packages --add adds"),
+            Option(("-R", "--remove"), "delete the files of the versions --add replaces (repo-add -R)"),
             Option(("--dotnet-bin",), "build with Microsoft's .NET"),
             Option(
                 ("--nuget-bin",),
@@ -346,14 +349,18 @@ for _command in (
     ),
     Command(
         "sysupgrade",
-        "[--sign|--no-sign] [-- AUR_SYNC_OPTION...]",
+        "[--sign|--no-sign] [-R] [-- AUR_SYNC_OPTION...]",
         "aur sync -u with our packages first: the packages of the top level, local/ and overrides/ in "
         "the aurutils repository with a newer version here, and those of overrides/ and local/ newer "
         "than the installed package they replace (Arch Linux's, the AUR's), are built and added (build --add), then "
-        "aur sync -u updates the rest, leaving all of ours out; both sign as build --add does",
+        "aur sync -u updates the rest, leaving all of ours out; both sign as build --add does, and "
+        "with -R delete the files of the versions they replace (repo-add -R, aur sync -R)",
         options=(
             Option(("-S", "--sign"), "sign the packages added"),
             Option(("--no-sign",), "don't sign the packages added"),
+            Option(
+                ("-R", "--remove"), "delete the files of the versions replaced (repo-add -R, aur sync -R)"
+            ),
             Option(("-K", "--auto-key-retrieve"), "fetch the PGP keys the packages need, like aur sync -K"),
             Option(("--system-repo",), "take dependencies from the system's aurutils repository"),
             Option(("--no-system-repo",), "build every dependency from this repository"),
@@ -367,6 +374,7 @@ for _command in (
             build.Build(
                 fetch_keys=args.auto_key_retrieve, reuse=args.repo or "", system_repo=system_repo(args)
             ),
+            args.remove,
         ),
     ),
     Command(

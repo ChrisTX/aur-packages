@@ -186,6 +186,33 @@ def test_repo_filename(tmp_path: Path) -> None:
         build.repo_filename(database, "pacman")
 
 
+def package(folder: Path, version: str) -> Path:
+    """A package file with nothing but its .PKGINFO, enough for repo-add."""
+    path = folder / f"libx-{version}-x86_64.pkg.tar.gz"
+    content = f"pkgname = libx\npkgbase = libx\npkgver = {version}\narch = x86_64\n".encode()
+    with tarfile.open(path, "w:gz") as archive:
+        member = tarfile.TarInfo(".PKGINFO")
+        member.size = len(content)
+        archive.addfile(member, io.BytesIO(content))
+    return path
+
+
+@pytest.mark.parametrize("remove", [False, True])
+def test_system_repo_add(tmp_path: Path, remove: bool) -> None:
+    built, root = tmp_path / "built", tmp_path / "repo"
+    built.mkdir()
+    root.mkdir()
+    system = build.SystemRepo("custom", root, root / "custom.db.tar.gz")
+    system.add([package(built, "1.0-1")], signing=False)
+    # Ours above the AUR's at the same pkgver, which pacman's vercmp takes for newer, unlike repoctl's
+    system.add([package(built, "1.0-1.1")], signing=False, remove=remove)
+    assert (root / "libx-1.0-1-x86_64.pkg.tar.gz").exists() != remove
+    # Not back to the older version (--prevent-downgrade)
+    system.add([package(built, "1.0-1")], signing=False, remove=remove)
+    with tarfile.open(system.db) as database:
+        assert [name for name in database.getnames() if "/" not in name] == ["libx-1.0-1.1"]
+
+
 def test_validate_refuses() -> None:
     with pytest.raises(build.BuildError, match="need a chroot build"):
         build.validate(build.Build(method="local", testing=True))
@@ -196,6 +223,8 @@ def test_validate_refuses() -> None:
     with pytest.raises(build.BuildError, match="are for the packages --add adds"):
         # local: CI has makepkg, but not aurutils, which a chroot build requires first
         build.validate(build.Build(method="local", signing=True))
+    with pytest.raises(build.BuildError, match="--remove is for the packages --add adds"):
+        build.validate(build.Build(method="local", remove=True))
 
 
 def test_package_files(tmp_path: Path) -> None:
