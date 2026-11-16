@@ -528,6 +528,60 @@ class Build:
     preinstall: list[str] = field(default_factory=list)
 
 
+def cross_ready(package: Path) -> bool:
+    """Whether a cross build can build a package for aarch64: the cross makepkg.conf only sets CARCH,
+    so a PKGBUILD that compiles has to build for it itself, else its compilers build for x86_64,
+    without an error. Ready: one that builds nothing (prebuilt sources, a selector), one that follows
+    $CARCH (a .NET RID, Node's architecture) or compiles for the Arch Linux ARM root ($ROOTFS_DIR),
+    and one with sources or other arrays of its own for aarch64. cross_built checks the result."""
+    if "aarch64" not in architectures(package):
+        return True
+    pkgbuild = (package / "PKGBUILD").read_text()
+    return (
+        not re.search(r"^build\(\)", pkgbuild, re.MULTILINE)
+        or re.search(r"\$\{?(CARCH|ROOTFS_DIR)\b", pkgbuild) is not None
+        or re.search(r"^\w+_aarch64=", pkgbuild, re.MULTILINE) is not None
+    )
+
+
+# The machine of an ELF file (e_machine), for the architectures a cross build could put into a package
+ELF_MACHINES = {3: "i386", 62: "x86_64", 183: "aarch64"}
+
+
+def cross_built(package_file: Path) -> list[str]:
+    """The files of a package cross-built for aarch64 that are ELF files for x86, which cross_ready
+    let through: a PKGBUILD that compiles for the build host after all."""
+    wrong = []
+    with tarfile.open(package_file) as archive:
+        for member in archive:
+            if not member.isfile() or member.size < 20:
+                continue
+            content = archive.extractfile(member)
+            header = content.read(20) if content else b""
+            if header[:4] != b"\x7fELF":
+                continue
+            # e_machine: 2 bytes at offset 18, in the file's byte order (EI_DATA, 1: little endian)
+            machine = int.from_bytes(header[18:20], "little" if header[5] == 1 else "big")
+            if ELF_MACHINES.get(machine) in ("i386", "x86_64"):
+                wrong.append(f"{member.name} ({ELF_MACHINES[machine]})")
+    return wrong
+
+
+def check_cross_built(folder: Path, cross_repo: Path) -> None:
+    """Fail when a package cross-built for aarch64 has programs or libraries for x86."""
+    srcinfo = Srcinfo.load(folder)
+    for name in srcinfo.packages:
+        for package_file in cross_repo.glob(f"{name}-{srcinfo.version()}-aarch64.pkg.tar.*"):
+            if package_file.name.endswith(".sig"):
+                continue
+            if wrong := cross_built(package_file):
+                raise BuildError(
+                    f"{package_file.name} was cross-built with files for x86, so its PKGBUILD doesn't "
+                    f"build for aarch64 itself: {', '.join(wrong[:5])}. Build it with --target "
+                    "aarch64-native instead"
+                )
+
+
 def architectures(package: Path) -> list[str]:
     """The architectures of a package, of its pkgbase and its packages."""
     return [value for key, value in srcinfo_lines(package) if key == "arch"]
@@ -692,6 +746,12 @@ def build_all(checkout: Checkout, names: Sequence[str], build: Build) -> int:
     packages = order(checkout, build.targets, graph)
     if not packages:
         raise BuildError("Nothing to build")
+    if cross and (unprepared := [p for p in packages if not cross_ready(checkout.root / p)]):
+        raise BuildError(
+            "--target aarch64 cross-builds only PKGBUILDs that build for aarch64 themselves ($CARCH, "
+            f"$ROOTFS_DIR), unlike these: {', '.join(unprepared)}. Their aarch64 packages would have "
+            "x86_64 programs: build them natively under QEMU with --target aarch64-native instead"
+        )
     # The dependencies the system's aurutils repository has in their current version come from there
     # (--system-repo), by default for its own packages (--add, sysupgrade)
     if build.system_repo and (build.method == "local" or build.target):
@@ -921,6 +981,7 @@ def build_packages(
             else:
                 print(f">>> Building {package} for aarch64", file=sys.stderr)
                 run(command, cwd=folder)
+                check_cross_built(folder, cross_repo)
 
     if system is not None:
         if dry:

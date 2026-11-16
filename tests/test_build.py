@@ -1,5 +1,7 @@
 """The build order, the multilib containers and the configurations of the builds."""
 
+import io
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -65,6 +67,43 @@ def test_roots(checkout: Checkout) -> None:
 
 def test_architectures(checkout: Checkout) -> None:
     assert build.architectures(checkout.root / "app") == ["x86_64", "aarch64"]
+
+
+def test_cross_ready(checkout: Checkout) -> None:
+    app = checkout.root / "app"
+    # Not for aarch64 (x86_64 only, any): nothing to cross-build
+    assert build.cross_ready(checkout.root / "lib")
+    assert build.cross_ready(checkout.root / "lone")
+    # For aarch64, building nothing (prebuilt sources, a selector)
+    assert build.cross_ready(app)
+    # Compiling, but not for $CARCH: the compilers would build for x86_64
+    (app / "PKGBUILD").write_text("build() {\n  go build\n}\n")
+    assert not build.cross_ready(app)
+    for ready in (
+        'build() {\n  case "$CARCH" in aarch64) rid=arm64 ;; esac\n}\n',
+        'build() {\n  cc --sysroot="${ROOTFS_DIR}" x.c\n}\n',
+        "source_aarch64=(x-arm64.tar.gz)\nbuild() {\n  make\n}\n",
+    ):
+        (app / "PKGBUILD").write_text(ready)
+        assert build.cross_ready(app)
+
+
+def test_cross_built(tmp_path: Path) -> None:
+    def elf(machine: int) -> bytes:
+        # Little endian (EI_DATA 1), e_machine at offset 18
+        return b"\x7fELF\x02\x01" + bytes(12) + machine.to_bytes(2, "little") + bytes(44)
+
+    package = tmp_path / "x-1-1-aarch64.pkg.tar.gz"
+    with tarfile.open(package, "w:gz") as archive:
+        for name, content in [
+            ("usr/bin/good", elf(183)),
+            ("usr/bin/wrong", elf(62)),
+            ("usr/share/doc/x/README", b"text, not an ELF file at all"),
+        ]:
+            member = tarfile.TarInfo(name)
+            member.size = len(content)
+            archive.addfile(member, io.BytesIO(content))
+    assert build.cross_built(package) == ["usr/bin/wrong (x86_64)"]
 
 
 def test_sanitise_makepkg_conf(tmp_path: Path) -> None:
