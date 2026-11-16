@@ -1,4 +1,4 @@
-"""The checks of every commit: quoting, pins, readme and sync, and the .SRCINFO they read."""
+"""The checks of every commit: gitignore, quoting, pins, readme and sync, and the .SRCINFO they read."""
 
 import shutil
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from aur_packages import checks, pins
-from aur_packages.repo import Checkout
+from aur_packages.repo import GITIGNORE, Checkout
 from aur_packages.srcinfo import Srcinfo
 
 SRCINFO = """\
@@ -148,3 +148,30 @@ def test_sync(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     # overrides keep Arch Linux's files
     assert not (tmp_path / "overrides" / "arch" / ".typos.toml").exists()
     assert checks.run_sync(checkout, [], dry_run=True) == 0
+
+
+def test_gitignore_missing() -> None:
+    # The template with lines of the package's own, before its end comment as well as after it
+    own = (
+        GITIGNORE.replace("# End of", "# The source archive\n*.tar.gz\n\n# End of") + "\n# Git sources\nx/\n"
+    )
+    assert checks.gitignore_missing(own) == []
+    # An AUR package's own .gitignore from before it came here
+    assert checks.gitignore_missing("x*.tar.*\n\npkg\nsrc\n") == [
+        "*.tar", "*.tar.*", "*.jar", "*.exe", "*.msi", "*.zip", "*.tgz", "*.log", "*.log.*", "*.sig", "pkg/", "src/",
+    ]  # fmt: skip
+
+
+def test_gitignore(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    package(tmp_path, "one", single("one"))
+    package(tmp_path, "overrides/arch", single("arch"))
+    checkout = Checkout(tmp_path, tmp_path)
+    (tmp_path / "one" / ".gitignore").write_text(GITIGNORE.replace("*.log\n", ""))
+    assert checks.run_gitignore(checkout, []) == 1
+    err = capsys.readouterr().err
+    assert "one/.gitignore lacks patterns of the archlinuxpackages template: *.log\n" in err
+    # overrides/ get it from ./aur-packages overrides add, and are checked as well
+    assert "overrides/arch/.gitignore is missing" in err
+    (tmp_path / "one" / ".gitignore").write_text(GITIGNORE)
+    (tmp_path / "overrides" / "arch" / ".gitignore").write_text(GITIGNORE)
+    assert checks.run_gitignore(checkout, []) == 0

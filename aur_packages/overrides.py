@@ -9,7 +9,7 @@ from pathlib import Path
 
 from aur_packages.git import git, sign
 from aur_packages.git import run as run_git
-from aur_packages.repo import Checkout, SelectionError
+from aur_packages.repo import GITIGNORE, Checkout, SelectionError
 from aur_packages.srcinfo import Srcinfo
 from aur_packages.tools import require
 
@@ -93,28 +93,6 @@ def run_check(checkout: Checkout, packages: Sequence[str]) -> int:
     )
     return 1 if any(override_status(checkout, f) == 1 for f in folders) else 0
 
-
-GITIGNORE = """\
-# Created by https://www.toptal.com/developers/gitignore/api/archlinuxpackages
-# Edit at https://www.toptal.com/developers/gitignore?templates=archlinuxpackages
-
-### ArchLinuxPackages ###
-*.tar
-*.tar.*
-*.jar
-*.exe
-*.msi
-*.zip
-*.tgz
-*.log
-*.log.*
-*.sig
-
-pkg/
-src/
-
-# End of https://www.toptal.com/developers/gitignore/api/archlinuxpackages
-"""
 
 GITIGNORE_ANNOTATION = """
 [[annotations]]

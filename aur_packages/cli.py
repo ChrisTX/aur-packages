@@ -250,7 +250,7 @@ for _command in (
         "Run the checks of .pre-commit-config.yaml with prek or pre-commit, or with --manual also the "
         "ones that only run on request (termux-language-server). Packages given, only theirs: the "
         "hooks of their own .pre-commit-config.yaml, and those of the top level that check single "
-        "packages (templates, quoting, pins, upstream, maintainers; for overrides/ only templates)",
+        "packages (templates, gitignore, keys, quoting, pins, upstream, maintainers; for overrides/ only templates, gitignore and keys)",
         options=(Option(("--manual",), "also run the checks that only run on request"),),
         arguments="packages",
         run=lambda checkout, args: checks.run_check(checkout, args.arguments, args.manual),
@@ -420,6 +420,14 @@ for _command in (
         run=lambda checkout, args: with_arguments(
             args, 1, 3, lambda f: hooks.run_prepare_commit_msg(checkout, f[0], f[1] if len(f) > 1 else "")
         ),
+    ),
+    Command(
+        "gitignore",
+        "",
+        "Check that each package's .gitignore has the patterns of toptal's archlinuxpackages template, "
+        "as CONTRIBUTING.md asks, next to its own (run by the gitignore hook)",
+        arguments="packages",
+        run=lambda checkout, args: checks.run_gitignore(checkout, args.arguments),
     ),
     Command(
         "quoting",

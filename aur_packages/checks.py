@@ -10,7 +10,7 @@ from typing import Any
 
 from aur_packages import git, keys, pins, upstream
 from aur_packages import maintainers as maintainer_lines
-from aur_packages.repo import Checkout
+from aur_packages.repo import GITIGNORE, Checkout
 from aur_packages.srcinfo import Srcinfo
 from aur_packages.tools import hook_runner, hook_runner_tool, require
 
@@ -181,6 +181,34 @@ def run_maintainers(checkout: Checkout, packages: Sequence[str], aur: bool, as_j
 
 
 # The files every package copies from templates/package, so it can be checked on its own
+def gitignore_missing(text: str) -> list[str]:
+    """The patterns of the archlinuxpackages template (GITIGNORE) a .gitignore lacks; its comments
+    and where a package adds its own lines don't matter."""
+    have = {line.strip() for line in text.splitlines()}
+    return [line for line in GITIGNORE.splitlines() if line and not line.startswith("#") and line not in have]
+
+
+def run_gitignore(checkout: Checkout, packages: Sequence[str]) -> int:
+    """Each package's .gitignore against the archlinuxpackages template, which ignores the builds'
+    downloads, packages and logs (makechrootpkg moves its logs next to the PKGBUILD)."""
+    status = 0
+    for package in checkout.select(packages):
+        path = checkout.root / package / ".gitignore"
+        if not path.is_file():
+            print(
+                f"{package}/.gitignore is missing: start it from the archlinuxpackages template",
+                file=sys.stderr,
+            )
+            status = 1
+        elif missing := gitignore_missing(path.read_text()):
+            print(
+                f"{package}/.gitignore lacks patterns of the archlinuxpackages template: {' '.join(missing)}",
+                file=sys.stderr,
+            )
+            status = 1
+    return status
+
+
 TEMPLATE_FILES = (".editorconfig", ".pre-commit-config.yaml", ".typos.toml")
 
 
@@ -250,7 +278,7 @@ def run_check(checkout: Checkout, packages: Sequence[str], manual: bool) -> int:
     """The checks of .pre-commit-config.yaml, with manual also those that only run on request.
 
     Packages given, only theirs: the hooks of their own .pre-commit-config.yaml, and those of the
-    top level that check single packages (templates, quoting, pins, upstream, maintainers), not for
+    top level that check single packages (templates, gitignore, quoting, pins, upstream, maintainers), not for
     overrides/ where the hooks leave them out either. The top level's copies of the package hooks would check
     the same files again, and its other hooks check every package.
     """
@@ -271,6 +299,7 @@ def run_check(checkout: Checkout, packages: Sequence[str], manual: bool) -> int:
         status |= run_package_hooks(configured, ["--hook-stage", "manual"])
     status |= run_sync(checkout, selected, dry_run=True)
     status |= keys.run_keys(checkout, selected, fetch=False)
+    status |= run_gitignore(checkout, selected)
     ours = [p for p in selected if not p.startswith("overrides/")]
     if ours:
         status |= run_quoting(checkout, ours)

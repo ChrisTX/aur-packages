@@ -18,6 +18,30 @@ BUILD_TEMPLATES: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# The .gitignore of every package (CONTRIBUTING.md), toptal's archlinuxpackages template, which
+# each one may add its own lines to
+GITIGNORE = """\
+# Created by https://www.toptal.com/developers/gitignore/api/archlinuxpackages
+# Edit at https://www.toptal.com/developers/gitignore?templates=archlinuxpackages
+
+### ArchLinuxPackages ###
+*.tar
+*.tar.*
+*.jar
+*.exe
+*.msi
+*.zip
+*.tgz
+*.log
+*.log.*
+*.sig
+
+pkg/
+src/
+
+# End of https://www.toptal.com/developers/gitignore/api/archlinuxpackages
+"""
+
 # The folders of packages that aren't published to the AUR
 OUTSIDE_AUR = ("local", "overrides")
 
