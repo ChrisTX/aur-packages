@@ -27,6 +27,12 @@ def hook_runner() -> str:
     return "prek" if shutil.which("prek") else "pre-commit"
 
 
+def hook_runner_tool() -> tuple[str, str]:
+    """The hook runner for require: prek, unless pre-commit is installed (and prek isn't)."""
+    runner = hook_runner()
+    return (runner, runner) if shutil.which(runner) else ("prek", "prek")
+
+
 def warn(message: str) -> None:
     """A message on stderr, prefixed like the errors of the commands."""
     print(f"aur-packages: {message}", file=sys.stderr)

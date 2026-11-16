@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from aur_packages import checks
+from aur_packages import checks, hooks
 from aur_packages.repo import BUILD_TEMPLATES, Checkout, SelectionError
 from aur_packages.tools import MissingTools
 
@@ -107,6 +107,16 @@ def run_completion(checkout: Checkout, args: argparse.Namespace) -> int:
     return 0
 
 
+def with_files(args: argparse.Namespace, least: int, most: int, run: Callable[[list[str]], int]) -> int:
+    """Run a command that takes FILE and more positional arguments, or fail with a usage error."""
+    given: list[str] = args.arguments
+    if not least <= len(given) <= most:
+        expected = f"{least} argument" if least == most == 1 else f"{least} to {most} arguments"
+        print(f"aur-packages: expected {expected}, got {len(given)}", file=sys.stderr)
+        return 2
+    return run(given)
+
+
 SECTIONS = ("PowerShell", ".NET", "SourceMod", "Other")
 SANITISERS = ("undefined", "address", "address,undefined")
 TARGETS = ("aarch64", "aarch64-native")
@@ -180,10 +190,11 @@ for _command in (
         "",
         "Run the checks of .pre-commit-config.yaml with prek or pre-commit, or with --manual also the "
         "ones that only run on request (termux-language-server). Packages given, only theirs: the "
-        "hooks of their own .pre-commit-config.yaml, whether they match templates/package and the "
-        "quoting of their metadata arrays",
+        "hooks of their own .pre-commit-config.yaml, and those of the top level that check single "
+        "packages (templates, quoting, pins, maintainers; for overrides/ only templates)",
         options=(Option(("--manual",), "also run the checks that only run on request"),),
         arguments="packages",
+        run=lambda checkout, args: checks.run_check(checkout, args.arguments, args.manual),
     ),
     Command(
         "commits",
@@ -265,6 +276,7 @@ for _command in (
         "",
         "Install the git hooks that run the checks before each commit, replacing aurpublish's, fill "
         "in the summary of the commit message and check it",
+        run=lambda checkout, args: hooks.run_setup(checkout),
     ),
     Command(
         "tray",
@@ -282,6 +294,7 @@ for _command in (
         "FILE",
         "Check a commit message against the convention in CONTRIBUTING.md (run by the commit-msg hook)",
         arguments="files",
+        run=lambda checkout, args: with_files(args, 1, 1, lambda f: hooks.run_commit_msg(checkout, f[0])),
     ),
     Command(
         "prepare-commit-msg",
@@ -290,6 +303,9 @@ for _command in (
         "staged version when they change a package's version, else the scope (run by the "
         "prepare-commit-msg hook)",
         arguments="files",
+        run=lambda checkout, args: with_files(
+            args, 1, 3, lambda f: hooks.run_prepare_commit_msg(checkout, f[0], f[1] if len(f) > 1 else "")
+        ),
     ),
     Command(
         "quoting",
@@ -475,7 +491,8 @@ def parser_for(command: Command) -> argparse.ArgumentParser:
     if isinstance(command.arguments, tuple):
         parser.add_argument("choice", choices=command.arguments)
     elif command.arguments is not None:
-        parser.add_argument("arguments", nargs="*")
+        metavar = {"files": "FILE", "dirs": "DIR", "commands": "COMMAND"}.get(command.arguments, "PACKAGE")
+        parser.add_argument("arguments", nargs="*", metavar=metavar)
     return parser
 
 

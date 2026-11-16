@@ -11,7 +11,7 @@ from typing import Any
 from aur_packages import maintainers as maintainer_lines
 from aur_packages.repo import Checkout
 from aur_packages.srcinfo import Srcinfo
-from aur_packages.tools import require
+from aur_packages.tools import hook_runner, hook_runner_tool, require
 
 
 def strip_pkgbuild(names: Sequence[str]) -> list[str]:
@@ -249,3 +249,58 @@ def run_sync(checkout: Checkout, packages: Sequence[str], dry_run: bool) -> int:
             path.write_text(text)
             print(f"Updated {name}")
     return status
+
+
+def run_package_hooks(packages: Sequence[str], stage: list[str]) -> int:
+    """The hooks of the packages' own .pre-commit-config.yaml on their files."""
+    runner = hook_runner()
+    if runner == "prek":
+        # prek's workspace has a project per package folder, named package/
+        files = git_files(packages)
+        return subprocess.run(
+            ["prek", "run", "--refresh", *stage, *(f"{p}/" for p in packages), "--files", *files], check=False
+        ).returncode
+    # pre-commit has no workspaces: one package after the other, with its configuration
+    status = 0
+    for package in packages:
+        command = ["pre-commit", "run", *stage, "--config", f"{package}/.pre-commit-config.yaml"]
+        status |= subprocess.run([*command, "--files", *git_files([package])], check=False).returncode
+    return status
+
+
+def git_files(packages: Sequence[str]) -> list[str]:
+    return subprocess.run(
+        ["git", "ls-files", "--", *packages], capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+
+
+def run_check(checkout: Checkout, packages: Sequence[str], manual: bool) -> int:
+    """The checks of .pre-commit-config.yaml, with manual also those that only run on request.
+
+    Packages given, only theirs: the hooks of their own .pre-commit-config.yaml, and those of the
+    top level that check single packages (templates, quoting, pins, maintainers), not for overrides/
+    where the hooks leave them out either. The top level's copies of the package hooks would check
+    the same files again, and its other hooks check every package.
+    """
+    require("check", [hook_runner_tool()])
+    runner = hook_runner()
+    if not packages:
+        refresh = ["--refresh"] if runner == "prek" else []
+        status = subprocess.run([runner, "run", *refresh, "--all-files"], check=False).returncode
+        if manual:
+            stage = ["--hook-stage", "manual"]
+            status |= subprocess.run([runner, "run", *refresh, *stage, "--all-files"], check=False).returncode
+        return 1 if status else 0
+    selected = checkout.select(packages)
+    # Arch Linux's packages in overrides/ have no configuration of their own, unless an override got one
+    configured = [p for p in selected if (checkout.root / p / ".pre-commit-config.yaml").exists()]
+    status = run_package_hooks(configured, []) if configured else 0
+    if manual and configured:
+        status |= run_package_hooks(configured, ["--hook-stage", "manual"])
+    status |= run_sync(checkout, selected, dry_run=True)
+    ours = [p for p in selected if not p.startswith("overrides/")]
+    if ours:
+        status |= run_quoting(checkout, ours)
+        status |= run_pins(checkout, ours)
+        status |= run_maintainers(checkout, ours, aur=False, as_json=False)
+    return 1 if status else 0
