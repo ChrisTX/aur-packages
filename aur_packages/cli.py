@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from aur_packages import aur, checks, hooks, overrides, pins, tray, updates
+from aur_packages import aur, build, checks, hooks, overrides, pins, tray, updates
 from aur_packages.repo import BUILD_TEMPLATES, Checkout, SelectionError
 from aur_packages.tools import MissingTools
 
@@ -117,6 +117,35 @@ def with_arguments(args: argparse.Namespace, least: int, most: int, run: Callabl
         print(f"aur-packages: expected {expected}, got {len(given)}", file=sys.stderr)
         return 2
     return run(given)
+
+
+def signing(args: argparse.Namespace) -> bool | None:
+    """--sign or --no-sign, the later one winning; None without either."""
+    if args.sign and args.no_sign:
+        print("aur-packages: --sign and --no-sign contradict each other", file=sys.stderr)
+        raise SystemExit(2)
+    return True if args.sign else False if args.no_sign else None
+
+
+def run_build(checkout: Checkout, args: argparse.Namespace) -> int:
+    if args.chroot and args.local:
+        print("aur-packages: --chroot and --local contradict each other", file=sys.stderr)
+        return 2
+    settings = build.Build(
+        method="local" if args.local else "chroot",
+        install=args.install,
+        dry_run=args.dry_run,
+        keep=args.keep,
+        add=args.add,
+        signing=signing(args),
+        dotnet_bin=args.dotnet_bin,
+        libs_bin=args.libs_bin,
+        testing=args.testing,
+        sanitise=args.sanitize or "",
+        target=args.target or "",
+        reuse=args.repo or "",
+    )
+    return build.run_build(checkout, args.arguments, settings)
 
 
 SECTIONS = ("PowerShell", ".NET", "SourceMod", "Other")
@@ -270,6 +299,7 @@ for _command in (
             Option(("--repo",), "continue in the repo of an earlier --keep", "DIR", "dirs"),
         ),
         arguments="buildables",
+        run=lambda checkout, args: run_build(checkout, args),
     ),
     Command(
         "sysupgrade",
@@ -282,6 +312,7 @@ for _command in (
             Option(("--no-sign",), "don't sign the packages added"),
         ),
         passthrough=True,
+        run=lambda checkout, args: build.run_sysupgrade(checkout, signing(args), args.passthrough),
     ),
     Command(
         "sync",
@@ -600,8 +631,15 @@ def run(root: Path, cwd: Path, argv: Sequence[str]) -> int:
             return 0
     if target.run is None:
         return run_legacy(root, cwd, argv)
+    # The arguments after -- go to another program as they are
+    rest: list[str] = []
+    if target.passthrough and "--" in args:
+        rest = args[args.index("--") + 1 :]
+        args = args[: args.index("--")]
     try:
-        return target.run(checkout, parser_for(target, prog).parse_intermixed_args(args))
+        parsed = parser_for(target, prog).parse_intermixed_args(args)
+        parsed.passthrough = rest
+        return target.run(checkout, parsed)
     except (SelectionError, MissingTools) as error:
         print(error, file=sys.stderr)
         return 1
