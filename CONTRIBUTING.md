@@ -11,7 +11,7 @@ The tools of the checks are all in the Arch Linux repositories, apart from PSScr
 ```bash
 sudo pacman -S --needed base-devel devtools pacman-contrib namcap nvchecker jq \
   prek shfmt shellcheck shellharden ruff biome tombi rumdl typos systemd-lsp \
-  editorconfig-checker reuse
+  editorconfig-checker reuse mypy python-pytest
 ```
 
 `./aur-packages build` also needs aurutils, and the aarch64 builds `qemu-user-static-binfmt`; publishing to the AUR (`./aur-packages pull` and `push`) needs aurpublish. Each command checks first that the tools it needs are installed, and names their packages otherwise. Then install the git hooks, which run the checks on the staged files before each commit and check the commit message; `setup` checks first that the tools of the checks are installed:

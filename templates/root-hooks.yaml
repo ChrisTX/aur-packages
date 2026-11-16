@@ -34,6 +34,18 @@
         entry: ./aur-packages readme
         pass_filenames: false
         always_run: true
+      - id: mypy
+        name: types of aur-packages (mypy)
+        language: system
+        entry: mypy
+        files: ^(aur-packages|aur_packages/.*\.py|tests/.*\.py|pyproject\.toml)$
+        pass_filenames: false
+      - id: pytest
+        name: tests of aur-packages (pytest)
+        language: system
+        entry: pytest -q
+        files: ^(aur-packages|aur_packages/.*\.py|tests/.*\.py|pyproject\.toml)$
+        pass_filenames: false
       - id: reuse-lint
         name: reuse lint (reuse)
         language: system

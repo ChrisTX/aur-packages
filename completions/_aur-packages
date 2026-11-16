@@ -1,142 +1,33 @@
 #compdef aur-packages
 # Completion of aur-packages for zsh, which takes it for ./aur-packages as well. Either in ~/.zshrc,
 # after compinit: source <(aur-packages completion zsh)
-# or saved as _aur-packages in a folder of $fpath.
-
-# The packages and the build templates of the checkout the command works on, from the command itself
-# ($_aur_packages_program of _aur-packages)
-_aur-packages_packages() {
-  local -a packages=(${(f)"$(_call_program packages $_aur_packages_program list 2>/dev/null)"})
-  _wanted packages expl package compadd "$@" -a packages
-}
-# The packages of local/, which publish takes
-_aur-packages_local() {
-  local -a packages=(${(f)"$(_call_program packages $_aur_packages_program list --local 2>/dev/null)"})
-  _wanted packages expl 'package of local/' compadd "$@" -a packages
-}
-_aur-packages_templates() {
-  local -a templates=(${(f)"$(_call_program templates $_aur_packages_program list --templates 2>/dev/null)"})
-  _wanted templates expl 'build template' compadd "$@" -a templates
-}
-# The packages and the build templates, for build
-_aur-packages_buildables() {
-  _alternative 'packages:package:_aur-packages_packages' 'templates:build template:_aur-packages_templates'
-}
+# or saved as _aur-packages in a folder of $fpath. The candidates come from the program itself
+# (aur-packages __complete), so they always match the checkout's commands.
 
 _aur-packages() {
-  local curcontext=$curcontext state line ret=1
-  local _aur_packages_program=${(Q)words[1]}
-  local -a commands=(
-    'pull:pull the packages from the AUR'
-    'push:check, then push the packages to the AUR'
-    'adopt:merge the history the AUR has of packages into their subtrees'
-    'publish:move packages of local/ to the top level, to push them'
-    'updates:show which packages have a newer upstream version'
-    'upgrade:upgrade the packages to their latest upstream version'
-    'check:run the checks of .pre-commit-config.yaml'
-    'commits:show the upstream commits of the pinned _commit values'
-    'build:build packages or a template with their dependencies'
-    'sysupgrade:aur sync -u with our packages first'
-    'sync:copy templates/package into the packages'
-    'overrides:compare, add, pull or remove the packages of overrides/'
-    'setup:install the git hooks'
-    'tray:install or remove the daily update check and its tray icon'
-    'commit-msg:check a commit message'
-    'prepare-commit-msg:fill in the summary of a commit message'
-    'quoting:check the quoting of the metadata arrays'
-    'maintainers:check the Maintainer and Contributor lines'
-    'list:list the packages or the build templates'
-    'completion:print the completion script of a shell'
-    'help:show the help'
-  )
-  _arguments -C '1:command:->command' '*::argument:->argument' && ret=0
-  case $state in
-    command)
-      _describe -t commands command commands && ret=0
+  local line value description
+  local -a lines described
+  lines=(${(f)"$(_call_program candidates ${words[1]} __complete ${(q)words[2,CURRENT]} 2>/dev/null)"})
+  case ${lines[1]-} in
+    :files)
+      _files
+      return
       ;;
-    argument)
-      curcontext=${curcontext%:*:*}:aur-packages-$words[1]:
-      case $words[1] in
-        updates)
-          _arguments '--state[write the result for the tray icon]' '--retry[check rate-limited packages again later (with --state)]' '*:package:_aur-packages_packages' && ret=0
-          ;;
-        pull | adopt | upgrade | quoting)
-          _arguments '*:package:_aur-packages_packages' && ret=0
-          ;;
-        publish)
-          _arguments '--section=[the table of README.md]:section:(PowerShell .NET SourceMod Other)' \
-            "--adopt[merge the AUR's history of a package that's ours there now]" \
-            '*:package of local/:_aur-packages_local' && ret=0
-          ;;
-        push)
-          _arguments '--nocheck[push without running the checks]' \
-            '--force[also push packages without commits since their last push]' \
-            '*--exclude=[leave a package out]:package:_aur-packages_packages' \
-            '*:package:_aur-packages_packages' && ret=0
-          ;;
-        check)
-          _arguments '--manual[also run the checks that only run on request]' \
-            '*:package:_aur-packages_packages' && ret=0
-          ;;
-        maintainers)
-          _arguments "--aur[compare with the maintainers on the AUR]" '*:package:_aur-packages_packages' && ret=0
-          ;;
-        commits)
-          _arguments '--update[rewrite stale _commit values]' '*:package:_aur-packages_packages' && ret=0
-          ;;
-        sync)
-          _arguments '--check[only report differences]' '*:package:_aur-packages_packages' && ret=0
-          ;;
-        sysupgrade)
-          _arguments '(--no-sign)--sign[sign the packages added]' "(--sign)--no-sign[don't sign the packages added]" \
-            '*::aur sync option:' && ret=0
-          ;;
-        build)
-          _arguments \
-            '(--local)--chroot[build in a clean chroot (default)]' \
-            '(--chroot)--local[build with makepkg -fCd]' \
-            '--install[install each result of a local build]' \
-            '(-n --dry-run)'{-n,--dry-run}'[print the plan]' \
-            '--keep[keep the chroot repo]' \
-            "--add[add the packages to the system's aurutils repository]" \
-            '(--no-sign)--sign[sign the packages --add adds]' \
-            "(--sign)--no-sign[don't sign the packages --add adds]" \
-            "--dotnet-bin[build with Microsoft's .NET]" \
-            '--libs-bin[build with the libraries from nuget.org]' \
-            "--testing[build against Arch Linux's testing repositories]" \
-            '--sanitize=[make test builds with the sanitisers]:sanitiser:(undefined address address,undefined)' \
-            '--target=[build for another architecture]:target:((aarch64\:"cross-build for aarch64" aarch64-native\:"build for aarch64 under QEMU"))' \
-            '--repo=[continue in the repo of an earlier --keep]:repo:_directories' \
-            '*:package or template:_aur-packages_buildables' &&
-            ret=0
-          ;;
-        list)
-          _arguments '(--local)--templates[list the build templates]' '(--templates)--local[list the packages of local/]' && ret=0
-          ;;
-        commit-msg | prepare-commit-msg)
-          _arguments '1:commit message file:_files' && ret=0
-          ;;
-        completion)
-          _arguments '1:shell:(bash zsh fish pwsh)' && ret=0
-          ;;
-        overrides)
-          _arguments '1:action:((check\:"compare with Arch Linux'"'"'s repositories" add\:"import Arch Linux'"'"'s packaging of a package" pull\:"merge Arch Linux'"'"'s updates" remove\:"remove overrides Arch Linux has caught up with"))' \
-            '*::argument:->override' && ret=0
-          if [[ $state == override ]]; then
-            case ${words[1]} in
-              add) _message 'package of Arch Linux' && ret=0 ;;
-              remove) _arguments '--force[remove it even if Arch Linux has not caught up]' '*:package:_aur-packages_packages' && ret=0 ;;
-              *) _arguments '*:package:_aur-packages_packages' && ret=0 ;;
-            esac
-          fi
-          ;;
-        tray)
-          _arguments '1:action:((install\:"install the update check and the tray icon" remove\:"remove them"))' && ret=0
-          ;;
-      esac
+    :dirs)
+      _directories
+      return
       ;;
   esac
-  return ret
+  for line in $lines; do
+    value=${line%%$'\t'*}
+    description=${line#*$'\t'}
+    if [[ $description == $line ]]; then
+      described+=("${value//:/\\:}")
+    else
+      described+=("${value//:/\\:}:$description")
+    fi
+  done
+  _describe -t candidates candidate described
 }
 
 # Loaded from $fpath, the function is called; sourced, it's registered

@@ -1,0 +1,15 @@
+# The tooling of aur-packages (aur_packages/), not a package to install: ./aur-packages runs it from
+# the checkout.
+
+[tool.mypy]
+files = ["aur-packages", "aur_packages", "tests"]
+python_version = "3.14"
+strict = true
+
+[tool.pytest]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py314"

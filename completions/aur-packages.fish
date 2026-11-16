@@ -1,84 +1,20 @@
 # Completion of aur-packages for fish, which takes it for ./aur-packages as well. Either in
 # ~/.config/fish/config.fish: aur-packages completion fish | source
-# or saved as ~/.config/fish/completions/aur-packages.fish.
+# or saved as ~/.config/fish/completions/aur-packages.fish. The candidates come from the program
+# itself (aur-packages __complete), so they always match the checkout's commands.
 
-# The packages (or with --templates the build templates, with --local those of local/) of the checkout the command works on, from
-# the command itself
-function __aur_packages_list
-    set -l program (commandline -opc)[1]
-    $program list $argv 2>/dev/null
+function __aur_packages_complete
+    set -l words (commandline -opc)
+    set -l current (commandline -ct)
+    set -l lines ($words[1] __complete $words[2..-1] "$current" 2>/dev/null)
+    switch "$lines[1]"
+        case :files
+            __fish_complete_path "$current"
+        case :dirs
+            __fish_complete_directories "$current"
+        case '*'
+            printf '%s\n' $lines
+    end
 end
 
-set -l commands pull push adopt publish updates upgrade check commits build sysupgrade sync setup overrides tray commit-msg prepare-commit-msg quoting maintainers list completion help
-set -l none "not __fish_seen_subcommand_from $commands"
-
-complete -c aur-packages -f
-complete -c aur-packages -n $none -a pull -d 'Pull the packages from the AUR'
-complete -c aur-packages -n $none -a push -d 'Check, then push the packages to the AUR'
-complete -c aur-packages -n $none -a adopt -d 'Merge the history the AUR has of packages'
-complete -c aur-packages -n $none -a publish -d 'Move packages of local/ to the top level'
-complete -c aur-packages -n $none -a updates -d 'Show which packages have a newer upstream version'
-complete -c aur-packages -n $none -a upgrade -d 'Upgrade the packages to their latest upstream version'
-complete -c aur-packages -n $none -a check -d 'Run the checks of .pre-commit-config.yaml'
-complete -c aur-packages -n $none -a commits -d 'Show the upstream commits of the pinned _commit values'
-complete -c aur-packages -n $none -a build -d 'Build packages or a template with their dependencies'
-complete -c aur-packages -n $none -a sysupgrade -d 'aur sync -u with our packages first'
-complete -c aur-packages -n $none -a sync -d 'Copy templates/package into the packages'
-complete -c aur-packages -n $none -a setup -d 'Install the git hooks'
-complete -c aur-packages -n $none -a tray -d 'Install or remove the daily update check and its tray icon'
-complete -c aur-packages -n $none -a overrides -d 'Compare, add, pull or remove the packages of overrides/'
-complete -c aur-packages -n $none -a commit-msg -d 'Check a commit message'
-complete -c aur-packages -n $none -a prepare-commit-msg -d 'Fill in the summary of a commit message'
-complete -c aur-packages -n $none -a quoting -d 'Check the quoting of the metadata arrays'
-complete -c aur-packages -n $none -a maintainers -d 'Check the Maintainer and Contributor lines'
-complete -c aur-packages -n $none -a list -d 'List the packages or the build templates'
-complete -c aur-packages -n $none -a completion -d 'Print the completion script of a shell'
-complete -c aur-packages -n $none -a help -d 'Show the help'
-
-complete -c aur-packages -n '__fish_seen_subcommand_from pull push adopt updates upgrade check commits build sync quoting maintainers' \
-    -a '(__aur_packages_list)' -d Package
-complete -c aur-packages -n '__fish_seen_subcommand_from push' -l nocheck -d 'Push without running the checks'
-complete -c aur-packages -n '__fish_seen_subcommand_from push' -l force -d 'Also push packages without commits since their last push'
-complete -c aur-packages -n '__fish_seen_subcommand_from push' -l exclude -x -a '(__aur_packages_list)' -d 'Leave a package out'
-complete -c aur-packages -n '__fish_seen_subcommand_from updates' -l state -d 'Write the result for the tray icon'
-complete -c aur-packages -n '__fish_seen_subcommand_from updates' -l retry -d 'Check rate-limited packages again later (with --state)'
-complete -c aur-packages -n '__fish_seen_subcommand_from check' -l manual -d 'Also run the checks that only run on request'
-complete -c aur-packages -n '__fish_seen_subcommand_from maintainers' -l aur -d 'Compare with the maintainers on the AUR'
-complete -c aur-packages -n '__fish_seen_subcommand_from commits' -l update -d 'Rewrite stale _commit values'
-complete -c aur-packages -n '__fish_seen_subcommand_from sync' -l check -d 'Only report differences'
-complete -c aur-packages -n '__fish_seen_subcommand_from list' -l templates -d 'List the build templates'
-complete -c aur-packages -n '__fish_seen_subcommand_from list' -l local -d 'List the packages of local/'
-complete -c aur-packages -n '__fish_seen_subcommand_from publish' -a '(__aur_packages_list --local)' -d 'Package of local/'
-complete -c aur-packages -n '__fish_seen_subcommand_from publish' -l section -x -a 'PowerShell .NET SourceMod Other' \
-    -d 'The table of README.md'
-complete -c aur-packages -n '__fish_seen_subcommand_from publish' -l adopt -d "Merge the AUR's history of a package that's ours there now"
-
-set -l build '__fish_seen_subcommand_from build'
-complete -c aur-packages -n $build -a '(__aur_packages_list --templates)' -d 'Build template'
-complete -c aur-packages -n $build -l chroot -d 'Build in a clean chroot (default)'
-complete -c aur-packages -n $build -l local -d 'Build with makepkg -fCd'
-complete -c aur-packages -n $build -l install -d 'Install each result of a local build'
-complete -c aur-packages -n $build -s n -l dry-run -d 'Print the plan'
-complete -c aur-packages -n $build -l keep -d 'Keep the chroot repo'
-complete -c aur-packages -n $build -l add -d "Add the packages to the system's aurutils repository"
-complete -c aur-packages -n $build -l sign -d 'Sign the packages --add adds'
-complete -c aur-packages -n $build -l no-sign -d "Don't sign the packages --add adds"
-complete -c aur-packages -n '__fish_seen_subcommand_from sysupgrade' -l sign -d 'Sign the packages added'
-complete -c aur-packages -n '__fish_seen_subcommand_from sysupgrade' -l no-sign -d "Don't sign the packages added"
-complete -c aur-packages -n $build -l dotnet-bin -d "Build with Microsoft's .NET"
-complete -c aur-packages -n $build -l libs-bin -d 'Build with the libraries from nuget.org'
-complete -c aur-packages -n $build -l testing -d "Build against Arch Linux's testing repositories"
-complete -c aur-packages -n $build -l sanitize -x -a 'undefined address address,undefined' \
-    -d 'Make test builds with the sanitisers'
-complete -c aur-packages -n $build -l target -x -a 'aarch64\t"Cross-build for aarch64" aarch64-native\t"Build for aarch64 under QEMU"' \
-    -d 'Build for another architecture'
-complete -c aur-packages -n $build -l repo -x -a '(__fish_complete_directories)' -d 'Continue in the repo of an earlier --keep'
-
-complete -c aur-packages -n '__fish_seen_subcommand_from commit-msg prepare-commit-msg' -F
-complete -c aur-packages -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish pwsh' -d Shell
-set -l overrides '__fish_seen_subcommand_from overrides'
-complete -c aur-packages -n "$overrides; and not __fish_seen_subcommand_from check add pull remove" -x \
-    -a 'check\t"Compare with Arch Linux\'s repositories" add\t"Import Arch Linux\'s packaging of a package" pull\t"Merge Arch Linux\'s updates" remove\t"Remove overrides Arch Linux has caught up with"'
-complete -c aur-packages -n "$overrides; and __fish_seen_subcommand_from check pull remove" -x -a '(__aur_packages_list)'
-complete -c aur-packages -n "$overrides; and __fish_seen_subcommand_from remove" -l force -d 'Remove it even if Arch Linux has not caught up'
-complete -c aur-packages -n '__fish_seen_subcommand_from tray' -a 'install\t"Install the update check and the tray icon" remove\t"Remove them"'
+complete -c aur-packages -f -a '(__aur_packages_complete)'

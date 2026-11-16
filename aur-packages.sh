@@ -1,0 +1,2711 @@
+#!/bin/bash
+# The commands of aur-packages not ported to Python yet (aur_packages/), which ./aur-packages runs.
+# Manages the AUR packages of this repository, the top-level folders with a PKGBUILD: as
+# ./aur-packages in a checkout, or as aur-packages on PATH. See ./aur-packages help.
+
+set -euo pipefail
+
+# A checkout of this repository: a folder with this script and the package template
+is_checkout() {
+  [[ -f "$1/aur-packages" && -d "$1/templates/package" ]]
+}
+
+# The checkout to work on. Run from a checkout (./aur-packages, or its path), that one. Run from
+# elsewhere, e.g. from a symlink or a copy on PATH, the checkout of the current directory, else
+# $AUR_PACKAGES_HOME, else the one the symlink points into; then that checkout's own script runs, so
+# the commands always match the checkout's version.
+self=$(realpath "$0")
+if is_checkout "$(dirname "$0")"; then
+  root=$(dirname "$self")
+else
+  if top=$(git rev-parse --show-toplevel 2>/dev/null) && is_checkout "$top"; then
+    root=$top
+  elif [[ -n "${AUR_PACKAGES_HOME:-}" ]]; then
+    if ! is_checkout "$AUR_PACKAGES_HOME"; then
+      echo "${0##*/}: AUR_PACKAGES_HOME isn't a checkout of the AUR packages: $AUR_PACKAGES_HOME" >&2
+      exit 1
+    fi
+    root=$AUR_PACKAGES_HOME
+  elif is_checkout "$(dirname "$self")"; then
+    root=$(dirname "$self")
+  else
+    echo "${0##*/}: not in a checkout of the AUR packages, set AUR_PACKAGES_HOME to one" >&2
+    exit 1
+  fi
+  root=$(realpath "$root")
+  # Relative paths in the arguments (--repo, commit-msg's file) are relative to where it was called
+  export AUR_PACKAGES_CWD=$PWD
+  exec "$root/aur-packages" "$@"
+fi
+# Where relative paths in the arguments start from
+cwd=${AUR_PACKAGES_CWD:-$PWD}
+unset AUR_PACKAGES_CWD
+cd "$root" || exit
+
+# prek, the faster reimplementation of pre-commit, where it's installed
+# prek caches its workspace, the projects it found: --refresh finds them again, so a package that
+# was just added or moved (git mv local/<package> .) is checked too, instead of prek not knowing it
+if command -v prek >/dev/null; then
+  hook_runner=prek
+  refresh=(--refresh)
+else
+  hook_runner=pre-commit
+  refresh=()
+fi
+# The runner for require: prek, unless pre-commit is installed
+hook_runner_tool=prek:prek
+if [[ "$hook_runner" == pre-commit ]] && command -v pre-commit >/dev/null; then
+  hook_runner_tool=pre-commit:pre-commit
+fi
+
+# Names the build graph resolves to another package than the one of that name, set by build's
+# --dotnet-bin and --libs-bin to pick the -bin variant of a selector package
+declare -A build_alias=()
+# build_edges, once per run, for build_multilib
+build_edges_cache=''
+
+usage() {
+  cat <<'EOF'
+Usage: aur-packages COMMAND [PACKAGE...]
+
+Commands work on all packages unless packages are given, by folder or name. The packages at the top
+level are the AUR's; local/ holds packages of ours that aren't on the AUR, overrides/ Arch Linux's
+packages with changes of ours (subtrees of Arch's packaging, in Arch's style). Both are built,
+checked and tracked here, but never published to the AUR: pull, push and adopt refuse them, and
+publish moves a package of local/ to the top level.
+
+Run from a checkout (./aur-packages), it works on that one. From elsewhere, e.g. a symlink or a copy
+on PATH, it works on the checkout of the current directory, else the one $AUR_PACKAGES_HOME names,
+else the one the symlink points into.
+
+  pull      Pull the packages from the AUR (aurpublish --pull)
+  push      Check, then push the packages to the AUR (aurpublish), or with --nocheck without the
+            checks, e.g. while a linter isn't installed. Leaves out packages without commits since
+            their last push (refs/aur-packages/pushed/PACKAGE), which --force pushes anyway.
+            --exclude PACKAGE leaves a package out (repeatable), e.g. one whose AUR request is still
+            pending. A pushed package leaves the tray's list of outdated packages once its version is
+            at least the new one
+  adopt PACKAGE...
+            Merge the history the AUR has of packages into their subtrees, keeping their files, so
+            that push can push on top of it: for a package that was on the AUR before, deleted or
+            taken over from another maintainer (the AUR only accepts pushes on top of its history)
+  publish [--section SECTION] PACKAGE...
+            Move packages of local/ to the top level, to push them to the AUR: with the history
+            push pushes, the package's earlier history at the top level (if it was there before,
+            the AUR's included) followed by its commits in local/, and its row of README.md in the
+            table of SECTION (default: Other). Commits the move (with the checks of the hooks) and
+            the history; doesn't push. Refuses a package the AUR has another history of, unless
+            --adopt merges it, as adopt does, once the package is ours on the AUR
+  updates   Show which packages have a newer upstream version with the .nvchecker.toml of each
+            (pkgctl version check), without changing anything. --state writes the result to
+            ~/.local/state/aur-packages/updates.json for the tray icon instead (see tray), keeping
+            the entries of packages that weren't checked or whose check failed; --state --retry
+            also checks the packages that hit GitHub's rate limit again once it resets (systemd-run)
+  upgrade   Upgrade the packages to their latest upstream version with the .nvchecker.toml of each
+            (pkgctl version upgrade), move their pins to it (see commits), then format the PKGBUILDs
+            and regenerate .SRCINFO. Fails if a pin couldn't be moved
+  check     Run the checks of .pre-commit-config.yaml with prek or pre-commit, or with --manual
+            also the ones that only run on request (termux-language-server). Packages given,
+            only theirs: the hooks of their own .pre-commit-config.yaml, whether they match
+            templates/package and the quoting of their metadata arrays
+  commits   Show, for each package that pins a _commit, the upstream commit its current pkgver was
+            published from (the NuGet nuspec's repository commit, or the PKGBUILD's _commit_lookup),
+            and the other pins a PKGBUILD's _pins_lookup prints (submodule commits, branch heads,
+            versions of other packages), flagging stale ones; --update rewrites them and refreshes
+            the checksums and .SRCINFO
+  build     Build packages or a template (powershell-core, powershell-full) and their
+            dependencies in order, in a clean chroot into a private throwaway repo (default), or
+            --local (makepkg -fCd, --install to install each result). --dry-run prints the plan,
+            --keep keeps the chroot repo. In a chroot, --dotnet-bin builds with Microsoft's .NET
+            (dotnet-build-deps-10.0-bin, dotnet-sdk-10.0-bin built by aur sync) and --libs-bin with the
+            libraries from nuget.org (powershell-build-deps-bin) instead of the source-built ones.
+            A .NET Arch Linux doesn't have (dotnet-build-deps-11.0-bin) is always Microsoft's.
+            --target aarch64 also cross-builds the architecture-specific packages for aarch64
+            against an Arch Linux ARM root, --target aarch64-native builds everything in that root
+            under QEMU (qemu-user-static-binfmt), with Microsoft's .NET. --repo DIR continues in
+            the repo of an earlier --keep, skipping the packages already built there.
+            Packages that depend on lib32-* packages build in a multilib chroot (multilib-devel).
+            --sanitize undefined|address|address,undefined makes test builds with the sanitisers
+            (their -fsanitize flags in the chroots' makepkg.conf) and keeps their repo; check() runs
+            on them too
+            --testing builds against Arch Linux's testing repositories (devtools' extra-testing and
+            multilib-testing), in chroots of their own, for a system that uses them.
+            The chroots are in /var/lib/aur-packages-chroot ($AUR_BUILD_CHROOT), next to the
+            Arch Linux ARM root (aarch64), not in aurutils' /var/lib/aurbuild.
+            --add adds the packages, their -debug packages and the AUR dependencies built to the
+            system's aurutils repository (aur repo) once all have been built, and against the
+            testing repositories if the system uses them; run it as the repository's owner, e.g. the
+            aurutils user. They're signed ($GPGKEY, else gpg's default key, as aur build) if the
+            database is or makepkg signs (sign in BUILDENV), or as --sign or --no-sign say
+  sysupgrade [--sign|--no-sign] [-- AUR_SYNC_OPTION...]
+            aur sync -u with our packages first: the packages of the top level, local/ and
+            overrides/ in the aurutils repository with a newer version here are built and added
+            (build --add), then aur sync -u updates the rest, leaving all of ours out; both sign
+            as build --add does
+  sync      Copy templates/package into the packages and write the configuration at the top level,
+            or with --check only report differences
+  setup     Install the git hooks that run the checks before each commit, replacing aurpublish's,
+            fill in the summary of the commit message and check it
+  tray install|remove
+            Install a daily update check of this checkout's packages (the systemd user units of
+            systemd/, updates --state) and a tray icon (aur-packages-tray, autostarted) that shows
+            the outdated packages and announces new versions once; or remove them again
+  commit-msg FILE
+            Check a commit message against the convention in CONTRIBUTING.md (run by the
+            commit-msg hook)
+  prepare-commit-msg FILE [SOURCE]
+            Fill in the summary of an empty commit message from the staged changes: upgpkg: with
+            the staged version when they change a package's version, else the scope (run by the
+            prepare-commit-msg hook)
+  quoting   Check the quoting of the metadata arrays (depends, optdepends, …) of the PKGBUILDs
+            against the convention in CONTRIBUTING.md (run by the quoting hook)
+  pins      Check that the _commit of a version like git describe's (…r83.g4b8b3d3) is the commit
+            it names, without the network (run by the pins hook; commits checks all pins online)
+  readme    Check README.md's tables of the packages against the packages: a row for each, with its
+            link, packages and pkgdesc (run by the readme hook)
+  maintainers [--aur]
+            Check the # Maintainer: and # Contributor: lines of the PKGBUILDs (aur-packages-maintainers):
+            the Maintainer lines first, addresses obscured as name at domain dot tld, ours among them
+            (run by the maintainers hook); --aur compares the Maintainer lines with the maintainers and
+            co-maintainers on the AUR (maintainers.toml maps their usernames to names), and says when a
+            package of local/ has been handed to us there. updates --state does that too,
+            for the tray. The commit-msg hook checks that the staged PKGBUILDs list the commit's author
+  overrides [check] [PACKAGE...]
+            Compare the packages of overrides/ with Arch Linux's repositories, and fail if Arch has
+            caught up with one, which then isn't needed any more
+  overrides add PACKAGE
+            Import Arch Linux's packaging of a package as overrides/<pkgbase>, a subtree of it, and
+            prepare the first commit of the changes: the README.md row, the .gitignore and a pkgrel
+            below Arch's next release
+  overrides pull PACKAGE...
+            Merge Arch Linux's updates of the overrides' packaging into them
+  overrides remove [--force] PACKAGE...
+            Remove overrides once Arch Linux has caught up with them (or with --force anyway), with
+            their README.md rows, and commit
+  list      List the packages, with --local only those of local/, or with --templates the build
+            templates
+  completion bash|zsh|fish|pwsh
+            Print the completion script for a shell, see CONTRIBUTING.md
+  help      Show this help
+EOF
+}
+
+# The folders of the packages: the AUR packages at the top level, then local/ (packages of ours that
+# aren't on the AUR) and overrides/ (Arch Linux's packages with changes of ours), which are built and
+# checked, but never published to the AUR
+package_dirs() {
+  local pkgbuild
+  for pkgbuild in */PKGBUILD local/*/PKGBUILD overrides/*/PKGBUILD; do
+    [[ -f "$pkgbuild" ]] && printf '%s
+' "${pkgbuild%/PKGBUILD}"
+  done
+}
+
+# The folder of a package, by its folder or its name (e.g. ghidra for overrides/ghidra)
+package_dir() {
+  local name=${1%/} dir
+  for dir in "$name" "local/$name" "overrides/$name"; do
+    if [[ -f "$dir/PKGBUILD" ]]; then
+      printf '%s
+' "$dir"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Sets $selected to the given packages, or all of them (--aur: only the AUR packages, the default
+# list as well as the given ones). Fails for folders that aren't packages.
+select_packages() {
+  local package dir aur_only=false
+  selected=()
+  if [[ "${1-}" == --aur ]]; then
+    aur_only=true
+    shift
+  fi
+  if (($#)); then
+    for package; do
+      if ! dir=$(package_dir "$package"); then
+        echo "Not a package: $package" >&2
+        return 1
+      fi
+      if [[ "$aur_only" == true && "$dir" == */* ]]; then
+        echo "Not an AUR package: $dir (local/ and overrides/ aren't published to the AUR)" >&2
+        return 1
+      fi
+      selected+=("$dir")
+    done
+  elif [[ "$aur_only" == true ]]; then
+    for package in */PKGBUILD; do
+      selected+=("${package%/PKGBUILD}")
+    done
+  else
+    mapfile -t selected < <(package_dirs)
+  fi
+}
+
+cmd_pull() {
+  local package
+  local -a selected
+  require pull aurpublish:aurpublish
+  select_packages --aur "$@"
+  for package in "${selected[@]}"; do
+    aurpublish --pull "$package"
+  done
+}
+
+# The ref that records the commit whose subtree push last pushed of a package
+pushed_ref() {
+  printf 'refs/aur-packages/pushed/%s\n' "$1"
+}
+
+# Whether HEAD's subtree of the package $1, what aurpublish pushes, can differ from the one pushed
+# last: no push recorded, a rewritten history, commits since that change the package, or a merge that
+# joins a history to it (adopt's and publish's, git subtree's), which leaves its files as they are.
+# Not --full-history: it would count every merge of a history without the package, like the subtree
+# pulls of overrides/, for all packages.
+push_needed() {
+  local pushed
+  pushed=$(git rev-parse -q --verify "$(pushed_ref "$1")^{commit}") || return 0
+  git merge-base --is-ancestor "$pushed" HEAD || return 0
+  [[ -n "$(git rev-list -n 1 "$pushed..HEAD" -- "$1")" ]] ||
+    [[ -n "$(git rev-list -n 1 --merges --grep="^git-subtree-dir: $1\$" "$pushed..HEAD")" ]]
+}
+
+cmd_push() {
+  local nocheck=false force=false package head
+  local -a selected excluded=() pushed=() unchanged=()
+  local -A exclude=()
+  while (($#)); do
+    case "$1" in
+      --nocheck) nocheck=true ;;
+      --force) force=true ;;
+      --exclude)
+        shift
+        excluded+=("${1:-}")
+        ;;
+      --exclude=*) excluded+=("${1#*=}") ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo "Unknown option: $1" >&2
+        return 1
+        ;;
+      *) break ;;
+    esac
+    shift
+  done
+  for package in "${excluded[@]}"; do
+    if ! package=$(package_dir "$package"); then
+      echo "Not a package: ${excluded[0]}" >&2
+      return 1
+    fi
+    exclude[$package]=1
+  done
+  require push aurpublish:aurpublish
+  if [[ "$nocheck" == false ]]; then require "push (the checks)" "$hook_runner_tool"; fi
+  select_packages --aur "$@"
+  for package in "${selected[@]}"; do
+    if [[ -n "${exclude[$package]-}" ]]; then
+      continue
+    elif [[ "$force" == true ]] || push_needed "$package"; then
+      pushed+=("$package")
+    else
+      unchanged+=("$package")
+    fi
+  done
+  selected=("${pushed[@]}")
+  if ((${#unchanged[@]})); then
+    echo "Nothing new since the last push of ${#unchanged[@]} package$( ((${#unchanged[@]} == 1)) || echo s)" \
+      "(--force pushes them anyway): ${unchanged[*]}"
+  fi
+  ((${#selected[@]})) || return 0
+  if [[ "$nocheck" == false ]]; then
+    cmd_check "${selected[@]}"
+  fi
+  head=$(git rev-parse HEAD)
+  for package in "${selected[@]}"; do
+    aurpublish "$package"
+    git update-ref -m "aur-packages push" "$(pushed_ref "$package")" "$head"
+    # The tray's update list, which only the next check would clear otherwise
+    updates_forget_pushed "$package"
+  done
+}
+
+# Merges the AUR's history of each package into the history push pushes, the package's subtree: a
+# merge of the subtree's history and the AUR's head with the subtree's files, recorded like
+# git subtree split --rejoin, so that later splits build on it
+cmd_adopt() {
+  local package base url head split merge rejoin previous
+  local -a selected sign=()
+  if (($# == 0)); then
+    echo "Usage: aur-packages adopt PACKAGE..." >&2
+    return 1
+  fi
+  previous=$(mktemp)
+  # shellcheck disable=SC2064 # expand $previous now, when the trap is set
+  trap "rm -f '$previous'" RETURN
+  select_packages --aur "$@"
+  [[ "$(git config --bool commit.gpgsign)" == true ]] && sign=(-S)
+  for package in "${selected[@]}"; do
+    base=$(sed -n 's/^pkgbase = //p' "$package/.SRCINFO")
+    url=https://aur.archlinux.org/$base.git
+    head=$(git ls-remote "$url" refs/heads/master | cut -f1)
+    if [[ -z "$head" ]]; then
+      echo "$package: not on the AUR, nothing to adopt"
+      continue
+    fi
+    git fetch -q "$url" master
+    split=$(git subtree split -q -P "$package")
+    if git merge-base --is-ancestor "$head" "$split"; then
+      echo "$package: already on top of the AUR's ${head:0:7}"
+      continue
+    fi
+    merge=$(git commit-tree "${sign[@]}" -p "$split" -p "$head" \
+      -m "Merge the earlier history of $base on the AUR" "$split^{tree}")
+    rejoin=$(
+      git commit-tree "${sign[@]}" -p HEAD -p "$merge" "HEAD^{tree}" <<EOF_MSG
+$package: merge the earlier history of $base on the AUR
+
+- The AUR only accepts pushes on top of its history of $base (${head:0:7}): the
+  package's history merges it, with the package's files unchanged
+
+git-subtree-dir: $package
+git-subtree-mainline: $(git rev-parse HEAD)
+git-subtree-split: $merge
+EOF_MSG
+    )
+    git merge -q --ff-only "$rejoin"
+    echo "$package: now on top of the AUR's ${head:0:7}"
+    # Its maintainers on the AUR as # Maintainer:, the AUR's other lines as # Contributor:, left for a
+    # commit of its own
+    git show "$head:PKGBUILD" >"$previous"
+    "$root/aur-packages-maintainers" adopt "$package" "$previous"
+  done
+}
+
+# Moves the row of the package $1 (pkgbase) in README.md from the table of local/ into the table under
+# the heading "### $2", as $3, in alphabetical order
+readme_move_row() {
+  local base=$1 section=$2 new=$3 line name i heading=-1 at=-1
+  local -a lines=() table=()
+  # Without the row of local/
+  while IFS= read -r line; do
+    [[ "$line" == "| [$base](local/$base) |"* ]] || lines+=("$line")
+  done <README.md
+  # The rows of the section's table: from its heading to the next one
+  for i in "${!lines[@]}"; do
+    if [[ "${lines[i]}" == '### '* ]]; then
+      ((heading >= 0)) && break
+      [[ "${lines[i]}" == "### $section" ]] && heading=$i
+    elif ((heading >= 0)) && [[ "${lines[i]}" == '| ['* ]]; then
+      table+=("$i")
+    fi
+  done
+  if ((${#table[@]} == 0)); then
+    echo "README.md: no table under ### $section" >&2
+    return 1
+  fi
+  # Before the first row that sorts after it, else after the last one
+  for i in "${table[@]}"; do
+    name=${lines[i]#'| ['}
+    name=${name%%']'*}
+    if [[ "$(printf '%s\n' "$base" "$name" | LC_ALL=C sort | head -n 1)" == "$base" ]]; then
+      at=$i
+      break
+    fi
+  done
+  ((at >= 0)) || at=$((${table[-1]} + 1))
+  printf '%s\n' "${lines[@]:0:at}" "$new" "${lines[@]:at}" >README.md
+}
+
+# Moves packages from local/ to the top level, to publish them on the AUR with push: the history
+# push pushes (the subtree's) is the package's earlier history at the top level, if it had one (an
+# AUR package moved to local/ for a while, the AUR's history included), followed by its commits in
+# local/. A plain git mv would leave the package with a history starting at the move, and for a
+# package that was at the top level before, git subtree split would take the whole repository's
+# history. Its row in README.md moves into the table of --section (default: Other).
+cmd_publish() {
+  local section=Other adopt=false package dir name base head last old split tip tree commit move rejoin
+  local count previous
+  local -a selected sign=() parents
+  while (($#)); do
+    case "$1" in
+      --section)
+        shift
+        section=${1:-}
+        ;;
+      --section=*) section=${1#*=} ;;
+      --adopt) adopt=true ;;
+      -*)
+        echo "Unknown option: $1" >&2
+        return 1
+        ;;
+      *) break ;;
+    esac
+    shift
+  done
+  if (($# == 0)); then
+    echo "Usage: aur-packages publish [--section SECTION] [--adopt] PACKAGE..." >&2
+    return 1
+  fi
+  if [[ -z "$section" || "$section" == 'Not on the AUR' ]] || ! grep -qxF "### $section" README.md; then
+    echo "README.md has no table of AUR packages under ### $section" >&2
+    return 1
+  fi
+  # The commits are made from the index, and README.md is rewritten
+  if ! git diff --cached --quiet || ! git diff --quiet -- README.md; then
+    echo "Commit or unstage the staged changes and README.md's first" >&2
+    return 1
+  fi
+  [[ "$(git config --bool commit.gpgsign)" == true ]] && sign=(-S)
+  select_packages "$@"
+  for dir in "${selected[@]}"; do
+    if [[ "$dir" != local/* ]]; then
+      echo "Not a package of local/: $dir" >&2
+      return 1
+    fi
+    name=${dir#local/}
+    if [[ -e "$name" ]]; then
+      echo "$name exists at the top level already" >&2
+      return 1
+    fi
+    if ! git diff --quiet HEAD -- "$dir"; then
+      echo "$dir has uncommitted changes" >&2
+      return 1
+    fi
+  done
+  for dir in "${selected[@]}"; do
+    name=${dir#local/}
+    base=$(srcinfo_field "$dir/.SRCINFO" pkgbase)
+
+    # Its earlier history at the top level: up to the last commit that had it there, the parent of
+    # the one that moved it to local/
+    old=''
+    last=$(git log -1 --format=%H -- "$name")
+    if [[ -n "$last" ]]; then
+      git cat-file -e "$last:$name/PKGBUILD" 2>/dev/null || last=$last^
+      old=$(git subtree split -q -P "$name" "$last")
+    fi
+    # Its commits in local/ on top, the same changes, messages and authors; the commit of the move to
+    # local/ changes nothing in the package
+    split=$(git subtree split -q -P "$dir")
+    tip=$old
+    while read -r commit; do
+      tree=$(git rev-parse "$commit^{tree}")
+      [[ -n "$tip" && "$(git rev-parse "$tip^{tree}")" == "$tree" ]] && continue
+      parents=()
+      [[ -n "$tip" ]] && parents=(-p "$tip")
+      tip=$(
+        GIT_AUTHOR_NAME=$(git log -1 --format=%an "$commit") GIT_AUTHOR_EMAIL=$(git log -1 --format=%ae "$commit") \
+        GIT_AUTHOR_DATE=$(git log -1 --format=%ad --date=raw "$commit") \
+          git commit-tree "${sign[@]}" "${parents[@]}" "$tree" -m "$(git log -1 --format=%B "$commit")"
+      )
+    done < <(git rev-list --reverse "$split")
+
+    # The AUR only accepts it on top of its own history of the package
+    if ! head=$(git ls-remote "https://aur.archlinux.org/$base.git" refs/heads/master | cut -f1); then
+      echo "$name: couldn't reach the AUR" >&2
+      return 1
+    fi
+    if [[ -n "$head" ]] && ! { git cat-file -e "$head^{commit}" 2>/dev/null && git merge-base --is-ancestor "$head" "$tip"; }; then
+      if [[ "$adopt" == false ]]; then
+        echo "$name: the AUR's $base (${head:0:7}) isn't part of its history; once it's yours on the" \
+          "AUR, publish it with --adopt" >&2
+        return 1
+      fi
+      # As adopt does: a merge of the AUR's head, with the package's files
+      git fetch -q "https://aur.archlinux.org/$base.git" master
+      tip=$(git commit-tree "${sign[@]}" -p "$tip" -p "$head" -m "Merge the earlier history of $base on the AUR" \
+        "$tip^{tree}")
+    else
+      head=''
+    fi
+
+    git mv "$dir" "$name"
+    if ! readme_move_row "$base" "$section" "$(readme_row "$name")" || ! git add README.md ||
+      ! git commit -q -m "$name: move out of local/ to publish it on the AUR"; then
+      echo "$name: not moved, the checks failed" >&2
+      git mv "$name" "$dir"
+      git restore --staged --worktree README.md
+      return 1
+    fi
+    move=$(git rev-parse HEAD)
+    rejoin=$(
+      git commit-tree "${sign[@]}" -p "$move" -p "$tip" "$move^{tree}" <<EOF_MSG
+$name: join its history for the AUR
+
+- push pushes the package's history: ${old:+its earlier history at the top level, then }its
+  commits in local/
+
+git-subtree-dir: $name
+git-subtree-mainline: $move
+git-subtree-split: $tip
+EOF_MSG
+    )
+    git merge -q --ff-only "$rejoin"
+    count=$(git rev-list --count "$tip")
+    echo "$name: moved out of local/ with a history of $count commit$( ((count == 1)) || echo s); push it" \
+      "with ./aur-packages push $name"
+    # As adopt does: the AUR's maintainers as # Maintainer:, its other lines as # Contributor:, left
+    # for a commit of its own
+    if [[ -n "$head" ]]; then
+      previous=$(mktemp)
+      git show "$head:PKGBUILD" >"$previous"
+      "$root/aur-packages-maintainers" adopt "$name" "$previous"
+      rm -f "$previous"
+    fi
+  done
+}
+
+# Sets $checked to the selected packages with update checks, VCS packages don't have them
+select_checked_packages() {
+  local package
+  local -a selected
+  select_packages "$@"
+  checked=()
+  for package in "${selected[@]}"; do
+    [[ -f "$package/.nvchecker.toml" ]] && checked+=("$package")
+  done
+}
+
+cmd_updates() {
+  local -a checked
+  require updates pkgctl:devtools nvchecker:nvchecker jq:jq
+  if [[ "${1-}" == --state ]]; then
+    shift
+    if [[ "${1-}" == --retry ]]; then
+      shift
+      updates_state true "$@"
+    else
+      updates_state false "$@"
+    fi
+    return
+  fi
+  select_checked_packages "$@"
+  ((${#checked[@]})) || return 0
+  pkgctl version check "${checked[@]}"
+}
+
+# The state file of updates --state, which the tray icon (aur-packages-tray) watches
+updates_state_file=${XDG_STATE_HOME:-$HOME/.local/state}/aur-packages/updates.json
+
+# The transient units of the retries after a rate limit, aur-packages-updates-retry-<time>.timer
+updates_retry_unit=aur-packages-updates-retry
+
+# Prints the GitHub token of nvchecker's keyfile, else the one gh is logged in with (gh auth token),
+# nothing without either
+github_token() {
+  local keyfile=${XDG_CONFIG_HOME:-$HOME/.config}/nvchecker/keyfile.toml token=''
+  if [[ -f "$keyfile" ]]; then
+    token=$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb")).get("keys", {}).get("github", ""))' \
+      "$keyfile" 2>/dev/null || true)
+  fi
+  if [[ -z "$token" ]] && command -v gh >/dev/null; then
+    token=$(gh auth token --hostname github.com 2>/dev/null || true)
+  fi
+  printf '%s\n' "$token"
+}
+
+# Prints when GitHub's rate limit resets, in seconds since the epoch, from its rate_limit endpoint (which
+# doesn't count against the limit), with the token of nvchecker's keyfile if there is one; the time an
+# exhausted limit resets, else now, as the limit has room again
+github_rate_limit_reset() {
+  local token config=''
+  token=$(github_token)
+  # On stdin rather than the command line, where other users could read it
+  [[ -z "$token" ]] || config="header = \"Authorization: Bearer $token\""
+  curl -fsS --max-time 30 -K - https://api.github.com/rate_limit <<<"$config" |
+    jq -r '[.resources[] | select(.remaining == 0) | .reset] | max // now | floor'
+}
+
+# Checks the packages like updates and writes the result to $updates_state_file, as JSON: the time of
+# the check, the checkout, the outdated packages (package, current and new version), the packages whose
+# check failed, those that hit GitHub's rate limit with the time they're checked again, and an error if
+# the whole check failed.
+# - Packages that weren't checked, or whose check failed, keep the entries of earlier checks, so a rate
+#   limit or a missing network doesn't make updates disappear, and packages given check only those.
+# - With --retry (the service of tray install), a transient timer of systemd checks the rate-limited
+#   packages again a minute after the limit resets; a check run by hand neither leaves timers behind
+#   nor cancels them.
+# - If no package could be checked, the error says so, and the command fails.
+# Written atomically under a lock, so the tray never reads half a file and checks don't overlap.
+updates_state() {
+  local dir output errors status=0 previous='null' tmp state pending reset lock notes
+  local -a checked retry environment=(--setenv=PATH)
+  local schedule=$1
+  shift
+  select_checked_packages "$@"
+  dir=${updates_state_file%/*}
+  mkdir -p "$dir"
+  exec {lock}>"$dir/.updates.lock"
+  flock "$lock"
+  if [[ -f "$updates_state_file" ]] && jq -e . "$updates_state_file" >/dev/null 2>&1; then
+    previous=$(<"$updates_state_file")
+  fi
+  errors=$(mktemp)
+  # shellcheck disable=SC2064 # expand $errors now, when the trap is set
+  trap "rm -f '$errors'; exec $lock>&-" RETURN
+  # JSON lists the outdated packages and the failed checks, pkgctl exits with 0 either way
+  if ! output=$(pkgctl version check --json "${checked[@]}" 2>"$errors") || ! jq -e 'type == "array"' <<<"$output" >/dev/null 2>&1; then
+    output=$(jq -n --arg error "pkgctl version check failed: $(tail -n 1 "$errors")" '{error: $error}')
+    status=1
+  else
+    output=$(jq -n --argjson results "$output" --argjson total "${#checked[@]}" '
+      # A 403 or 429 of GitHub'"'"'s API, or nvchecker saying so
+      def rate_limited: test("rate limit"; "i") or (test("api\\.github\\.com") and test("(HTTPError\\(|HTTP )(403|429)"));
+      # tornado'"'"'s HTTPError shown with its response, which takes a screen: its code, reason and URL
+      def short:
+        if test("HTTPError\\([0-9]+, ") then
+          capture("HTTPError\\((?<code>[0-9]+), '"'"'(?<reason>[^'"'"']*)'"'"'") as $error
+          | ((capture("effective_url='"'"'(?<url>[^'"'"']*)'"'"'") | " (\(.url))") // "") as $url
+          | "HTTP \($error.code) \($error.reason)\($url)"
+        else split("\n")[0] | sub("^unexpected error happened: "; "") end;
+      [$results[] | select(.status == "failure")] as $failed
+      | {
+          results: true,
+          updates: [$results[] | select(.status == "success" and .out_of_date)
+            | {package: .pkgbase, current: .local_version, new: .upstream_version}],
+          failed: [$failed[].pkgbase],
+          failures: [$failed[] | select(.message // "" | rate_limited | not)
+            | {package: .pkgbase, message: (.message // "failed" | short)}],
+          rate_limited: [$failed[] | select(.message // "" | rate_limited) | .pkgbase],
+          # Not when only the rate limit stopped them: they wait for the retry
+          error: (if $total > 0 and ($failed | length) == $total and any($failed[]; .message // "" | rate_limited | not)
+            then "No package could be checked, e.g. without a network connection" else null end)
+        }')
+    jq -e '.error == null' <<<"$output" >/dev/null || status=1
+  fi
+  # The packages by name (pkgbase, their folder's name), as pkgctl reports them: by folder, the ones in
+  # local/ and overrides/ never matched, so their old entries stayed after later checks
+  state=$(jq -n --argjson new "$output" --argjson previous "$previous" --arg checked "$(date --iso-8601=seconds)" \
+    --arg checkout "$root" --args '
+    ($previous // {}) as $previous
+    | $ARGS.positional as $checked_packages
+    # What this check found out: the packages it checked, unless their check failed
+    | (if $new.results then $checked_packages - $new.failed else [] end) as $known
+    | (if $new.results then $checked_packages else [] end) as $tried
+    | ($previous.rate_limited.packages // []) as $waiting
+    | {
+        checked: $checked,
+        checkout: $checkout,
+        error: $new.error,
+        updates: (($new.updates // []) + [$previous.updates // [] | .[] | select(.package as $p | $known | index($p) | not)]
+          | sort_by(.package)),
+        failures: (($new.failures // []) + [$previous.failures // [] | .[] | select(.package as $p | $tried | index($p) | not)]
+          | sort_by(.package)),
+        rate_limited: {
+          packages: (($new.rate_limited // []) + [$waiting[] | select(. as $p | $tried | index($p) | not)] | unique),
+          retry: null
+        }
+      }' "${checked[@]##*/}")
+  # The notes on the maintainers on the AUR (maintainers --aur), of all packages; without an answer of the
+  # AUR, the previous ones
+  if notes=$(cmd_maintainers --aur --json 2>/dev/null); then
+    state=$(jq --argjson notes "$notes" '.maintainers = $notes' <<<"$state")
+  else
+    state=$(jq --argjson previous "$previous" '.maintainers = (($previous // {}).maintainers // [])' <<<"$state")
+  fi
+  mapfile -t retry < <(jq -r '.rate_limited.packages[]' <<<"$state")
+  # Only one retry is pending, the one for the packages that wait now
+  if [[ "$schedule" == true ]]; then
+    systemctl --user stop "$updates_retry_unit-*.timer" >/dev/null 2>&1 || true
+  fi
+  if ((${#retry[@]})); then
+    reset=$(github_rate_limit_reset) || reset=$(($(date +%s) + 3600 - 60))
+    pending=$(date --date="@$((reset + 60))" --iso-8601=seconds)
+    state=$(jq --arg retry "$pending" '.rate_limited.retry = $retry' <<<"$state")
+    if [[ "$schedule" == true ]]; then
+      # With the environment of this check, e.g. the same state file
+      [[ -z "${XDG_STATE_HOME:-}" ]] || environment+=(--setenv=XDG_STATE_HOME)
+      systemd-run --user --quiet --collect --unit="$updates_retry_unit-$reset" --on-active=$((reset + 60 - $(date +%s))) \
+        --timer-property=AccuracySec=1min --property=Type=oneshot --description="Check the AUR packages that hit GitHub's rate limit" \
+        "${environment[@]}" /usr/bin/python3 "$root/aur-packages" updates --state --retry "${retry[@]}" ||
+        echo "Couldn't schedule checking the rate-limited packages again" >&2
+    fi
+  fi
+  tmp=$(mktemp "$dir/.updates.json.XXXXXX")
+  printf '%s\n' "$state" >"$tmp"
+  mv "$tmp" "$updates_state_file"
+  jq -r '(.updates[] | "\(.package) \(.current) -> \(.new)"), (.failures[] | "\(.package): check failed: \(.message)"),
+    (.rate_limited | select(.packages != []) | "GitHub'"'"'s rate limit, checked again at \(.retry): \(.packages | join(" "))"),
+    (.maintainers[] | "\(.folder): \(.message)"),
+    (.error // empty | "Error: \(.)")' "$updates_state_file"
+  return "$status"
+}
+
+# Prints the full version ([epoch:]pkgver-pkgrel) of a .SRCINFO in git, given as git show takes it
+# (":package/.SRCINFO" for the staged one, "HEAD:package/.SRCINFO")
+srcinfo_version() {
+  local srcinfo
+  srcinfo=$(git show "$1" 2>/dev/null) || return
+  srcinfo_text_version <<<"$srcinfo"
+}
+
+# Prints the full version of the .SRCINFO on stdin, e.g. a package's file in the working tree
+srcinfo_text_version() {
+  local srcinfo epoch pkgver pkgrel
+  srcinfo=$(cat)
+  epoch=$(sed -n -E 's/^\tepoch = //p' <<<"$srcinfo")
+  pkgver=$(sed -n -E 's/^\tpkgver = //p' <<<"$srcinfo")
+  pkgrel=$(sed -n -E 's/^\tpkgrel = //p' <<<"$srcinfo")
+  printf '%s\n' "${epoch:+$epoch:}$pkgver-$pkgrel"
+}
+
+# Removes a pushed package from the outdated packages of $updates_state_file once the version pushed,
+# that of HEAD (aurpublish pushes HEAD's subtree), is at least the new one the check found, so the tray
+# no longer lists it until the next check. Under the lock of updates --state; a missing state file
+# (without tray install) is left alone.
+updates_forget_pushed() {
+  local package=$1 version state new tmp lock dir=${updates_state_file%/*}
+  [[ -f "$updates_state_file" ]] || return 0
+  version=$(srcinfo_version "HEAD:$package/.SRCINFO") || return 0
+  exec {lock}>"$dir/.updates.lock"
+  flock "$lock"
+  # shellcheck disable=SC2064 # expand $lock now, when the trap is set
+  trap "exec $lock>&-" RETURN
+  new=$(jq -r --arg package "$package" '.updates[]? | select(.package == $package) | .new' \
+    "$updates_state_file" 2>/dev/null) || return 0
+  [[ -n "$new" ]] && (($(vercmp "$new" "$version") <= 0)) || return 0
+  state=$(jq --arg package "$package" '.updates |= map(select(.package != $package))' "$updates_state_file")
+  tmp=$(mktemp "$dir/.updates.json.XXXXXX")
+  printf '%s\n' "$state" >"$tmp"
+  mv "$tmp" "$updates_state_file"
+  echo "Removed $package $new from the update list of the tray"
+}
+
+cmd_upgrade() {
+  local package pin name cur new
+  local -a checked changed=() pins unresolved=()
+  require upgrade pkgctl:devtools nvchecker:nvchecker updpkgsums:pacman-contrib shfmt:shfmt curl:curl jq:jq
+  select_checked_packages "$@"
+  ((${#checked[@]})) || return 0
+  pkgctl version upgrade "${checked[@]}"
+
+  mapfile -t changed < <(git diff --name-only -- "${checked[@]/%//PKGBUILD}")
+  for package in "${changed[@]}"; do
+    package=${package%/PKGBUILD}
+    # pkgctl bumps pkgver but leaves the pins (_commit, or what _pins_lookup prints) at the old
+    # release, so move them to the new version's (see cmd_commits) before the checksums are taken, so
+    # the sources and sums match the new version rather than the old commits
+    pins=()
+    mapfile -t pins < <(resolve_pins "$package")
+    for pin in "${pins[@]}"; do
+      name=${pin%% *} new=${pin#"$name"}
+      new=${new# }
+      cur=$(pin_value "$package" "$name")
+      if [[ -z "$new" || "$new" == null ]]; then
+        echo "  couldn't resolve $name of $package's new version, left at $(short_pin "$cur")" >&2
+        unresolved+=("$package $name")
+      elif [[ "$new" != "$cur" ]]; then
+        set_pin "$package" "$name" "$new"
+        echo "  $name $(short_pin "$cur") -> $(short_pin "$new")"
+      fi
+    done
+    if ((${#pins[@]})); then update_checksums "$package"; fi
+    # updpkgsums aligns the checksums its own way
+    shfmt --write "$package/PKGBUILD"
+    (cd "$package" && makepkg --printsrcinfo >.SRCINFO)
+    echo "Upgraded $package"
+  done
+  # The version is upgraded, but a pin still names the old one's sources: not done yet
+  if ((${#unresolved[@]})); then
+    echo "Pins left at the old version, e.g. after GitHub's rate limit; run ./aur-packages commits --update" \
+      "on the packages later, or set them by hand:" >&2
+    printf '  %s\n' "${unresolved[@]}" >&2
+    return 1
+  fi
+}
+
+# Runs the hooks of the given packages' own .pre-commit-config.yaml ($@ as package/, the projects of
+# prek's workspace) on their files ($files), with $stage_args
+run_package_hooks() {
+  local package
+  local -a package_files
+  if [[ "$hook_runner" == prek ]]; then
+    prek run "${refresh[@]}" "${stage_args[@]}" "$@" --files "${files[@]}"
+  else
+    # pre-commit has no workspaces, one package after the other with its configuration
+    for package; do
+      package=${package%/}
+      package_files=()
+      mapfile -t package_files < <(git ls-files -- "$package")
+      pre-commit run "${stage_args[@]}" --config "$package/.pre-commit-config.yaml" --files "${package_files[@]}"
+    done
+  fi
+}
+
+cmd_check() {
+  local manual=false package status=0
+  local -a selected files=() projects=() stage_args=()
+  require check "$hook_runner_tool"
+  if [[ "${1-}" == --manual ]]; then
+    manual=true
+    shift
+  fi
+  if (($#)); then
+    # Only the given packages: the hooks of their own configuration, and those of the top level that
+    # check single packages. The top level's copies of the package hooks would check the same files
+    # again, its other hooks check every package.
+    select_packages "$@"
+    for package in "${selected[@]}"; do
+      mapfile -t -O "${#files[@]}" files < <(git ls-files -- "$package")
+      projects+=("$package/")
+    done
+    run_package_hooks "${projects[@]}" || status=1
+    if [[ "$manual" == true ]]; then
+      stage_args=(--hook-stage manual)
+      run_package_hooks "${projects[@]}" || status=1
+    fi
+    cmd_sync --check "${selected[@]}" || status=1
+    cmd_quoting "${selected[@]}" || status=1
+    cmd_pins "${selected[@]}" || status=1
+    return "$status"
+  else
+    "$hook_runner" run "${refresh[@]}" --all-files
+    if [[ "$manual" == true ]]; then
+      "$hook_runner" run "${refresh[@]}" --hook-stage manual --all-files
+    fi
+  fi
+}
+
+# Writes the given content ($2) to a file ($1), or with $check set only reports whether it differs
+sync_file() {
+  if [[ "$check" == true ]]; then
+    if ! cmp -s "$1" <(printf '%s' "$2"); then
+      echo "Differs from the template: $1" >&2
+      status=1
+    fi
+  elif ! cmp -s "$1" <(printf '%s' "$2"); then
+    printf '%s' "$2" >"$1"
+    echo "Updated $1"
+  fi
+}
+
+cmd_sync() {
+  local check=false status=0 package file
+  local -a selected
+  if [[ "${1-}" == --check ]]; then
+    check=true
+    shift
+  fi
+  select_packages "$@"
+  for package in "${selected[@]}"; do
+    # Arch Linux's packages keep Arch's files, unless an override has copies of its own
+    [[ "$package" != overrides/* || -f "$package/.pre-commit-config.yaml" ]] || continue
+    for file in .editorconfig .pre-commit-config.yaml .typos.toml; do
+      sync_file "$package/$file" "$(cat "templates/package/$file")"$'\n'
+    done
+  done
+  sync_file .editorconfig "$(cat templates/package/.editorconfig)"$'\n'
+  sync_file .typos.toml "$(cat templates/package/.typos.toml)"$'\n'
+  sync_file .pre-commit-config.yaml "$(cat templates/package/.pre-commit-config.yaml templates/root-hooks.yaml)"$'\n'
+  return "$status"
+}
+
+# The commands the hooks of .pre-commit-config.yaml run (not the ones of check --manual), as
+# command:package, the packages of CONTRIBUTING.md's pacman line; mago, and pwsh (powershell) for
+# PSScriptAnalyzer, are in the AUR
+hook_tools=(makepkg:pacman jq:jq shfmt:shfmt shellcheck:shellcheck shellharden:shellharden ruff:ruff
+  biome:biome tombi:tombi rumdl:rumdl typos:typos systemd-lsp:systemd-lsp
+  editorconfig-checker:editorconfig-checker reuse:reuse mypy:mypy pytest:python-pytest mago:mago pwsh:powershell)
+
+# Fails, naming the packages to install, unless the commands given as command:package are installed,
+# before a command does anything; $1 says what needs them
+require() {
+  local what=$1 tool
+  local -a missing=()
+  local -A seen=()
+  shift
+  for tool; do
+    [[ -z "${seen[$tool]-}" ]] || continue
+    seen[$tool]=1
+    if ! command -v "${tool%%:*}" >/dev/null; then missing+=("${tool%%:*} (${tool#*:})"); fi
+  done
+  ((${#missing[@]})) || return 0
+  echo "$what: these commands aren't installed: $(
+    IFS=,
+    printf '%s' "${missing[*]}" | sed 's/,/, /g'
+  )" >&2
+  return 1
+}
+
+# Fails, saying what to install, unless the hook runner and the commands of the hooks are there, and
+# PSScriptAnalyzer (powershell-editor-services); mago, powershell and powershell-editor-services are
+# in the AUR
+check_hook_tools() {
+  require "setup (the hooks)" "$hook_runner_tool" "${hook_tools[@]}"
+  if ! pwsh -NoProfile -NonInteractive -Command 'if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { exit 1 }'; then
+    echo "setup (the hooks): PSScriptAnalyzer isn't installed (powershell-editor-services)" >&2
+    return 1
+  fi
+}
+
+cmd_setup() {
+  local hooks hook
+  # Before changing any hook, so a missing tool doesn't leave them half installed
+  check_hook_tools
+  hooks=$(git rev-parse --path-format=absolute --git-common-dir)/hooks
+  # aurpublish's hooks regenerate .SRCINFO, downloading the sources, and rewrite the commit message.
+  # The srcinfo hook checks it instead.
+  for hook in pre-commit prepare-commit-msg post-commit; do
+    if [[ "$(readlink "$hooks/$hook" || true)" == /usr/share/aurpublish/* ]]; then
+      rm "$hooks/$hook"
+      echo "Removed aurpublish's $hook hook"
+    fi
+  done
+  # Checkouts of branches from before the configuration are skipped
+  "$hook_runner" install --allow-missing-config
+
+  # Plain hooks instead of the configuration's: hooks without stages run in every installed stage, so
+  # the checks would run again for the commit message. commit-msg checks the message,
+  # prepare-commit-msg fills in its summary. Checkouts of branches from before the rename have ./aur,
+  # older ones lack the command; those are skipped.
+  local command function
+  for hook in commit-msg prepare-commit-msg; do
+    command=$hook function=cmd_${hook//-/_}
+    if [[ -e "$hooks/$hook" ]] && ! grep -q -E '^# Installed by \./aur(-packages)? setup' "$hooks/$hook"; then
+      echo "Not replacing the existing $hooks/$hook" >&2
+      return 1
+    fi
+    cat >"$hooks/$hook" <<EOF
+#!/bin/sh
+# Installed by ./aur-packages setup: see ./aur-packages $command
+top=\$(git rev-parse --show-toplevel)
+for script in "\$top/aur-packages" "\$top/aur"; do
+  if grep -q '^$function()' "\$script" 2>/dev/null; then
+    file=\$(realpath "\$1")
+    shift
+    exec "\$script" $command "\$file" "\$@"
+  fi
+done
+EOF
+    chmod +x "$hooks/$hook"
+    echo "Installed $hooks/$hook"
+  done
+}
+
+# The application ID of aur-packages-tray, its name on the session bus
+tray_app_id=info.rev_crew.AurPackagesTray
+
+# Installs the daily update check (the user units of systemd/, linked from this checkout, which a
+# drop-in points at) and the tray icon's autostart entry, then starts both; or removes them again
+cmd_tray() {
+  local units=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
+  local autostart=${XDG_CONFIG_HOME:-$HOME/.config}/autostart/aur-packages-tray.desktop
+  local service=aur-packages-updates.service timer=aur-packages-updates.timer value exec
+  case "${1-}" in
+    install)
+      if ! python3 -c 'from gi.repository import Gio' 2>/dev/null; then
+        echo "The tray icon needs python-gobject, the check is installed anyway" >&2
+      fi
+      if ! command -v wl-copy >/dev/null; then
+        echo "Copying the upgrade command needs wl-clipboard" >&2
+      fi
+      # --force replaces the links of another checkout
+      systemctl --user link --force "$root/systemd/$service" "$root/systemd/$timer"
+      # systemd unquotes the value, and expands specifiers (%)
+      value=$root
+      value=${value//\\/\\\\}
+      value=${value//\"/\\\"}
+      value=${value//%/%%}
+      mkdir -p "$units/$service.d"
+      cat >"$units/$service.d/checkout.conf" <<EOF
+# Installed by ./aur-packages tray install: the checkout whose packages are checked
+[Service]
+Environment="AUR_PACKAGES_HOME=$value"
+EOF
+      systemctl --user daemon-reload
+      systemctl --user enable --now "$timer"
+      # The Exec key quotes the path for the desktop entry's argument syntax, and escapes backslashes
+      # once more as a string value
+      exec=$root/aur-packages-tray
+      exec=${exec//\\/\\\\}
+      exec=${exec//\"/\\\"}
+      exec=${exec//\`/\\\`}
+      exec=${exec//\$/\\\$}
+      exec=${exec//\\/\\\\}
+      mkdir -p "${autostart%/*}"
+      cat >"$autostart" <<EOF
+[Desktop Entry]
+Type=Application
+Name=AUR package updates
+Comment=Tray icon of the update check of the AUR packages, installed by ./aur-packages tray install
+Icon=system-software-update
+Exec="$exec"
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+EOF
+      echo "Installed the units of $root/systemd, $units/$service.d/checkout.conf and $autostart"
+      # A first result for the tray, and the tray itself in a graphical session
+      systemctl --user start --no-block "$service"
+      if [[ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]]; then
+        setsid -f "$root/aur-packages-tray" >/dev/null 2>&1 </dev/null
+        echo "Started the tray icon"
+      fi
+      ;;
+    remove)
+      systemctl --user disable --now "$timer" 2>/dev/null || true
+      systemctl --user stop "$service" "$updates_retry_unit-*.timer" 2>/dev/null || true
+      # disable removes the links of systemctl link as well, these are what might be left
+      rm -f "$units/$service" "$units/$timer"
+      rm -rf "$units/$service.d"
+      systemctl --user daemon-reload
+      rm -f "$autostart"
+      # The tray quits by its action, if it's running
+      gdbus call --session --dest "$tray_app_id" --object-path "/${tray_app_id//.//}" \
+        --method org.freedesktop.Application.ActivateAction quit '[]' '{}' >/dev/null 2>&1 || true
+      echo "Removed the update check and the tray icon; the last result stays in ${updates_state_file%/*}"
+      ;;
+    *)
+      echo "Usage: aur-packages tray install|remove" >&2
+      return 1
+      ;;
+  esac
+}
+
+# Checks the summary of a commit message ($1): upgpkg: <pkg> <ver>-<rel> with the version of the
+# package's staged .SRCINFO, or <scope>: <summary> with a top-level file or folder as scope
+cmd_commit_msg() {
+  local summary scope version expected dir file=$1
+  local -a packages
+  local upgpkg_pattern='^upgpkg: ([^ ]+) ([^ ]+)$' scope_pattern='^([^ :]+): [^ ]'
+  [[ "$file" == /* ]] || file=$cwd/$file
+  # The first line that isn't empty or a comment, git strips those afterwards
+  summary=$(grep -v -m1 -e '^#' -e '^[[:space:]]*$' "$file" || true)
+  case "$summary" in
+    # Written by git, git subtree (aurpublish) or the AUR
+    'Merge '* | 'Revert "'* | 'fixup! '* | 'squash! '* | 'amend! '* | 'Initial upload'* | \
+      "Add '"*"/' from commit '"* | "Squashed '"*)
+      return 0
+      ;;
+  esac
+  # The spelling, in British English (.typos.toml), without git's comments and the diff below them of
+  # git commit -v
+  if ! sed '/^# -* >8 -*$/,$d' "$file" | grep -v '^#' | typos -; then
+    echo "Spelling mistakes in the commit message, see .typos.toml for names" >&2
+    return 1
+  fi
+  if [[ "$summary" =~ $upgpkg_pattern ]]; then
+    scope=${BASH_REMATCH[1]}
+    version=${BASH_REMATCH[2]}
+    # The package by its name, also in local/ and overrides/
+    dir=$(package_dir "$scope") || dir=$scope
+    if ! expected=$(srcinfo_version ":$dir/.SRCINFO"); then
+      echo "Not a package with a staged .SRCINFO: $scope" >&2
+      return 1
+    fi
+    if [[ "$version" != "$expected" ]]; then
+      echo "The version in the summary is $version, but $dir/.SRCINFO has $expected" >&2
+      return 1
+    fi
+  elif [[ "$summary" =~ $scope_pattern ]]; then
+    scope=${BASH_REMATCH[1]}
+    # Removed packages and files exist only in HEAD; the packages of local/ and overrides/ by name
+    if [[ ! -e "$scope" ]] && ! git cat-file -e "HEAD:$scope" 2>/dev/null &&
+      ! package_dir "$scope" >/dev/null && ! git cat-file -e "HEAD:local/$scope" 2>/dev/null &&
+      ! git cat-file -e "HEAD:overrides/$scope" 2>/dev/null; then
+      echo "The scope '$scope' is neither a package nor a top-level file or folder" >&2
+      return 1
+    fi
+    if [[ "$summary" == *. ]]; then
+      echo "The summary ends with a period: $summary" >&2
+      return 1
+    fi
+  else
+    echo "The summary has to be 'upgpkg: <pkg> <ver>-<rel>' or '<scope>: <summary>', see CONTRIBUTING.md: $summary" >&2
+    return 1
+  fi
+  # Whoever changes a package is one of its # Maintainer:/# Contributor: lines; not the packages of
+  # overrides/, which keep Arch's style
+  mapfile -t packages < <(git diff --cached --name-only --no-renames --diff-filter=d |
+    sed -n -E 's#^((local/)?[^/]+)/PKGBUILD$#\1#p' || true)
+  ((${#packages[@]})) || return 0
+  "$root/aur-packages-maintainers" check --author "${packages[@]}"
+}
+
+# Fills in the summary of the commit message (git's prepare-commit-msg hook, $1 the message's file, $2
+# where the message comes from): when the staged changes are in one package and change its version
+# (the staged .SRCINFO against HEAD's), the whole summary, upgpkg: <pkg> <ver>-<rel>; when they're in
+# one scope otherwise, the scope, <scope>: . Changes in several scopes get a comment instead, as each
+# package is a commit of its own. A message that isn't empty is left as it is.
+cmd_prepare_commit_msg() {
+  local file=$1 source=${2-} scope dir version previous summary=''
+  local -a scopes
+  [[ "$file" == /* ]] || file=$cwd/$file
+  # Not for -m and -F, which commit without an editor, nor for git's own messages (merge, squash) and
+  # those taken from a commit (-c, -C, --amend)
+  case "$source" in
+    message | merge | squash | commit) return 0 ;;
+  esac
+  # Only a message without text, e.g. not one of commit.template
+  ! grep -q -v -m1 -e '^#' -e '^[[:space:]]*$' "$file" || return 0
+  # The top-level file or folder, for local/ and overrides/ the package's name
+  mapfile -t scopes < <(git diff --cached --name-only --no-renames |
+    sed -E 's#^(local|overrides)/([^/]+)/.*#\2#; s#/.*##' | sort -u)
+  if ((${#scopes[@]} > 1)); then
+    summary="# The staged changes are in several scopes, one commit each: ${scopes[*]}"
+  elif ((${#scopes[@]} == 1)); then
+    scope=${scopes[0]}
+    if dir=$(package_dir "$scope") && version=$(srcinfo_version ":$dir/.SRCINFO"); then
+      previous=$(srcinfo_version "HEAD:$dir/.SRCINFO") || previous=''
+      [[ "$version" == "$previous" ]] || summary="upgpkg: $scope $version"
+    fi
+    summary=${summary:-"$scope: "}
+  fi
+  [[ -n "$summary" ]] || return 0
+  printf '%s\n%s\n' "$summary" "$(<"$file")" >"$file"
+}
+
+# Checks, without the network, that a pinned _commit is the commit pkgver names, for the versions like
+# git describe (<tag>.r<commits>.g<short commit>): an upgrade that couldn't resolve the new commit
+# leaves the old one, and the package builds the old sources under the new version. Takes packages or
+# their PKGBUILDs, as the hook passes them. ./aur-packages commits checks the other pins, online.
+cmd_pins() {
+  local status=0 package pkgver commit
+  local -a selected
+  select_packages "${@%/PKGBUILD}"
+  for package in "${selected[@]}"; do
+    pkgver=$(pin_value "$package" pkgver)
+    commit=$(pin_value "$package" _commit)
+    [[ "$pkgver" =~ \.g([0-9a-f]{7,40})$ && -n "$commit" ]] || continue
+    if [[ "$commit" != "${BASH_REMATCH[1]}"* ]]; then
+      echo "$package/PKGBUILD: _commit $(short_pin "$commit") isn't the commit pkgver names," \
+        "${BASH_REMATCH[1]}: ./aur-packages commits --update $package"
+      status=1
+    fi
+  done
+  return "$status"
+}
+
+# Prints the field $2 of the pkgbase section of the .SRCINFO $1 (before the first pkgname), with $2
+# pkgbase its name, or with pkgname the names of its packages, one per line
+srcinfo_field() {
+  if [[ "$2" == pkgname || "$2" == pkgbase ]]; then
+    sed -n "s/^$2 = //p" "$1"
+  else
+    sed -n "/^pkgname = /q; s/^\t$2 = //p" "$1"
+  fi
+}
+
+# Prints the row README.md has for the package in the folder $1 (with $2, as if it were in that folder
+# instead, e.g. at the top level for publish): its link (the AUR's, or its folder for local/ and
+# overrides/), the packages of a split package, its pkgdesc and the AUR version badge. For local/ and
+# overrides/ only the start of the row: the columns after it are free text.
+readme_row() {
+  local srcinfo=$1/.SRCINFO dir=${2:-$1} base desc first list link
+  local -a pkgnames
+  base=$(srcinfo_field "$srcinfo" pkgbase)
+  # The pkgdesc of the pkgbase, or without one, the package named like it has (split packages with a
+  # pkgdesc each)
+  desc=$(srcinfo_field "$srcinfo" pkgdesc)
+  if [[ -z "$desc" ]]; then
+    desc=$(sed -n "/^pkgname = ${base//./\\.}\$/,/^pkgname = /s/^\tpkgdesc = //p" "$srcinfo" | head -n 1)
+  fi
+  # The package named like the pkgbase first, then the others in their order; without debug packages,
+  # which aren't split packages of their own
+  mapfile -t pkgnames < <(srcinfo_field "$srcinfo" pkgname | grep -v -- '-debug$' |
+    awk -v base="$base" '$0 == base { print; next } { rest[++n] = $0 } END { for (i = 1; i <= n; i++) print rest[i] }')
+  case "$dir" in
+    overrides/*) printf '%s\n' "| [$base](overrides/$base) | " ;;
+    local/*) printf '%s\n' "| [$base](local/$base) | $desc | " ;;
+    *)
+      first=${pkgnames[0]}
+      if ((${#pkgnames[@]} == 1)) && [[ "$first" == "$base" ]]; then
+        link="[$base](https://aur.archlinux.org/packages/$base)"
+      else
+        printf -v list "\`%s\`, " "${pkgnames[@]}"
+        link="[$base](https://aur.archlinux.org/pkgbase/$base) (${list%, })"
+      fi
+      printf '%s\n' "| $link | $desc | [![AUR version](https://img.shields.io/aur/version/$first?label=)](https://aur.archlinux.org/packages/$first) |"
+      ;;
+  esac
+}
+
+# Checks README.md's tables of the packages against the packages: every package has exactly one row,
+# with its link (the AUR's, or its folder for local/ and overrides/), the packages of a split package,
+# its pkgdesc and the AUR version badge; and every row is a package's. The columns after the
+# description of local/ and overrides/ (why, until) are free text, as are the changes of overrides/.
+# Prints the row a package should have.
+cmd_readme() {
+  local status=0 dir base row expected
+  local -A rows=() seen=()
+  while IFS= read -r row; do
+    base=${row#'| ['}
+    base=${base%%']'*}
+    if [[ -n "${rows[$base]:-}" ]]; then
+      echo "README.md: more than one row for $base"
+      status=1
+    fi
+    rows[$base]=$row
+  done < <(grep -E '^\| \[[^]]+\]\((https://aur\.archlinux\.org/(packages|pkgbase)/|local/|overrides/)' README.md)
+  while IFS= read -r dir; do
+    base=$(srcinfo_field "$dir/.SRCINFO" pkgbase)
+    seen[$base]=1
+    expected=$(readme_row "$dir")
+    row=${rows[$base]:-}
+    if [[ -z "$row" ]]; then
+      printf 'README.md: no row for %s, which should start with:\n  %s\n' "$dir" "$expected"
+      status=1
+    elif [[ "$dir" == */* && "$row" != "$expected"* ]] || [[ "$dir" != */* && "$row" != "$expected" ]]; then
+      printf 'README.md: the row of %s should be (or start with):\n  %s\nnot:\n  %s\n' "$dir" "$expected" "$row"
+      status=1
+    fi
+  done < <(package_dirs)
+  for base in "${!rows[@]}"; do
+    if [[ -z "${seen[$base]:-}" ]]; then
+      echo "README.md: a row for $base, which isn't a package"
+      status=1
+    fi
+  done
+  return "$status"
+}
+
+# Checks the quoting of the metadata arrays of the PKGBUILDs against CONTRIBUTING.md: plain words bare,
+# single quotes for literal text that needs quotes, double quotes only for expansions (or apostrophes),
+# around the whole word. From the syntax tree of shfmt, so package functions and per-arch arrays count
+# as well. Takes packages or their PKGBUILDs, as the hook passes them.
+# Checks the # Maintainer: and # Contributor: lines of the packages with aur-packages-maintainers, or with
+# --aur against the AUR's maintainers. Takes packages or their PKGBUILDs, as the hook passes them; the
+# packages of overrides/ keep Arch's style
+cmd_maintainers() {
+  local mode=check package
+  local -a selected dirs=() options=()
+  if [[ "${1-}" == --aur ]]; then
+    mode=aur
+    shift
+    # The notes as JSON, for updates --state
+    if [[ "${1-}" == --json ]]; then
+      options=(--json)
+      shift
+    fi
+  fi
+  select_packages "${@%/PKGBUILD}"
+  for package in "${selected[@]}"; do
+    [[ "$package" == overrides/* ]] || dirs+=("$package")
+  done
+  ((${#dirs[@]})) || return 0
+  "$root/aur-packages-maintainers" "$mode" "${options[@]}" "${dirs[@]}"
+}
+
+cmd_quoting() {
+  local status=0 package findings
+  local -a selected
+  # shellcheck disable=SC2016 # a jq program, jq expands $name and the others
+  local program='
+    def bare: test("^!?[A-Za-z0-9._+@/=:,-]+$");
+    def literal: all(.Parts[]?; .Type == "Lit");
+    def text: [.Parts[]?.Value] | join("");
+    .. | objects | .Assigns? // empty | .[]
+    | select(.Array != null and (.Name.Value | test($names)))
+    | .Name.Value as $name | .Array.Elems[] | .Pos as $pos | .Value.Parts as $parts
+    | if ($parts | length) > 1 then
+        if any($parts[]; .Type == "SglQuoted" or .Type == "DblQuoted") then
+          "a word quoted in part, double-quote it as a whole" else empty end
+      elif $parts[0].Type == "SglQuoted" then
+        if ($parts[0].Value | bare) then "\u0027\($parts[0].Value)\u0027 is a plain word, write it unquoted"
+        else empty end
+      elif $parts[0].Type == "DblQuoted" and ($parts[0] | literal) then
+        ($parts[0] | text) as $text
+        | if ($text | bare) then "\"\($text)\" is a plain word, write it unquoted"
+          elif ($text | contains("\u0027")) then empty
+          else "\"\($text)\" has nothing that expands, single-quote it" end
+      else empty end
+    | "\($file):\($pos.Line):\($pos.Col): \($name): \(.)"'
+  local names='^(arch|license|groups|depends|makedepends|checkdepends|optdepends|provides|conflicts|replaces|options|backup|noextract|validpgpkeys)(_.+)?$'
+  select_packages "${@%/PKGBUILD}"
+  for package in "${selected[@]}"; do
+    # shellcheck disable=SC2094 # jq only gets the file's name, for its messages
+    findings=$(shfmt -ln bash --to-json <"$package/PKGBUILD" |
+      jq -r --arg file "$package/PKGBUILD" --arg names "$names" "$program")
+    if [[ -n "$findings" ]]; then
+      printf '%s\n' "$findings" >&2
+      status=1
+    fi
+  done
+  return "$status"
+}
+
+# Prints "depdir<TAB>pkgdir" for every build dependency (depends/makedepends/checkdepends, of any
+# architecture) that resolves to another package in this repository, from the .SRCINFO files
+build_edges() {
+  local s d line key name
+  local -A name2dir=() provider=()
+  while IFS= read -r d; do
+    s=$d/.SRCINFO
+    while IFS= read -r line; do
+      [[ "$line" == *" = "* ]] || continue
+      key=${line%% = *}
+      key=${key//[[:space:]]/}
+      [[ "$key" == pkgname || "$key" == provides ]] || continue
+      name=${line#* = }
+      name=${name%%[<>=:]*}
+      [[ -n "$name" ]] || continue
+      # A package's own name wins over what others provide, e.g. dotnet-build-deps-10.0 over
+      # the dotnet-build-deps-10.0-bin that provides it
+      if [[ "$key" == pkgname ]]; then
+        name2dir[$name]=$d
+        unset "provider[$name]"
+      elif [[ -z "${name2dir[$name]:-}" || -n "${provider[$name]:-}" ]]; then
+        name2dir[$name]=$d
+        provider[$name]=1
+      fi
+    done <"$s"
+  done < <(package_dirs)
+  for name in "${!build_alias[@]}"; do
+    name2dir[$name]=${build_alias[$name]}
+  done
+  while IFS= read -r d; do
+    s=$d/.SRCINFO
+    while IFS= read -r line; do
+      [[ "$line" == *" = "* ]] || continue
+      key=${line%% = *}
+      key=${key//[[:space:]]/}
+      case "$key" in
+        depends | makedepends | checkdepends | depends_* | makedepends_* | checkdepends_*) ;;
+        *) continue ;;
+      esac
+      name=${line#* = }
+      name=${name%%[<>=:]*}
+      [[ -n "$name" ]] || continue
+      if [[ -n "${name2dir[$name]:-}" && "${name2dir[$name]}" != "$d" ]]; then
+        printf '%s\t%s\n' "${name2dir[$name]}" "$d"
+      fi
+    done <"$s"
+  done < <(package_dirs) | sort -u
+}
+
+# Prints the dependencies of the given packages (depends, makedepends and checkdepends, also the
+# architecture-specific ones) that only the AUR has: neither a package of this repository, by name or
+# provides, nor the official repositories ($1, a pacman.conf of devtools, with the host's sync
+# databases; without dependency checks, which would weigh in the host's installed packages) provide
+# them, e.g. lasso for sogo, or the .NET SDK of a -bin selector
+aur_only_deps() {
+  local repoconf=$1 d line key name
+  local -A ours=() wanted=()
+  shift
+  while IFS= read -r d; do
+    while IFS= read -r line; do
+      [[ "$line" == *" = "* ]] || continue
+      key=${line%% = *}
+      key=${key//[[:space:]]/}
+      [[ "$key" == pkgname || "$key" == provides ]] || continue
+      name=${line#* = }
+      ours["${name%%[<>=:]*}"]=1
+    done <"$d/.SRCINFO"
+  done < <(package_dirs)
+  for d; do
+    while IFS= read -r line; do
+      [[ "$line" == *" = "* ]] || continue
+      key=${line%% = *}
+      key=${key//[[:space:]]/}
+      case "$key" in
+        depends | makedepends | checkdepends | depends_* | makedepends_* | checkdepends_*) ;;
+        *) continue ;;
+      esac
+      name=${line#* = }
+      name=${name%%[<>=:]*}
+      [[ -n "$name" && -z "${ours[$name]:-}" ]] || continue
+      wanted[$name]=1
+    done <"$d/.SRCINFO"
+  done
+  for name in "${!wanted[@]}"; do
+    pacman --config "$repoconf" -Sddp --print-format %n "$name" >/dev/null 2>&1 || printf '%s\n' "$name"
+  done | sort
+}
+
+# Succeeds if a package in the repository folder $1 is called $2 or provides it
+repo_provides() {
+  local file
+  for file in "$1"/*.pkg.tar.zst; do
+    [[ -f "$file" ]] || continue
+    if bsdtar -xOf "$file" .PKGINFO | grep -qxE "(pkgname|provides) = ${2//./\\.}([<>=].*)?"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Prints the given root packages and all their repo-local dependencies, dependencies first
+build_order() {
+  local edges a b n d induced ordered
+  local -a dlist queue
+  local -A deps=() seen=()
+  edges=$(build_edges)
+  while IFS=$'\t' read -r a b; do
+    if [[ -n "$b" ]]; then deps[$b]+="$a "; fi
+  done <<<"$edges"
+  queue=("$@")
+  while ((${#queue[@]})); do
+    n=${queue[0]}
+    queue=("${queue[@]:1}")
+    [[ -n "${seen[$n]:-}" ]] && continue
+    seen[$n]=1
+    read -ra dlist <<<"${deps[$n]:-}" || true
+    for d in "${dlist[@]}"; do
+      [[ -n "${seen[$d]:-}" ]] || queue+=("$d")
+    done
+  done
+  induced=$(while IFS=$'\t' read -r a b; do
+    if [[ -n "${seen[$a]:-}" && -n "${seen[$b]:-}" ]]; then printf '%s\t%s\n' "$a" "$b"; fi
+  done <<<"$edges")
+  ordered=$(tsort <<<"$induced")
+  if [[ -n "$ordered" ]]; then printf '%s\n' "$ordered"; fi
+  # Packages with no repo-local dependency edges don't appear above; their order is free
+  for n in "${!seen[@]}"; do
+    grep -qxF "$n" <<<"$ordered" || printf '%s\n' "$n"
+  done
+}
+
+# The names of the build templates of build_template
+build_templates=(powershell-core powershell-full)
+
+# Prints the root packages of a build template, or returns 1 if the name isn't one
+build_template() {
+  case "$1" in
+    powershell-core)
+      printf '%s\n' powershell
+      ;;
+    powershell-full)
+      printf '%s\n' powershell powershell-editor-services powershell-dsc vscode-powershell \
+        powershell-mmi powershell-pester-4 powershell-powershellget-v3
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# Prints the architectures of a package, from its .SRCINFO
+build_arches() {
+  sed -n -E 's/^\s*arch = //p' "$1/.SRCINFO"
+}
+
+# Succeeds if a package builds against the multilib repository: it or a package of this repository
+# it depends on, which the container installs with its dependencies, depends on 32-bit libraries,
+# the lib32-* packages only multilib has (e.g. a SourceMod plugin, through sourcemod). Like Arch's
+# multilib packages (pkgctl build --repo multilib), it builds in a container of its own with
+# multilib and its toolchain (multilib-devel).
+build_multilib() {
+  local pkg dep dependent
+  local -a queue=("$1")
+  local -A seen=()
+  if [[ -z "$build_edges_cache" ]]; then
+    build_edges_cache=$(build_edges)
+  fi
+  while ((${#queue[@]})); do
+    pkg=${queue[0]}
+    queue=("${queue[@]:1}")
+    [[ -n "${seen[$pkg]:-}" ]] && continue
+    seen[$pkg]=1
+    grep -q -E '^\s*(depends|makedepends|checkdepends)(_x86_64)? = lib32-' "$pkg/.SRCINFO" && return 0
+    while IFS=$'\t' read -r dep dependent; do
+      if [[ "$dependent" == "$pkg" ]]; then queue+=("$dep"); fi
+    done <<<"$build_edges_cache"
+  done
+  return 1
+}
+
+# Prints a pacman.conf of devtools ($1, e.g. extra.conf) with the private repository $2 at $3 added
+# first, so its freshly built packages take precedence over the same ones in the other repositories
+devtools_pacman_conf() {
+  awk -v name="$2" -v root="$3" '
+    /^\[/ && $0 != "[options]" && !inserted {
+      printf "[%s]\nSigLevel = Never\nServer = file://%s\n\n", name, root
+      inserted = 1
+    }
+    { print }
+  ' "/usr/share/devtools/pacman.conf.d/$1"
+}
+
+# Prints the names of the packages a package directory builds, several for a split package, from its
+# .SRCINFO
+build_pkgnames() {
+  sed -n -E 's/^pkgname = //p' "$1/.SRCINFO"
+}
+
+# The key of the Arch Linux ARM build system, which signs its images
+alarm_key=68B3537F39A313B3E574D06777193F152BDBE6A6
+
+# Sets up the Arch Linux ARM root file system of the aarch64 builds in $1/root, if it isn't there yet:
+# the native builds run in it (under QEMU, with qemu-user-static-binfmt), the cross builds compile
+# against it. From the latest image of archlinuxarm.org, checked against the key of its build system,
+# without the kernel and firmware, which a container doesn't need, and with base-devel.
+alarm_root() {
+  local dir=$1 cache=${XDG_CACHE_HOME:-$HOME/.cache}/aur-packages/alarm
+  local image=ArchLinuxARM-aarch64-latest.tar.gz url=http://os.archlinuxarm.org/os conf
+  [[ ! -d "$dir/root" ]] || return 0
+  mkdir -p "$cache/gnupg"
+  chmod 700 "$cache" "$cache/gnupg"
+  echo ">>> Downloading the Arch Linux ARM image" >&2
+  curl -fL --remote-time -z "$cache/$image" -o "$cache/$image" "$url/$image"
+  curl -fL -o "$cache/$image.sig" "$url/$image.sig"
+  if ! GNUPGHOME="$cache/gnupg" gpg --batch --list-keys "$alarm_key" >/dev/null 2>&1; then
+    GNUPGHOME="$cache/gnupg" gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$alarm_key"
+  fi
+  # A good signature by that key, its fingerprint ends the VALIDSIG status line
+  if ! GNUPGHOME="$cache/gnupg" gpg --batch --status-fd 1 --verify "$cache/$image.sig" "$cache/$image" 2>/dev/null |
+    grep -q "^\[GNUPG:\] VALIDSIG .* $alarm_key\$"; then
+    echo "The signature of $cache/$image isn't valid" >&2
+    return 1
+  fi
+  echo ">>> Setting up the Arch Linux ARM root in $dir/root" >&2
+  sudo install -d -m 755 "$dir/root" "$dir/pkgcache"
+  sudo bsdtar -xpf "$cache/$image" -C "$dir/root"
+  # The configuration of the setup, kept next to the root
+  conf=$dir/pacman.conf
+  alarm_pacman_conf "$dir" | sudo tee "$conf" >/dev/null
+  sudo systemd-nspawn -q -D "$dir/root" sh -c 'pacman-key --init && pacman-key --populate archlinuxarm'
+  # The marker of mkarchroot, which arch-nspawn checks for
+  (
+    # shellcheck disable=SC1091 # devtools
+    source /usr/share/devtools/lib/archroot.sh
+    echo "$CHROOT_VERSION" | sudo tee "$dir/root/.arch-chroot" >/dev/null
+  )
+  # -s: arch-nspawn would run setarch aarch64 for the CARCH of the image's makepkg.conf, which an
+  # x86_64 kernel doesn't know
+  sudo arch-nspawn -s -C "$conf" "$dir/root" sh -c \
+    'pacman -Rdd --noconfirm linux-aarch64 $(pacman -Qqs "^linux-firmware") && pacman -Syu --noconfirm --needed base-devel'
+}
+
+# Prints the pacman.conf of the Arch Linux ARM root in $1/root, with the private repository $2 at $3
+# first if given. The mirrors are listed here, as arch-nspawn writes the system's into the mirrorlist,
+# and the packages are cached in $1/pkgcache rather than the system's cache.
+alarm_pacman_conf() {
+  local repo
+  cat <<EOF
+[options]
+Architecture = aarch64
+CacheDir = $1/pkgcache
+HoldPkg = pacman glibc
+SigLevel = Required DatabaseOptional
+LocalFileSigLevel = Optional
+ParallelDownloads = 5
+EOF
+  if (($# == 3)); then
+    printf '\n[%s]\nSigLevel = Never\nServer = file://%s\n' "$2" "$3"
+  fi
+  for repo in core extra alarm aur; do
+    # shellcheck disable=SC2016 # pacman expands $arch and $repo
+    printf '\n[%s]\nServer = http://mirror.archlinuxarm.org/$arch/$repo\n' "$repo"
+  done
+}
+
+# Prints the makepkg.conf of the native aarch64 builds, the one of the Arch Linux ARM root in $1/root.
+# makepkg reads CARCH from it, but arch-nspawn would run setarch for a line starting with CARCH=, which
+# an x86_64 kernel doesn't support for aarch64, so it's exported instead.
+alarm_makepkg_conf() {
+  sed -E 's/^CARCH=/export CARCH=/' "$1/root/etc/makepkg.conf"
+  cat <<EOF
+
+# Native aarch64 build under QEMU (./aur-packages build --target aarch64-native)
+MAKEFLAGS="-j$(nproc)"
+# .NET's W^X double mapping fails under qemu-user
+export DOTNET_EnableWriteXorExecute=0
+EOF
+}
+
+# Prints the makepkg.conf of the cross builds for aarch64 on x86_64: devtools' for x86_64 with the
+# CHOST and compiler flags of Arch Linux ARM, from its root in $1/root, which the packages compile
+# against (ROOTFS_DIR, as for the cross toolchain of .NET's runtime). makepkg strips the binaries and
+# splits off their debug information with binutils for aarch64 (aarch64-linux-gnu-binutils), the
+# system's only handle x86_64: as functions for makepkg's own calls, and as OBJCOPY and READELF for
+# gdb-add-index, a script of its own, which makepkg runs first to add the GDB index (the system's
+# gdb reads aarch64 too). CARCH is exported for arch-nspawn, see alarm_makepkg_conf.
+cross_makepkg_conf() {
+  grep -v -E '^CARCH=' /usr/share/devtools/makepkg.conf.d/x86_64.conf
+  cat <<EOF
+
+# Cross build for aarch64 (./aur-packages build --target aarch64)
+export CARCH=aarch64
+$(
+    # shellcheck disable=SC1091 # Arch Linux ARM's makepkg.conf
+    source "$1/root/etc/makepkg.conf"
+    declare -p CHOST CFLAGS CXXFLAGS LDFLAGS LTOFLAGS | sed 's/^declare -- //'
+  )
+export ROOTFS_DIR=$1/root
+strip() { aarch64-linux-gnu-strip "\$@"; }
+objcopy() { aarch64-linux-gnu-objcopy "\$@"; }
+export OBJCOPY=aarch64-linux-gnu-objcopy READELF=aarch64-linux-gnu-readelf
+EOF
+}
+
+# Succeeds if the packages a package directory builds ($1) are in the repository $2 already, in their
+# current version, as makepkg names them with the makepkg.conf $3
+build_in_repo() {
+  local file found=false
+  while IFS= read -r file; do
+    # makepkg lists a -debug package whenever debug is on, but only builds one when there are debug
+    # symbols, e.g. not for an architecture-independent package
+    if [[ ! -f "$2/${file##*/}" ]]; then
+      [[ "${file##*/}" == "$(sed -n -E 's/^pkgbase = //p' "$1/.SRCINFO")"-debug-* ]] || return 1
+      continue
+    fi
+    found=true
+  done < <(cd "$1" && makepkg --packagelist --config "$3")
+  [[ "$found" == true ]]
+}
+
+# Prints the makepkg.conf of test builds with the sanitisers $2 (address, undefined or both,
+# comma-separated): the makepkg.conf $1 with their flags. Without the checks of undefined that don't work
+# for libraries loaded into closed-source programs, like the plugins of game servers (vptr and function
+# need the type information of the whole program), or that LLVM's LTO can't build for 32-bit x86
+# (pointer-overflow). Executables get the sanitisers' runtime linked in; shared libraries take it from
+# the program that loads them, e.g. a server started with the runtime in LD_PRELOAD.
+sanitise_makepkg_conf() {
+  local flags="-fsanitize=$2 -fno-omit-frame-pointer"
+  if [[ ",$2," == *,undefined,* ]]; then
+    flags+=" -fno-sanitize=vptr,function,pointer-overflow"
+  fi
+  cat "$1"
+  printf '\n# ./aur-packages build --sanitize=%s: test builds with the sanitisers\n' "$2"
+  printf 'CFLAGS+=" %s"\nCXXFLAGS+=" %s"\nLDFLAGS+=" %s"\n' "$flags" "$flags" "$flags"
+  # Reports of check() and of the programs the build runs, with where they come from
+  printf 'export UBSAN_OPTIONS=print_stacktrace=1\n'
+}
+
+# Sets $sysrepo_name, $sysrepo_root and $sysrepo_db to the system's aurutils repository, the one
+# aur repo picks: $AUR_REPO, else the only file:// repository of pacman.conf
+system_repo() {
+  local status
+  status=$(aur repo --status) || return
+  sysrepo_name=$(sed -n 's/^repo://p' <<<"$status")
+  sysrepo_root=$(sed -n 's/^root://p' <<<"$status")
+  sysrepo_db=$(sed -n 's/^path://p' <<<"$status")
+}
+
+# Succeeds if pacman.conf enables Arch Linux's testing repositories
+system_uses_testing() {
+  pacman-conf --repo-list | grep -q -x -E '(core|extra|multilib)-testing'
+}
+
+# Signs the file $1 with a detached signature ($1.sig), as aur build --sign does: with the key of
+# $GPGKEY in the environment, else gpg's default key (default-key in gpg.conf). Not makepkg.conf's
+# GPGKEY, which neither aur build nor repo-add read.
+sign_package() {
+  local -a key=()
+  [[ -z "${GPGKEY:-}" ]] || key=(-u "$GPGKEY")
+  gpg --detach-sign --no-armor --batch --yes "${key[@]}" --output "$1.sig" -- "$1"
+}
+
+# Succeeds if makepkg signs the packages it builds: sign in its BUILDENV, from its configuration as
+# makepkg loads it (/etc/makepkg.conf, its .d, the user's own, the environment)
+makepkg_signs() {
+  (
+    # makepkg's library relies on unset variables being empty
+    set +u
+    # shellcheck disable=SC1091 # makepkg's library
+    source /usr/share/makepkg/util.sh
+    load_makepkg_config
+    [[ " ${BUILDENV[*]} " == *" sign "* ]]
+  )
+}
+
+# Prints true or false, whether to sign the packages added to the system's aurutils repository
+# (system_repo): what --sign or --no-sign ($1 true or false) say, else (auto) if its database is signed
+# or makepkg signs the packages it builds
+system_repo_signing() {
+  if [[ "$1" != auto ]]; then
+    printf '%s\n' "$1"
+  elif [[ -f "$sysrepo_root/$sysrepo_name.db.sig" ]]; then
+    echo "Signing the packages, the database of $sysrepo_name is signed" >&2
+    echo true
+  elif makepkg_signs; then
+    echo "Signing the packages, as makepkg does (sign in BUILDENV)" >&2
+    echo true
+  else
+    echo false
+  fi
+}
+
+# Fails unless packages can be added to the system's aurutils repository (system_repo), signed or not
+# ($1 true or false): its owner can write to it, and a signed database needs signed packages, as with
+# aur build. Before the builds, so they aren't for nothing.
+system_repo_check() {
+  system_repo || return
+  if [[ ! -w "$sysrepo_root" ]]; then
+    echo "Can't write to $sysrepo_root (the repository $sysrepo_name): run as its owner," \
+      "$(stat -c %U "$sysrepo_root")" >&2
+    return 1
+  fi
+  if [[ "$1" == false && -f "$sysrepo_root/$sysrepo_name.db.sig" ]]; then
+    echo "The database of $sysrepo_name is signed, the packages need signing too (without --no-sign)" >&2
+    return 1
+  fi
+}
+
+# Adds the package files given to the system's aurutils repository (system_repo), signed with --sign
+# ($1 true) like the database. Not pacman's copy of it, as aur build --chroot doesn't: the next pacman -Syu
+# syncs it, without a sudo rule for pacsync.
+system_repo_add() {
+  local signing=$1 file name
+  # Not over a newer version, e.g. of an AUR dependency aur sync has updated there since
+  local -a added=() repoadd=(--wait-for-lock --prevent-downgrade)
+  shift
+  system_repo_check "$signing" || return
+  if [[ "$signing" == true ]]; then repoadd+=(--sign); fi
+  for file; do
+    name=${file##*/}
+    cp -f -- "$file" "$sysrepo_root/$name"
+    if [[ "$signing" == true ]]; then
+      sign_package "$sysrepo_root/$name"
+    else
+      # One of an earlier build of the same file wouldn't match it
+      rm -f -- "$sysrepo_root/$name.sig"
+    fi
+    added+=("$sysrepo_root/$name")
+  done
+  (cd "$sysrepo_root" && LANG=C repo-add "${repoadd[@]}" -- "$sysrepo_db" "${added[@]}")
+  echo "Added ${#added[@]} files to $sysrepo_name ($sysrepo_root), pacman -Syu installs them" >&2
+}
+
+# Updates the system's aurutils repository like aur sync -u, but with our packages first: those of
+# the top level, local/ and overrides/ that are in the repository and have a newer version here are
+# built with their dependencies and added (build --add), then aur sync -u updates the rest, leaving out
+# all our packages, which it would replace with the AUR's. Signs the packages of both as build --add
+# decides (system_repo_signing), unless --sign or --no-sign says.
+cmd_sysupgrade() {
+  local signing=auto dir name version
+  local -a selected=() names=() ignore=() buildargs=() syncargs=()
+  local -A repover=()
+  while (($#)); do
+    case "$1" in
+      --sign | -S) signing=true ;;
+      --no-sign) signing=false ;;
+      --)
+        shift
+        break
+        ;;
+      *)
+        echo "Unknown option: $1 (options of aur sync go after --)" >&2
+        return 1
+        ;;
+    esac
+    shift
+  done
+  require sysupgrade aur:aurutils
+  system_repo
+  signing=$(system_repo_signing "$signing")
+  while IFS=$'\t' read -r name version; do
+    repover[$name]=$version
+  done < <(aur repo --database "$sysrepo_name" --list)
+  while IFS= read -r dir; do
+    mapfile -t names < <(build_pkgnames "$dir")
+    ignore+=("${names[@]}")
+    version=$(srcinfo_text_version <"$dir/.SRCINFO")
+    for name in "${names[@]}"; do
+      if [[ -n "${repover[$name]-}" ]] && (($(vercmp "$version" "${repover[$name]}") > 0)); then
+        echo "$dir: ${repover[$name]} -> $version" >&2
+        selected+=("$dir")
+        break
+      fi
+    done
+  done < <(package_dirs)
+  if [[ "$signing" == true ]]; then
+    buildargs+=(--sign)
+    syncargs+=(--sign)
+  else
+    buildargs+=(--no-sign)
+  fi
+  if ((${#selected[@]})); then
+    # In a subshell, as its traps outlive it
+    (cmd_build --add "${buildargs[@]}" -- "${selected[@]}")
+  else
+    echo "Our packages in $sysrepo_name are up to date" >&2
+  fi
+  aur sync --database "$sysrepo_name" --upgrades --ignore "$(
+    IFS=,
+    printf '%s' "${ignore[*]}"
+  )" "${syncargs[@]}" "$@"
+}
+
+cmd_build() {
+  local method=chroot install=false dryrun=false keep=false dotnetbin=false libsbin=false testing=false
+  local target='' native=false cross=false reuse='' sanitise='' sanitiser add=false signing=auto
+  local arg pkg name file dir repo='' conf='' reponame=aur-build
+  local makepkgconf=/usr/share/devtools/makepkg.conf.d/x86_64.conf
+  local crossrepo='' crossconf='' crossmakepkg='' crossname=aur-build-aarch64
+  # The containers, apart from the ones of aurutils (/var/lib/aurbuild), which builds the system's
+  # packages with its own configuration
+  local chrootbase=${AUR_BUILD_CHROOT:-/var/lib/aur-packages-chroot}
+  local chrootdir=$chrootbase/x86_64 alarmdir=$chrootbase/aarch64 crossdir=$chrootbase/x86_64-cross-aarch64
+  local multilibdir=$chrootbase/multilib-x86_64 pkgconf
+  local -a roots=() order=() expand cmd preinstall=() files arches names chrootargs=() crossargs=() pkgargs
+  local ver
+  local -A built=()
+  # The private repository's files, the packages and the copies --add puts into the system's repository
+  # are read by pacman's DownloadUser (alpm) in the chroots, and by pacman, whatever the umask of the
+  # user building (027 for a dedicated aurutils user, say)
+  umask 022
+  while (($#)); do
+    case "$1" in
+      --chroot) method=chroot ;;
+      --local) method=local ;;
+      --install) install=true ;;
+      --dry-run | -n) dryrun=true ;;
+      --keep) keep=true ;;
+      --add) add=true ;;
+      --sign) signing=true ;;
+      --no-sign) signing=false ;;
+      --dotnet-bin) dotnetbin=true ;;
+      --libs-bin) libsbin=true ;;
+      --testing) testing=true ;;
+      --sanitize)
+        shift
+        sanitise=${1:-}
+        ;;
+      --sanitize=*) sanitise=${1#*=} ;;
+      --target)
+        shift
+        target=${1:-}
+        ;;
+      --target=*) target=${1#*=} ;;
+      --repo)
+        shift
+        reuse=${1:-}
+        ;;
+      --repo=*) reuse=${1#*=} ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        echo "Unknown option: $1" >&2
+        return 1
+        ;;
+      *) break ;;
+    esac
+    shift
+  done
+  if (($# == 0)); then
+    echo "Usage: aur-packages build [--chroot|--local] [--install] [--dry-run] [--keep] [--add [--sign|--no-sign]] [--repo DIR]" \
+      "[--dotnet-bin]" \
+      "[--libs-bin] [--testing] [--sanitize undefined|address|address,undefined] [--target aarch64|aarch64-native]" \
+      "<template|package>..." >&2
+    return 1
+  fi
+  case "$target" in
+    '') ;;
+    aarch64) cross=true ;;
+    aarch64-native) native=true ;;
+    *)
+      echo "Unknown target: $target (aarch64 cross-builds, aarch64-native builds under QEMU)" >&2
+      return 1
+      ;;
+  esac
+  if [[ "$method" == local && ("$dotnetbin" == true || "$libsbin" == true || "$testing" == true || -n "$target" ||
+    -n "$reuse") ]]; then
+    echo "--dotnet-bin, --libs-bin, --testing, --target and --repo need a chroot build, a local one uses what's installed" >&2
+    return 1
+  fi
+  # What the build needs, before it changes anything (--target sets up the Arch Linux ARM root first),
+  # even for --dry-run, so the plan it prints can run
+  local -a tools=(makepkg:pacman)
+  if [[ "$method" == chroot ]]; then
+    tools+=(aur:aurutils makechrootpkg:devtools arch-nspawn:devtools)
+  fi
+  if [[ "$add" == true ]]; then
+    tools+=(aur:aurutils repo-add:pacman gpg:gnupg)
+  fi
+  if [[ -n "$target" ]]; then
+    tools+=(curl:curl gpg:gnupg)
+  fi
+  require build "${tools[@]}"
+  # Programs for aarch64 run in the Arch Linux ARM root under QEMU, registered with binfmt_misc
+  if [[ -n "$target" && ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]]; then
+    echo "--target needs QEMU for aarch64 programs: qemu-user-static-binfmt, then" \
+      "systemctl restart systemd-binfmt" >&2
+    return 1
+  fi
+  if [[ -n "$sanitise" ]]; then
+    local -a sanitisers
+    IFS=, read -ra sanitisers <<<"$sanitise"
+    for sanitiser in "${sanitisers[@]}"; do
+      if [[ "$sanitiser" != address && "$sanitiser" != undefined ]]; then
+        echo "Unknown sanitiser: $sanitiser (address, undefined or both, comma-separated)" >&2
+        return 1
+      fi
+    done
+    if [[ "$method" == local || -n "$target" ]]; then
+      echo "--sanitize needs a chroot build for x86_64" >&2
+      return 1
+    fi
+    # The test builds are no use without their packages
+    keep=true
+  fi
+  # Into the system's aurutils repository: x86_64 packages, built against the repositories the system
+  # uses, as a package built against stable can depend on a library soname testing has replaced
+  if [[ "$signing" != auto && "$add" == false ]]; then
+    echo "--sign and --no-sign are for the packages --add adds" >&2
+    return 1
+  fi
+  if [[ "$add" == true ]]; then
+    if [[ "$method" == local || -n "$sanitise" || -n "$target" ]]; then
+      echo "--add needs a chroot build for x86_64, without --sanitize (test builds aren't to be installed)" >&2
+      return 1
+    fi
+    system_repo
+    signing=$(system_repo_signing "$signing")
+    if [[ "$dryrun" == false ]]; then system_repo_check "$signing"; fi
+    if system_uses_testing; then
+      if [[ "$testing" == false ]]; then
+        echo "The system uses the testing repositories, building against them (--testing)" >&2
+        testing=true
+      fi
+    elif [[ "$testing" == true ]]; then
+      echo "--testing builds against the testing repositories, which the system doesn't use" >&2
+      return 1
+    fi
+  fi
+  if [[ "$testing" == true && -n "$target" ]]; then
+    echo "--testing is for Arch Linux's testing repositories, Arch Linux ARM has none" >&2
+    return 1
+  fi
+  # devtools' configurations of the chroots, the testing ones with --testing. Those have chroots of
+  # their own, as a chroot upgraded to the testing repositories can't go back.
+  local devtoolsconf=extra multilibconf=multilib
+  if [[ "$testing" == true ]]; then
+    devtoolsconf=extra-testing multilibconf=multilib-testing
+    chrootdir=$chrootbase/x86_64-testing multilibdir=$chrootbase/multilib-x86_64-testing
+  fi
+  if [[ -n "$target" && "$(uname -m)" != x86_64 ]]; then
+    echo "--target is for x86_64 hosts, build natively on $(uname -m)" >&2
+    return 1
+  fi
+  if [[ "$native" == true && "$dotnetbin" == false ]]; then
+    echo "Arch Linux ARM has no .NET, --target aarch64-native builds with Microsoft's (--dotnet-bin)" >&2
+    dotnetbin=true
+  fi
+
+  # The -bin variants of the selector packages, preinstalled into each chroot (makechrootpkg -I) with
+  # what they depend on, so pacman doesn't resolve the names the packages depend on to Arch's .NET
+  # (dotnet-sdk-10.0) or the source-built selectors in another repository instead. The ASP.NET ones
+  # are for powershell's checkdepends.
+  local -a dotnetbinpkgs=()
+  if [[ "$dotnetbin" == true ]]; then
+    # One per .NET version, e.g. dotnet-build-deps-10.0-bin for dotnet-build-deps-10.0, with Microsoft's
+    # packages of that version (dotnet-core-10.0-bin: dotnet-sdk-10.0-bin, …). Not the ones without a
+    # source-built variant (dotnet-build-deps-11.0-bin), which are the only provider anyway, and whose
+    # prerelease of .NET doesn't belong in the chroots of the others.
+    for name in dotnet-build-deps-*-bin; do
+      [[ -d "${name%-bin}" ]] || continue
+      build_alias["${name%-bin}"]=$name
+      ver=${name#dotnet-build-deps-}
+      ver=${ver%-bin}
+      dotnetbinpkgs+=("dotnet-host-$ver-bin" "dotnet-runtime-$ver-bin" "dotnet-targeting-pack-$ver-bin"
+        "dotnet-sdk-$ver-bin" "aspnet-runtime-$ver-bin" "aspnet-targeting-pack-$ver-bin")
+      preinstall+=("${dotnetbinpkgs[@]: -6}" "$name")
+    done
+  fi
+  # powershell-build-deps and powershell-editor-services-build-deps resolve to the packages of the split
+  # powershell-build-deps-bin, which are all preinstalled
+  if [[ "$libsbin" == true ]]; then
+    mapfile -t names < <(build_pkgnames powershell-build-deps-bin)
+    for name in "${names[@]}"; do
+      build_alias[${name%-bin}]=powershell-build-deps-bin
+    done
+    preinstall+=("${names[@]}")
+  fi
+
+  # Each argument is a template, expanded to its root packages, or a package directory itself
+  for arg in "$@"; do
+    arg=${arg%/}
+    mapfile -t expand < <(build_template "$arg")
+    if ((${#expand[@]})); then
+      roots+=("${expand[@]}")
+    elif dir=$(package_dir "$arg"); then
+      roots+=("$dir")
+    else
+      echo "Not a template or package: $arg" >&2
+      return 1
+    fi
+  done
+
+  mapfile -t order < <(build_order "${roots[@]}")
+  if ((${#order[@]} == 0)); then
+    echo "Nothing to build" >&2
+    return 1
+  fi
+
+  # Clean-chroot builds go into a private repository, so they don't touch the system's aurutils
+  # repository; each build resolves the packages built before it from there. --repo continues in one
+  # kept before, skipping the packages that are in there already.
+  if [[ "$method" == chroot && "$dryrun" == true ]]; then
+    repo=${reuse:-<repo>}
+    conf=$repo/pacman.conf
+  elif [[ "$method" == chroot ]]; then
+    if [[ "$native" == true || "$cross" == true ]]; then
+      alarm_root "$alarmdir"
+    fi
+    if [[ -n "$reuse" ]]; then
+      repo=$(cd "$cwd" && realpath "$reuse")
+      conf=$repo/pacman.conf
+      keep=true
+      if [[ ! -f "$conf" ]]; then
+        echo "$repo isn't a repository of ./aur-packages build --keep" >&2
+        return 1
+      fi
+    else
+      repo=$(mktemp -d --tmpdir aur-build.XXXXXX)
+      # Readable by the download user of pacman in the chroot (DownloadUser = alpm)
+      chmod 755 "$repo"
+      conf=$repo/pacman.conf
+      if [[ "$keep" == false ]]; then
+        # shellcheck disable=SC2064 # expand $repo now, when the trap is set, not when it runs
+        trap "rm -rf '$repo'" RETURN
+      fi
+      if [[ "$native" == true ]]; then
+        alarm_pacman_conf "$alarmdir" "$reponame" "$repo" >"$conf"
+      else
+        # The pacman.conf of clean-chroot builds (devtools, as pkgctl build uses it) with the private
+        # repository. Not the system's, whose testing repositories, the aurutils repo or mirrorlists
+        # elsewhere don't belong in a clean chroot.
+        devtools_pacman_conf "$devtoolsconf.conf" "$reponame" "$repo" >"$conf"
+      fi
+      # An empty database, so the first build can sync the repository before it has any packages
+      tar -czf "$repo/$reponame.db.tar.gz" -T /dev/null
+      ln -sf "$reponame.db.tar.gz" "$repo/$reponame.db"
+    fi
+  fi
+
+  # A native aarch64 build runs everything in the Arch Linux ARM root, under QEMU
+  if [[ "$native" == true ]]; then
+    chrootdir=$alarmdir
+    makepkgconf=$repo/makepkg-aarch64.conf
+    if [[ "$dryrun" == false ]]; then alarm_makepkg_conf "$alarmdir" >"$makepkgconf"; fi
+    chrootargs+=(--makepkg-conf "$makepkgconf")
+  fi
+  chrootargs+=(--directory "$chrootdir")
+  # Test builds with the sanitisers take their flags from a makepkg.conf of their own, in the normal and
+  # the multilib container
+  local -a sanitiseargs=()
+  if [[ -n "$sanitise" ]]; then
+    sanitiseargs=(--makepkg-conf "$repo/makepkg-sanitise.conf")
+    if [[ "$dryrun" == false ]]; then
+      sanitise_makepkg_conf "$makepkgconf" "$sanitise" >"$repo/makepkg-sanitise.conf"
+    fi
+    chrootargs+=("${sanitiseargs[@]}")
+  fi
+
+  # A cross build builds everything for x86_64 as usual, those for aarch64 as well afterwards, in a
+  # container of their own with the cross toolchain and the Arch Linux ARM root they compile against.
+  # They go into a repository of their own, listed last, so the x86_64 ones they depend on come from
+  # the private repository.
+  if [[ "$cross" == true ]]; then
+    crossrepo=$repo/aarch64
+    crossconf=$repo/pacman-cross-aarch64.conf
+    crossmakepkg=$repo/makepkg-cross-aarch64.conf
+    # base-devel and the cross toolchain (also the Rust standard library for aarch64), comma-separated
+    # for aur build
+    local crossbase=base-devel,clang,lld,aarch64-linux-gnu-binutils,rust-aarch64-gnu
+    crossargs=(--directory "$crossdir" --makepkg-conf "$crossmakepkg" --bind "$alarmdir/root"
+      --base-packages "$crossbase")
+    if [[ "$dryrun" == false ]]; then
+      mkdir -p "$crossrepo"
+      chmod 755 "$crossrepo"
+      if [[ ! -f "$crossrepo/$crossname.db.tar.gz" ]]; then
+        tar -czf "$crossrepo/$crossname.db.tar.gz" -T /dev/null
+        ln -sf "$crossname.db.tar.gz" "$crossrepo/$crossname.db"
+      fi
+      {
+        cat "$conf"
+        printf '\n[%s]\nSigLevel = Never\nServer = file://%s\n' "$crossname" "$crossrepo"
+      } >"$crossconf"
+      cross_makepkg_conf "$alarmdir" >"$crossmakepkg"
+    fi
+  fi
+
+  # Dependencies only the AUR has, built by aurutils into the private repository first (it builds
+  # their own AUR dependencies as well): e.g. lasso for sogo, or Microsoft's .NET, the SDK each -bin
+  # selector in the build order depends on, dotnet-sdk-10.0-bin (dotnet-core-10.0-bin) for
+  # dotnet-build-deps-10.0-bin with --dotnet-bin. A .NET only Microsoft builds, e.g. a prerelease
+  # (dotnet-build-deps-11.0-bin, dotnet-sdk-preview-bin), has no other selector, so it's always used.
+  # Names that aren't packages in the AUR are provides of the ones built, e.g. dotnet-runtime-11.0
+  # of dotnet-runtime-bin, which dotnet-sdk-bin brings along.
+  if [[ "$method" == chroot ]]; then
+    local -a aurdeps=() aurnames=()
+    mapfile -t aurdeps < <(aur_only_deps "/usr/share/devtools/pacman.conf.d/$multilibconf.conf" "${order[@]}")
+    if ((${#aurdeps[@]})); then
+      mapfile -t aurnames < <(aur query -t info "${aurdeps[@]}" | jq -r '.results[].Name' | sort)
+    fi
+    for name in "${aurnames[@]}"; do
+      cmd=(aur sync --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$conf"
+        "${chrootargs[@]}" --no-view --noconfirm "$name")
+      if [[ "$dryrun" == true ]]; then
+        printf '%s\n' "${cmd[*]}"
+      elif compgen -G "$repo/$name-[0-9]*.pkg.tar.zst" >/dev/null; then
+        echo ">>> $name is in $repo already" >&2
+      else
+        echo ">>> Building $name (aur sync)" >&2
+        # aur sync exits with 22 when the dependencies have a cycle, which checkdepends can make,
+        # e.g. python-celery's on python-pytest-celery, which depends on it: then they're built
+        # without their checkdepends and check(), as aur sync suggests. Any other failure stops.
+        local status=0
+        "${cmd[@]}" || status=$?
+        if ((status == 22)); then
+          echo ">>> $name: its dependencies have a cycle, building them without check()" >&2
+          "${cmd[@]}" --no-check
+        elif ((status)); then
+          return "$status"
+        fi
+      fi
+    done
+    for name in "${aurdeps[@]}"; do
+      [[ " ${aurnames[*]} " != *" $name "* ]] || continue
+      if [[ "$dryrun" == true ]]; then
+        echo "# $name: provided by the AUR packages above" >&2
+      elif ! repo_provides "$repo" "$name"; then
+        echo "${0##*/}: $name is neither in the repositories, nor a package of this repository or the AUR, nor provided by one" >&2
+        return 1
+      fi
+    done
+  fi
+  for name in "${dotnetbinpkgs[@]}"; do
+    built[$name]=1
+  done
+
+  for pkg in "${order[@]}"; do
+    mapfile -t arches < <(build_arches "$pkg")
+    if [[ "$native" == true && " ${arches[*]} " != *" aarch64 "* && " ${arches[*]} " != *" any "* ]]; then
+      echo ">>> Skipping $pkg, it isn't for aarch64" >&2
+      continue
+    fi
+    if [[ "$method" == chroot ]]; then
+      pkgconf=$conf
+      pkgargs=("${chrootargs[@]}")
+      # A package against multilib builds in a multilib container, with the same private repository
+      if [[ "$native" == false ]] && build_multilib "$pkg"; then
+        pkgconf=$repo/pacman-multilib.conf
+        pkgargs=(--directory "$multilibdir" --base-packages "base-devel,multilib-devel" "${sanitiseargs[@]}")
+        if [[ "$dryrun" == false && ! -f "$pkgconf" ]]; then
+          devtools_pacman_conf "$multilibconf.conf" "$reponame" "$repo" >"$pkgconf"
+        fi
+      fi
+      cmd=(aur build --chroot --no-sync --database "$reponame" --root "$repo" --pacman-conf "$pkgconf" "${pkgargs[@]}"
+        --force)
+      # The packages to preinstall that are built by now
+      files=()
+      for name in "${preinstall[@]}"; do
+        [[ -n "${built[$name]:-}" ]] || continue
+        if [[ "$dryrun" == true ]]; then
+          files+=("$repo/$name-<version>.pkg.tar.zst")
+          continue
+        fi
+        for file in "$repo/$name"-[0-9]*.pkg.tar.zst; do
+          if [[ -f "$file" ]]; then files+=("$file"); fi
+        done
+      done
+      if ((${#files[@]})); then
+        files=("--cargs=$(printf -- '-I,%s,' "${files[@]}")")
+        files[0]=${files[0]%,}
+      fi
+      cmd+=("${files[@]}")
+    else
+      cmd=(makepkg --force --cleanbuild --nodeps)
+      if [[ "$install" == true ]]; then cmd+=(--install); fi
+    fi
+    if [[ "$dryrun" == true ]]; then
+      printf '(cd %s && %s)\n' "$pkg" "${cmd[*]}"
+    elif [[ -n "$reuse" ]] && build_in_repo "$pkg" "$repo" "$makepkgconf"; then
+      echo ">>> $pkg is in $repo already" >&2
+    else
+      echo ">>> Building $pkg" >&2
+      (cd "$pkg" && "${cmd[@]}")
+    fi
+    # By the names of its packages, which the packages to preinstall are looked up by
+    mapfile -t names < <(build_pkgnames "$pkg")
+    for name in "${names[@]}"; do
+      built[$name]=1
+    done
+
+    if [[ "$cross" == true && " ${arches[*]} " == *" aarch64 "* ]]; then
+      cmd=(aur build --chroot --no-sync --database "$crossname" --root "$crossrepo" --pacman-conf "$crossconf"
+        "${crossargs[@]}" --force "${files[@]}")
+      if [[ "$dryrun" == true ]]; then
+        printf '(cd %s && %s)\n' "$pkg" "${cmd[*]}"
+      elif [[ -n "$reuse" ]] && build_in_repo "$pkg" "$crossrepo" "$crossmakepkg"; then
+        echo ">>> $pkg for aarch64 is in $crossrepo already" >&2
+      else
+        echo ">>> Building $pkg for aarch64" >&2
+        (cd "$pkg" && "${cmd[@]}")
+      fi
+    fi
+  done
+
+  if [[ "$add" == true ]]; then
+    if [[ "$dryrun" == true ]]; then
+      echo "# then add $repo/*.pkg.tar.zst to the system's aurutils repository$([[ "$signing" == false ]] || echo ", signed")" >&2
+    else
+      # Only once all have been built, so a failed build leaves the repository as it was
+      system_repo_add "$signing" "$repo"/*.pkg.tar.zst
+    fi
+  fi
+
+  if [[ "$method" == chroot && "$keep" == true && "$dryrun" == false ]]; then
+    echo "Repository kept at $repo" >&2
+    if [[ -n "$sanitise" ]]; then
+      echo "Its packages are test builds with -fsanitize=$sanitise, not to be installed as the usual ones" >&2
+    fi
+    if [[ "$cross" == true ]]; then echo "The aarch64 packages are in $crossrepo" >&2; fi
+  fi
+}
+
+# Prints the upstream commit a package's current pkgver was published from, best effort, empty if it
+# can't be determined. Option B: the <repository commit> of the published NuGet nuspec, found from
+# the package's NuGet id (_nugetid, else the first of _packages, else the .nvchecker.toml packageid).
+# A PKGBUILD may define a _commit_lookup function to override this (e.g. VMR packages not on NuGet).
+resolve_commit() {
+  (
+    local id ver lid base out tmp
+    # shellcheck disable=SC1090,SC1091 # the package's PKGBUILD, sourced like makepkg reads it
+    source "$1/PKGBUILD" >/dev/null 2>&1 || exit 1
+    if declare -F _commit_lookup >/dev/null; then
+      _commit_lookup
+      exit
+    fi
+    id=${_nugetid:-}
+    if [[ -z "$id" && -n "${_packages+x}" && ${#_packages[@]} -gt 0 ]]; then id=${_packages[0]}; fi
+    if [[ -z "$id" && -f "$1/.nvchecker.toml" ]]; then
+      id=$(sed -n -E 's/.*packageid:([^&"]+).*/\1/p' "$1/.nvchecker.toml" | head -1)
+    fi
+    [[ -n "$id" ]] || exit 1
+    ver=$pkgver
+    lid=${id,,}
+    base="https://api.nuget.org/v3-flatcontainer/$lid/$ver"
+    # The flat container serves the nuspec on its own; fall back to the whole package if it doesn't
+    out=$(curl -fsSL "$base/$lid.nuspec" 2>/dev/null) || out=''
+    if [[ -z "$out" ]]; then
+      tmp=$(mktemp) || exit 1
+      if curl -fsSL "$base/$lid.$ver.nupkg" -o "$tmp" 2>/dev/null; then
+        out=$(bsdtar -xOf "$tmp" '*.nuspec' 2>/dev/null)
+      fi
+      rm -f "$tmp"
+    fi
+    printf '%s' "$out" | grep -oiE 'commit="[0-9a-f]{40}"' | grep -oiE '[0-9a-f]{40}' | head -1
+  )
+}
+
+# Prints the values a package's pinned variables should have, "NAME VALUE" a line, nothing for a
+# package without pins: the PKGBUILD's _pins_lookup for several (run in the package's folder, e.g.
+# the commits of a tag's submodules, or of branches and the version from them), else the _commit of
+# resolve_commit. A value is empty if it can't be determined.
+resolve_pins() {
+  (
+    local github_token
+    github_token=$(github_token)
+    # The lookups' requests (resolve_commit's and the PKGBUILDs' _pins_lookup) give up on a stalled
+    # connection and try again, instead of waiting for it forever: no timeout on the whole transfer,
+    # as some download a whole package. Those to GitHub's API go with the token of github_token, so
+    # they get its rate limit rather than the 60 requests an hour without one, which the update check
+    # uses up: a lookup that hits it leaves its pin unresolved. On stdin rather than the command line,
+    # where other users could read it.
+    curl() {
+      local arg
+      local -a stall=(--connect-timeout 15 --speed-limit 1024 --speed-time 30 --retry 2)
+      if [[ -n "$github_token" ]]; then
+        for arg; do
+          if [[ "$arg" == https://api.github.com/* ]]; then
+            command curl "${stall[@]}" -K - "$@" <<<"header = \"Authorization: Bearer $github_token\""
+            return
+          fi
+        done
+      fi
+      command curl "${stall[@]}" "$@"
+    }
+    cd "$1" || exit 1
+    # shellcheck disable=SC1091 # the package's PKGBUILD, sourced like makepkg reads it
+    source ./PKGBUILD >/dev/null 2>&1 || exit 1
+    if declare -F _pins_lookup >/dev/null; then
+      _pins_lookup
+      exit
+    fi
+    [[ "${_commit-}" =~ ^[0-9a-f]{7,40}$ ]] || exit 0
+    echo "_commit $(resolve_commit .)"
+  )
+}
+
+# The value of a pinned variable in a PKGBUILD: pin_value <package> <name>
+pin_value() {
+  sed -n -E "s/^$2=[\"']?([^\"']*)[\"']?\$/\1/p" "$1/PKGBUILD" | head -1
+}
+
+# Sets a pinned variable in a PKGBUILD, and pkgrel to 1 with pkgver: set_pin <package> <name> <value>
+set_pin() {
+  sed -i -E "s/^($2=[\"']?)[^\"']*([\"']?)\$/\1$3\2/" "$1/PKGBUILD"
+  if [[ "$2" == pkgver ]]; then sed -i 's/^pkgrel=.*/pkgrel=1/' "$1/PKGBUILD"; fi
+}
+
+# Commits in full are shown as 12 characters
+short_pin() {
+  if [[ "$1" =~ ^[0-9a-f]{40}$ ]]; then echo "${1:0:12}"; else echo "$1"; fi
+}
+
+# updpkgsums on a package whose pins changed. An interrupted download leaves a .part file behind,
+# which makepkg resumes with a range request (curl -C -). GitHub's archives of a commit
+# (archive/<commit>.tar.gz) are made on the fly and don't support ranges, so curl fails (33) on every
+# later try until the file is gone: remove them first, at the cost of starting a resumable download
+# again.
+update_checksums() {
+  find "$1" -maxdepth 1 -name '*.part' -type f -delete
+  (cd "$1" && updpkgsums)
+}
+
+cmd_commits() {
+  local update=false pkg pin name cur new changed ok
+  local -a selected pins
+  require commits curl:curl jq:jq
+  if [[ "${1-}" == --update ]]; then
+    update=true
+    shift
+  fi
+  select_packages "$@"
+  for pkg in "${selected[@]}"; do
+    pins=()
+    mapfile -t pins < <(resolve_pins "$pkg")
+    # Only packages that pin something
+    ((${#pins[@]})) || continue
+    changed=false ok=0
+    for pin in "${pins[@]}"; do
+      name=${pin%% *} new=${pin#"$name"}
+      new=${new# }
+      cur=$(pin_value "$pkg" "$name")
+      if [[ -z "$new" || "$new" == null ]]; then
+        printf '%-38s %s unresolved (current %s)\n' "$pkg" "$name" "$(short_pin "$cur")"
+      elif [[ "$new" == "$cur" ]]; then
+        ok=$((ok + 1))
+      elif [[ "$update" == true ]]; then
+        set_pin "$pkg" "$name" "$new"
+        changed=true
+        printf '%-38s %s updated %s -> %s\n' "$pkg" "$name" "$(short_pin "$cur")" "$(short_pin "$new")"
+      else
+        printf '%-38s %s STALE %s -> %s\n' "$pkg" "$name" "$(short_pin "$cur")" "$(short_pin "$new")"
+      fi
+    done
+    if ((ok == ${#pins[@]})); then
+      if ((ok == 1)); then
+        printf '%-38s ok %s %s\n' "$pkg" "${pins[0]%% *}" "$(short_pin "${pins[0]#* }")"
+      else
+        printf '%-38s ok, %d pins\n' "$pkg" "$ok"
+      fi
+    fi
+    if [[ "$changed" == true ]]; then
+      update_checksums "$pkg"
+      shfmt --write "$pkg/PKGBUILD"
+      (cd "$pkg" && makepkg --printsrcinfo >.SRCINFO)
+    fi
+  done
+}
+
+# Compares each package of overrides/ with Arch Linux's (core, extra, multilib): an override is only
+# needed until Arch's version is at least ours, which pacman then installs instead
+# Arch Linux's packaging repositories, one per pkgbase
+arch_packaging=https://gitlab.archlinux.org/archlinux/packaging/packages
+
+# Prints the URL of the packaging repository of Arch Linux's pkgbase $1, named as devtools names
+# GitLab's projects (gtk+ -> gtkplus, tree -> unix-tree), with devtools' own function
+arch_packaging_url() {
+  local path
+  path=$(
+    # devtools' library relies on unset variables being empty
+    set +eu
+    _DEVTOOLS_LIBRARY_DIR=/usr/share/devtools
+    # shellcheck disable=SC1091 # devtools' library
+    source /usr/share/devtools/lib/api/gitlab.sh
+    gitlab_project_convert_name "$1"
+  )
+  printf '%s/%s.git\n' "$arch_packaging" "$path"
+}
+
+# Prints the full version of the .SRCINFO of a commit's packaging ($1, e.g. FETCH_HEAD)
+packaging_version() {
+  srcinfo_version "$1:.SRCINFO"
+}
+
+# Compares an override ($1, overrides/<pkgbase>) with Arch Linux's repositories: prints a line and
+# returns 0 while it's needed, 1 once Arch has caught up, 2 if Arch doesn't have the package
+override_status() {
+  local dir=$1 name ours repo theirs
+  name=$(sed -n 's/^pkgbase = //p' "$dir/.SRCINFO")
+  ours=$(sed -n -E 's/^\tepoch = (.*)/\1:/p; s/^\tpkgver = //p; s/^\tpkgrel = /-/p' "$dir/.SRCINFO" | tr -d '\n')
+  for repo in core extra multilib; do
+    theirs=$(LC_ALL=C pacman -Si "$repo/$name" 2>/dev/null | sed -n 's/^Version *: //p') || true
+    [[ -z "$theirs" ]] || break
+  done
+  if [[ -z "$theirs" ]]; then
+    printf '%-30s %s, not in Arch Linux'"'"'s repositories\n' "$name" "$ours"
+    return 2
+  elif (($(vercmp "$theirs" "$ours") >= 0)); then
+    printf '%-30s %s, Arch Linux has %s (%s): the override can go\n' "$name" "$ours" "$theirs" "$repo"
+    return 1
+  fi
+  printf '%-30s %s, Arch Linux has %s (%s)\n' "$name" "$ours" "$theirs" "$repo"
+}
+
+# Inserts the row $2 of the override $1 into README.md's table of overrides, in alphabetical order
+readme_add_override_row() {
+  local base=$1 row=$2 line name i at=-1 last=-1
+  local -a lines=()
+  mapfile -t lines <README.md
+  for i in "${!lines[@]}"; do
+    line=${lines[i]}
+    [[ "$line" == '| ['*'](overrides/'* ]] || continue
+    last=$i
+    name=${line#'| ['}
+    name=${name%%']'*}
+    if ((at < 0)) && [[ "$(printf '%s\n' "$base" "$name" | LC_ALL=C sort | head -n 1)" == "$base" ]]; then
+      at=$i
+    fi
+  done
+  if ((last < 0)); then
+    echo "README.md: no table of overrides/ to add $base to" >&2
+    return 1
+  fi
+  ((at >= 0)) || at=$((last + 1))
+  printf '%s\n' "${lines[@]:0:at}" "$row" "${lines[@]:at}" >README.md
+}
+
+# Prints the folders of a .SRCINFO's git sources, which makepkg clones next to the PKGBUILD
+srcinfo_git_folders() {
+  local source name
+  while IFS= read -r source; do
+    [[ "$source" == *git+* ]] || continue
+    if [[ "$source" == *::* ]]; then
+      name=${source%%::*}
+    else
+      name=${source%%[#?]*}
+      name=${name##*/}
+      name=${name%.git}
+    fi
+    printf '%s\n' "$name"
+  done < <(sed -n -E 's/^\tsource(_[a-z0-9_]+)? = //p' "$1")
+}
+
+# Imports Arch Linux's packaging of a package as overrides/<pkgbase>, a subtree of it, and prepares
+# what an override adds besides its changes, for the first commit of them: the README.md row, the
+# .gitignore with its REUSE annotation, and a pkgrel below Arch's next release
+override_add() {
+  local name=$1 base url version dir rel folder
+  local -a sign=() folders=()
+  base=$(expac -S '%e' "$name" 2>/dev/null | head -n 1) || true
+  if [[ -z "$base" ]]; then
+    echo "$name isn't in Arch Linux's repositories" >&2
+    return 1
+  fi
+  dir=overrides/$base
+  if [[ -e "$dir" || -e "$base" || -e "local/$base" ]]; then
+    echo "$base is a package of this repository already" >&2
+    return 1
+  fi
+  url=$(arch_packaging_url "$base")
+  git fetch -q "$url" main
+  version=$(packaging_version FETCH_HEAD)
+  [[ "$(git config --bool commit.gpgsign)" == true ]] && sign=(-S)
+  git subtree add "${sign[@]}" -q -P "$dir" FETCH_HEAD -m "overrides: add Arch Linux's $base packaging
+
+Arch Linux's packaging of $base (${url#https://}, $version) as a subtree,
+the base of a local build with changes of ours."
+
+  # A pkgrel between Arch's and its next, so that Arch's next release replaces the override
+  rel=$(srcinfo_field "$dir/.SRCINFO" pkgrel)
+  if [[ "$rel" == *.* ]]; then
+    echo "pkgrel $rel has a fraction already: set one between it and Arch's next by hand" >&2
+  else
+    sed -i "s/^pkgrel=$rel\$/# Below Arch Linux's next release, which replaces it: TODO, what the override changes\\npkgrel=$rel.1/" "$dir/PKGBUILD"
+    (cd "$dir" && makepkg --printsrcinfo >.SRCINFO)
+  fi
+  {
+    cat <<'EOF'
+# Created by https://www.toptal.com/developers/gitignore/api/archlinuxpackages
+# Edit at https://www.toptal.com/developers/gitignore?templates=archlinuxpackages
+
+### ArchLinuxPackages ###
+*.tar
+*.tar.*
+*.jar
+*.exe
+*.msi
+*.zip
+*.tgz
+*.log
+*.log.*
+*.sig
+
+pkg/
+src/
+
+# End of https://www.toptal.com/developers/gitignore/api/archlinuxpackages
+EOF
+    mapfile -t folders < <(srcinfo_git_folders "$dir/.SRCINFO")
+    if ((${#folders[@]})); then
+      printf '\n# Git sources\n'
+      for folder in "${folders[@]}"; do printf '%s/\n' "$folder"; done
+    fi
+  } >"$dir/.gitignore"
+  if [[ -f "$dir/REUSE.toml" ]] && ! grep -q '"\.gitignore"' "$dir/REUSE.toml"; then
+    printf '\n[[annotations]]\npath = ".gitignore"\nSPDX-FileCopyrightText = "Arch Linux contributors"\nSPDX-License-Identifier = "0BSD"\n' \
+      >>"$dir/REUSE.toml"
+  fi
+  readme_add_override_row "$base" "| [$base](overrides/$base) | TODO: what it changes | TODO: until when it's needed |"
+  cat <<EOF
+Added Arch Linux's packaging of $base ($version) as $dir.
+Prepared for the first commit of your changes (not committed):
+- $dir/PKGBUILD: pkgrel $rel.1, below Arch's next release; fill in its comment
+- $dir/.gitignore and its REUSE annotation
+- README.md: the row in the table of overrides; fill in what it changes and until when
+Then add your changes (patches with a comment linking their upstream issue or PR, and their REUSE
+annotations), update the checksums and .SRCINFO, and commit them as upgpkg: $base ${version%-*}-$rel.1
+EOF
+}
+
+# Merges Arch Linux's updates of an override's packaging into its subtree
+override_pull() {
+  local dir=$1 base url version head
+  local -a sign=()
+  base=${dir#overrides/}
+  url=$(arch_packaging_url "$base")
+  git fetch -q "$url" main
+  version=$(packaging_version FETCH_HEAD)
+  [[ "$(git config --bool commit.gpgsign)" == true ]] && sign=(-S)
+  head=$(git rev-parse HEAD)
+  if ! git subtree pull "${sign[@]}" -q -P "$dir" "$url" main -m "overrides: merge Arch Linux's $base $version"; then
+    echo "Resolve the conflicts with our changes, then commit the merge" >&2
+    return 1
+  fi
+  if [[ "$(git rev-parse HEAD)" == "$head" ]]; then
+    echo "$dir has Arch Linux's $base $version already"
+  else
+    echo "Merged Arch Linux's $base $version: bring the pkgrel below Arch's next release again, if it isn't"
+  fi
+}
+
+# Removes an override once Arch Linux has caught up with it (or with --force), with its README.md row
+override_remove() {
+  local dir=$1 force=$2 base status=0 version
+  base=${dir#overrides/}
+  override_status "$dir" || status=$?
+  if ((status != 1)) && [[ "$force" == false ]]; then
+    echo "$base: Arch Linux hasn't caught up with the override yet, --force removes it anyway" >&2
+    return 1
+  fi
+  version=$(LC_ALL=C pacman -Si "$base" 2>/dev/null | sed -n 's/^Version *: //p' | head -n 1) || true
+  git rm -r -q -- "$dir"
+  grep -v -F "| [$base](overrides/$base) |" README.md >README.md.new
+  mv README.md.new README.md
+  git add README.md
+  git commit -q -m "overrides: drop $base${version:+, Arch Linux has $version}"
+  echo "Removed $dir"
+  if [[ -d "$dir" ]]; then echo "Untracked files are left in $dir, e.g. downloads"; fi
+}
+
+cmd_overrides() {
+  local dir force=false status=0 rc
+  local -a selected
+  case "${1-}" in
+    add)
+      shift
+      if (($# != 1)); then
+        echo "Usage: aur-packages overrides add PACKAGE" >&2
+        return 1
+      fi
+      require "overrides add" expac:expac makepkg:pacman
+      override_add "$1"
+      return
+      ;;
+    pull | remove)
+      local action=$1
+      shift
+      if [[ "$action" == remove && "${1-}" == --force ]]; then
+        force=true
+        shift
+      fi
+      if (($# == 0)); then
+        echo "Usage: aur-packages overrides $action PACKAGE..." >&2
+        return 1
+      fi
+      select_packages "$@"
+      for dir in "${selected[@]}"; do
+        if [[ "$dir" != overrides/* ]]; then
+          echo "Not an override: $dir" >&2
+          return 1
+        fi
+        if [[ "$action" == pull ]]; then override_pull "$dir"; else override_remove "$dir" "$force"; fi
+      done
+      return
+      ;;
+    check) shift ;;
+  esac
+  select_packages "$@"
+  for dir in "${selected[@]}"; do
+    [[ "$dir" == overrides/* ]] || continue
+    rc=0
+    override_status "$dir" || rc=$?
+    ((rc != 1)) || status=1
+  done
+  return "$status"
+}
+
+cmd_list() {
+  local -a selected
+  case "${1-}" in
+    --templates)
+      printf '%s\n' "${build_templates[@]}"
+      return
+      ;;
+    # The packages of local/, which publish takes
+    --local)
+      select_packages
+      printf '%s\n' "${selected[@]}" | grep '^local/' || true
+      return
+      ;;
+  esac
+  select_packages
+  printf '%s\n' "${selected[@]}"
+}
+
+cmd_completion() {
+  case "${1-}" in
+    bash) cat completions/aur-packages.bash ;;
+    zsh) cat completions/_aur-packages ;;
+    fish) cat completions/aur-packages.fish ;;
+    pwsh) cat completions/aur-packages.ps1 ;;
+    *)
+      echo "Usage: aur-packages completion bash|zsh|fish|pwsh" >&2
+      return 1
+      ;;
+  esac
+}
+
+command=${1-help}
+(($#)) && shift
+case "$command" in
+  pull | push | adopt | publish | updates | upgrade | check | sync | setup | tray | build | sysupgrade | commits | overrides | list | completion)
+    "cmd_$command" "$@"
+    ;;
+  commit-msg)
+    cmd_commit_msg "$@"
+    ;;
+  prepare-commit-msg)
+    cmd_prepare_commit_msg "$@"
+    ;;
+  quoting)
+    cmd_quoting "$@"
+    ;;
+  pins)
+    cmd_pins "$@"
+    ;;
+  readme)
+    cmd_readme "$@"
+    ;;
+  maintainers)
+    cmd_maintainers "$@"
+    ;;
+  help | -h | --help)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac
