@@ -12,6 +12,17 @@ def git(*arguments: str, env: dict[str, str] | None = None, stdin: str | None = 
     ).stdout.strip()
 
 
+def paths(command: str, *arguments: str) -> list[str]:
+    """The paths a git command lists, NUL-separated (-z right after the command, never after a --):
+    as they are, without the quoting of unusual characters (core.quotePath) of the line-separated
+    output, and unstripped.
+    """
+    output = subprocess.run(
+        ["git", command, "-z", *arguments], capture_output=True, text=True, check=True
+    ).stdout
+    return [path for path in output.split("\0") if path]
+
+
 def ok(*arguments: str) -> bool:
     """Whether a git command succeeds, quietly."""
     return subprocess.run(["git", *arguments], capture_output=True, check=False).returncode == 0

@@ -6,17 +6,11 @@ import sys
 from pathlib import Path
 
 from aur_packages import maintainers
+from aur_packages.git import git, paths
+from aur_packages.git import ok as git_ok
 from aur_packages.repo import Checkout
 from aur_packages.srcinfo import Srcinfo
 from aur_packages.tools import hook_runner, hook_runner_tool, require
-
-
-def git(*arguments: str) -> str:
-    return subprocess.run(["git", *arguments], capture_output=True, text=True, check=True).stdout
-
-
-def git_ok(*arguments: str) -> bool:
-    return subprocess.run(["git", *arguments], capture_output=True, check=False).returncode == 0
 
 
 def staged_version(srcinfo: str) -> str | None:
@@ -96,7 +90,7 @@ def run_commit_msg(checkout: Checkout, file: str) -> int:
         return 1
     # Whoever changes a package is one of its # Maintainer:/# Contributor: lines; not the packages of
     # overrides/, which keep Arch Linux's style
-    staged = git("diff", "--cached", "--name-only", "--no-renames", "--diff-filter=d").splitlines()
+    staged = paths("diff", "--cached", "--name-only", "--no-renames", "--diff-filter=d")
     packages = [m[1] for path in staged if (m := re.fullmatch(r"((local/)?[^/]+)/PKGBUILD", path))]
     return maintainers.check(packages, author=True) if packages else 0
 
@@ -114,7 +108,7 @@ def run_prepare_commit_msg(checkout: Checkout, file: str, source: str) -> int:
     text = path.read_text()
     if summary_line(text):
         return 0
-    staged = git("diff", "--cached", "--name-only", "--no-renames").splitlines()
+    staged = paths("diff", "--cached", "--name-only", "--no-renames")
     # The top-level file or folder, for local/ and overrides/ the package's name
     scopes = sorted({re.sub(r"^(local|overrides)/([^/]+)/.*", r"\2", p).split("/")[0] for p in staged})
     if len(scopes) > 1:
@@ -208,7 +202,7 @@ def run_setup(checkout: Checkout) -> int:
             file=sys.stderr,
         )
         return 1
-    hooks = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir").strip()) / "hooks"
+    hooks = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir")) / "hooks"
     remove_aurpublish_hooks(hooks)
     # Checkouts of branches from before the configuration are skipped
     subprocess.run([runner, "install", "--allow-missing-config"], check=True)

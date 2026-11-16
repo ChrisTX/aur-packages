@@ -8,8 +8,8 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
+from aur_packages import git, pins
 from aur_packages import maintainers as maintainer_lines
-from aur_packages import pins
 from aur_packages.repo import Checkout
 from aur_packages.srcinfo import Srcinfo
 from aur_packages.tools import hook_runner, hook_runner_tool, require
@@ -241,9 +241,7 @@ def run_package_hooks(packages: Sequence[str], stage: list[str]) -> int:
 
 
 def git_files(packages: Sequence[str]) -> list[str]:
-    return subprocess.run(
-        ["git", "ls-files", "--", *packages], capture_output=True, text=True, check=True
-    ).stdout.splitlines()
+    return git.paths("ls-files", "--", *packages)
 
 
 def run_check(checkout: Checkout, packages: Sequence[str], manual: bool) -> int:

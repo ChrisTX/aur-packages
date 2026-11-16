@@ -22,7 +22,6 @@ obscured in one way: name at domain dot tld.
 
 import json
 import re
-import subprocess
 import sys
 import tomllib
 import urllib.parse
@@ -30,6 +29,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from aur_packages.git import git
 
 CONFIG = Path("maintainers.toml")
 RPC = "https://aur.archlinux.org/rpc/v5/info"
@@ -47,10 +48,6 @@ class Credit:
     def line(self) -> str:
         address = f" <{self.address}>" if self.address else ""
         return f"# {self.role}: {self.name}{address}"
-
-
-def git(*arguments: str) -> str:
-    return subprocess.run(["git", *arguments], capture_output=True, text=True, check=True).stdout
 
 
 def real(address: str) -> str:
