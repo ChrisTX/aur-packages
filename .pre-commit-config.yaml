@@ -233,6 +233,13 @@ repos:
         files: (^|/)PKGBUILD$
         # Arch Linux's packages in overrides/ keep Arch's style
         exclude: ^overrides/
+      - id: upstream
+        name: every patch has an upstream directive
+        language: system
+        entry: ./aur-packages upstream --check
+        files: (^|/)PKGBUILD$
+        # Arch Linux's packages in overrides/ keep Arch's style
+        exclude: ^overrides/
       - id: keys
         name: the PGP keys of validpgpkeys are shipped in keys/pgp
         language: system
