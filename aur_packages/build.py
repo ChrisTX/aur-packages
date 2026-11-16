@@ -8,6 +8,7 @@ the end, and sysupgrade does that for our packages before aur sync -u updates th
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,8 @@ DEVTOOLS = Path("/usr/share/devtools")
 MAKEPKG_CONF = DEVTOOLS / "makepkg.conf.d" / "x86_64.conf"
 # The key of the Arch Linux ARM build system, which signs its images
 ALARM_KEY = "68B3537F39A313B3E574D06777193F152BDBE6A6"
+# The packages of the commands $AUR_PACMAN_AUTH may name
+AUTH_PACKAGES = {"sudo": "sudo", "sudo-rs": "sudo-rs", "run0": "systemd", "doas": "opendoas"}
 DEPENDS = re.compile(r"^(depends|makedepends|checkdepends)(_\w+)?$")
 
 
@@ -154,10 +157,24 @@ def aur_only_deps(checkout: Checkout, repoconf: Path, packages: Sequence[str]) -
     )
 
 
+# A package file as makepkg names it, NAME-PKGVER-PKGREL-ARCH and its PKGEXT: .pkg.tar, compressed
+# with any of the compressions makepkg.conf offers, or not
+PACKAGE_FILE = re.compile(r"^(?P<name>.+)-[^-]+-[^-]+-[^-]+\.pkg\.tar(\.(gz|bz2|xz|zst|lzo|lrz|lz4|lz|Z))?$")
+
+
+def package_files(repo: Path, name: str | None = None) -> list[Path]:
+    """The package files in a repository folder, sorted; with name, only those of that package."""
+    return sorted(
+        file
+        for file in repo.glob("*.pkg.tar*")
+        if (match := PACKAGE_FILE.match(file.name)) and name in (None, match["name"])
+    )
+
+
 def repo_provides(repo: Path, name: str) -> bool:
     """Whether a package in a repository folder is called name or provides it."""
     pattern = re.compile(rf"^(pkgname|provides) = {re.escape(name)}([<>=].*)?$", re.MULTILINE)
-    for file in repo.glob("*.pkg.tar.zst"):
+    for file in package_files(repo):
         info = subprocess.run(
             ["bsdtar", "-xOf", str(file), ".PKGINFO"], capture_output=True, text=True, check=False
         )
@@ -279,6 +296,25 @@ def empty_database(repo: Path, name: str) -> None:
     (repo / f"{name}.db").symlink_to(f"{name}.db.tar.gz")
 
 
+def auth() -> list[str]:
+    """The command that runs another as root: what $AUR_PACMAN_AUTH names, like for aurutils (sudo,
+    sudo-rs, run0, doas, with their options), else sudo."""
+    return shlex.split(os.environ.get("AUR_PACMAN_AUTH", "")) or ["sudo"]
+
+
+def as_root(command: Sequence[str]) -> None:
+    subprocess.run([*auth(), *command], check=True)
+
+
+def install_as_root(text: str, target: Path) -> None:
+    """Write a file owned by root, through a temporary file of ours rather than stdin, which not every
+    command of AUR_PACMAN_AUTH passes on."""
+    with tempfile.NamedTemporaryFile("w", prefix="aur-packages.") as file:
+        file.write(text)
+        file.flush()
+        as_root(["install", "-m", "644", file.name, str(target)])
+
+
 def alarm_root(alarm: Path) -> None:
     """Set up the Arch Linux ARM root in alarm/root, unless it's there: the native builds run in it
     (under QEMU), the cross builds compile against it. From archlinuxarm.org's latest image, checked
@@ -323,23 +359,12 @@ def alarm_root(alarm: Path) -> None:
     if not re.search(rf"^\[GNUPG:\] VALIDSIG .* {ALARM_KEY}$", status, re.MULTILINE):
         raise BuildError(f"The signature of {cache / image} isn't valid")
     print(f">>> Setting up the Arch Linux ARM root in {alarm}/root", file=sys.stderr)
-    subprocess.run(
-        ["sudo", "install", "-d", "-m", "755", str(alarm / "root"), str(alarm / "pkgcache")], check=True
-    )
-    subprocess.run(["sudo", "bsdtar", "-xpf", str(cache / image), "-C", str(alarm / "root")], check=True)
+    as_root(["install", "-d", "-m", "755", str(alarm / "root"), str(alarm / "pkgcache")])
+    as_root(["bsdtar", "-xpf", str(cache / image), "-C", str(alarm / "root")])
     conf = alarm / "pacman.conf"
-    subprocess.run(
-        ["sudo", "tee", str(conf)],
-        input=alarm_pacman_conf(alarm),
-        text=True,
-        stdout=subprocess.DEVNULL,
-        check=True,
-    )
-    subprocess.run(
-        ["sudo", "systemd-nspawn", "-q", "-D", str(alarm / "root"), "sh", "-c",
-         "pacman-key --init && pacman-key --populate archlinuxarm"],
-        check=True,
-    )  # fmt: skip
+    install_as_root(alarm_pacman_conf(alarm), conf)
+    as_root(["systemd-nspawn", "-q", "-D", str(alarm / "root"), "sh", "-c",
+             "pacman-key --init && pacman-key --populate archlinuxarm"])  # fmt: skip
     # The marker of mkarchroot, which arch-nspawn checks for
     version = subprocess.run(
         ["bash", "-c", f"source {DEVTOOLS}/lib/archroot.sh && echo $CHROOT_VERSION"],
@@ -347,19 +372,10 @@ def alarm_root(alarm: Path) -> None:
         text=True,
         check=True,
     ).stdout
-    subprocess.run(
-        ["sudo", "tee", str(alarm / "root" / ".arch-chroot")],
-        input=version,
-        text=True,
-        stdout=subprocess.DEVNULL,
-        check=True,
-    )
+    install_as_root(version, alarm / "root" / ".arch-chroot")
     # -s: arch-nspawn would run setarch aarch64 for the CARCH of the image's makepkg.conf
-    subprocess.run(
-        ["sudo", "arch-nspawn", "-s", "-C", str(conf), str(alarm / "root"), "sh", "-c",
-         'pacman -Rdd --noconfirm linux-aarch64 $(pacman -Qqs "^linux-firmware") && pacman -Syu --noconfirm --needed base-devel'],
-        check=True,
-    )  # fmt: skip
+    as_root(["arch-nspawn", "-s", "-C", str(conf), str(alarm / "root"), "sh", "-c",
+             'pacman -Rdd --noconfirm linux-aarch64 $(pacman -Qqs "^linux-firmware") && pacman -Syu --noconfirm --needed base-devel'])  # fmt: skip
 
 
 @dataclass
@@ -526,7 +542,9 @@ def validate(build: Build) -> SystemRepo | None:
     if build.add:
         tools += [("aur", "aurutils"), ("repo-add", "pacman"), ("gpg", "gnupg")]
     if build.target:
-        tools += [("curl", "curl"), ("gpg", "gnupg")]
+        # And the command that runs the setup of the Arch Linux ARM root as root
+        command = auth()[0]
+        tools += [("curl", "curl"), ("gpg", "gnupg"), (command, AUTH_PACKAGES.get(command, command))]
     require("build", tools)
     # Programs for aarch64 run in the Arch Linux ARM root under QEMU, registered with binfmt_misc
     if build.target and not Path("/proc/sys/fs/binfmt_misc/qemu-aarch64").exists():
@@ -581,31 +599,28 @@ def validate(build: Build) -> SystemRepo | None:
     return system
 
 
-def selectors(checkout: Checkout, build: Build) -> list[str]:
-    """The -bin selectors and what they depend on, preinstalled into each chroot (makechrootpkg -I).
+def selectors(checkout: Checkout, build: Build) -> None:
+    """The -bin selectors, aliased for the source-built ones, and preinstalled into each chroot
+    (makechrootpkg -I) once built.
 
     So pacman doesn't resolve the names the packages depend on to Arch's .NET or the source-built
-    selectors in another repository. --dotnet-bin: one per .NET version with a source-built selector
-    (not dotnet-build-deps-11.0-bin, the only provider of its prerelease anyway); --libs-bin: the
-    packages of the split powershell-build-deps-bin. The ASP.NET ones are for powershell's checkdepends.
+    selectors in another repository: a selector depends on Microsoft's packages by their own names,
+    which aur sync built into the private repository, and those provide the names of Arch's.
+    --dotnet-bin: one per .NET version with a source-built selector (not dotnet-build-deps-11.0-bin,
+    the only provider of its .NET anyway); --libs-bin: the packages of the split
+    powershell-build-deps-bin.
     """
-    dotnet: list[str] = []
     if build.dotnet_bin:
         for selector in sorted(p.name for p in checkout.root.glob("dotnet-build-deps-*-bin")):
             if not (checkout.root / selector.removesuffix("-bin")).is_dir():
                 continue
             build.alias[selector.removesuffix("-bin")] = selector
-            version = selector.removeprefix("dotnet-build-deps-").removesuffix("-bin")
-            these = [f"dotnet-{p}-{version}-bin" for p in ("host", "runtime", "targeting-pack", "sdk")]
-            these += [f"aspnet-{p}-{version}-bin" for p in ("runtime", "targeting-pack")]
-            dotnet += these
-            build.preinstall += [*these, selector]
+            build.preinstall.append(selector)
     if build.libs_bin:
         names = list(Srcinfo.load(checkout.root / "powershell-build-deps-bin").packages)
         for name in names:
             build.alias[name.removesuffix("-bin")] = "powershell-build-deps-bin"
         build.preinstall += list(names)
-    return dotnet
 
 
 def run(command: list[str], cwd: Path | None = None) -> None:
@@ -643,7 +658,7 @@ def build_all(checkout: Checkout, names: Sequence[str], build: Build) -> int:
     devtools_conf, multilib_conf = f"extra{suffix}.conf", f"multilib{suffix}.conf"
     chroot_dir, multilib_dir = base / f"x86_64{suffix}", base / f"multilib-x86_64{suffix}"
     alarm, cross_dir = base / "aarch64", base / "x86_64-cross-aarch64"
-    dotnet = selectors(checkout, build)
+    selectors(checkout, build)
 
     graph = edges(checkout, build.alias)
     packages = order(checkout, roots(checkout, names), graph)
@@ -677,7 +692,7 @@ def build_all(checkout: Checkout, names: Sequence[str], build: Build) -> int:
             (repo / "pacman.conf").write_text(conf_text)
             empty_database(repo, REPO_NAME)
     try:
-        return build_packages(checkout, build, packages, graph, repo, makepkg_conf, dotnet, system,
+        return build_packages(checkout, build, packages, graph, repo, makepkg_conf, system,
                               chroot_dir, multilib_dir, alarm, cross_dir, multilib_conf, native, cross)  # fmt: skip
     finally:
         if temporary:
@@ -686,7 +701,7 @@ def build_all(checkout: Checkout, names: Sequence[str], build: Build) -> int:
 
 def build_packages(
     checkout: Checkout, build: Build, packages: list[str], graph: set[tuple[str, str]], repo: Path,
-    makepkg_conf: Path, dotnet: list[str], system: SystemRepo | None, chroot_dir: Path, multilib_dir: Path,
+    makepkg_conf: Path, system: SystemRepo | None, chroot_dir: Path, multilib_dir: Path,
     alarm: Path, cross_dir: Path, multilib_conf: str, native: bool, cross: bool,
 ) -> int:  # fmt: skip
     root, dry = checkout.root, build.dry_run
@@ -745,7 +760,7 @@ def build_packages(
                        "--pacman-conf", str(conf), *chroot_args, "--no-view", "--noconfirm", name]  # fmt: skip
             if dry:
                 print(" ".join(command))
-            elif any(repo.glob(f"{name}-[0-9]*.pkg.tar.zst")):
+            elif package_files(repo, name):
                 print(f">>> {name} is in {repo} already", file=sys.stderr)
             else:
                 print(f">>> Building {name} (aur sync)", file=sys.stderr)
@@ -769,7 +784,8 @@ def build_packages(
                 raise BuildError(
                     f"aur-packages: {name} is neither in the repositories, nor a package of this repository or the AUR, nor provided by one"
                 )
-    built = set(dotnet)
+    # The packages of this repository built so far, by the names of their packages
+    built: set[str] = set()
 
     for package in packages:
         folder = root / package
@@ -800,9 +816,9 @@ def build_packages(
                 if name not in built:
                     continue
                 if dry:
-                    preinstalled.append(f"{repo}/{name}-<version>.pkg.tar.zst")
+                    preinstalled.append(f"{repo}/{name}-<version>.pkg.tar<compression>")
                 else:
-                    preinstalled += sorted(str(p) for p in repo.glob(f"{name}-[0-9]*.pkg.tar.zst"))
+                    preinstalled += [str(file) for file in package_files(repo, name)]
             if preinstalled:
                 files = ["--cargs=" + ",".join(f"-I,{p}" for p in preinstalled)]
             command += files
@@ -838,13 +854,13 @@ def build_packages(
     if system is not None:
         if dry:
             print(
-                f"# then add {repo}/*.pkg.tar.zst to the system's aurutils repository"
+                f"# then add the packages of {repo} to the system's aurutils repository"
                 + (", signed" if build.signing else ""),
                 file=sys.stderr,
             )
         else:
             # Only once all have been built, so a failed build leaves the repository as it was
-            system.add(sorted(repo.glob("*.pkg.tar.zst")), bool(build.signing))
+            system.add(package_files(repo), bool(build.signing))
     if build.method == "chroot" and build.keep and not dry:
         print(f"Repository kept at {repo}", file=sys.stderr)
         if build.sanitise:

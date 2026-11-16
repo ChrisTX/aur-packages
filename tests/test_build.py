@@ -91,3 +91,33 @@ def test_validate_refuses() -> None:
     with pytest.raises(build.BuildError, match="are for the packages --add adds"):
         # local: CI has makepkg, but not aurutils, which a chroot build requires first
         build.validate(build.Build(method="local", signing=True))
+
+
+def test_package_files(tmp_path: Path) -> None:
+    names = [
+        "app-1.0-1-x86_64.pkg.tar.zst",
+        "app-1.0-1-x86_64.pkg.tar.zst.sig",
+        "app-debug-1.0-1-x86_64.pkg.tar.xz",
+        "app-docs-2:1.0-1-any.pkg.tar",
+        "dotnet-sdk-10.0-bin-10.0.0.sdk100-3-x86_64.pkg.tar.gz",
+        "dotnet-sdk-bin-11.0.0.sdk100-1-x86_64.pkg.tar.lz4",
+        "app-1.0-1-x86_64.pkg.tar.unknown",
+    ]
+    for name in names:
+        (tmp_path / name).touch()
+    assert [f.name for f in build.package_files(tmp_path, "app")] == ["app-1.0-1-x86_64.pkg.tar.zst"]
+    assert [f.name for f in build.package_files(tmp_path, "dotnet-sdk-bin")] == [
+        "dotnet-sdk-bin-11.0.0.sdk100-1-x86_64.pkg.tar.lz4"
+    ]
+    # Every package file, compressed or not, without signatures and unknown extensions
+    assert len(build.package_files(tmp_path)) == 5
+
+
+def test_install_as_root_with_aur_pacman_auth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # env stands in for sudo or run0: it runs the command with its own options
+    monkeypatch.setenv("AUR_PACMAN_AUTH", "env AUR_PACKAGES_TEST=1")
+    assert build.auth() == ["env", "AUR_PACKAGES_TEST=1"]
+    build.install_as_root("[options]\n", tmp_path / "pacman.conf")
+    assert (tmp_path / "pacman.conf").read_text() == "[options]\n"
+    monkeypatch.setenv("AUR_PACMAN_AUTH", "")
+    assert build.auth() == ["sudo"]

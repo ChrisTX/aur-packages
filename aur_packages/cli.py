@@ -259,7 +259,7 @@ for _command in (
         "order, in a clean chroot into a private throwaway repo (default), or --local (makepkg -fCd, "
         "--install to install each result). --dry-run prints the plan, --keep keeps the chroot repo. "
         "In a chroot, --dotnet-bin builds with Microsoft's .NET (dotnet-build-deps-10.0-bin, "
-        "dotnet-sdk-10.0-bin built by aur sync) and --libs-bin with the libraries from nuget.org "
+        "the SDK of the current .NET built by aur sync) and --libs-bin with the libraries from nuget.org "
         "(powershell-build-deps-bin) instead of the source-built ones. A .NET Arch Linux doesn't "
         "have (dotnet-build-deps-11.0-bin) is always Microsoft's. --target aarch64 also cross-builds "
         "the architecture-specific packages for aarch64 against an Arch Linux ARM root, --target "
