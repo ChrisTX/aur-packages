@@ -249,8 +249,13 @@ def finish(name: str, package: Path, checksums: bool) -> bool:
 
 
 def refresh(package: Path) -> None:
-    """Format the PKGBUILD (updpkgsums aligns the checksums its own way) and regenerate .SRCINFO."""
-    subprocess.run(["shfmt", "--write", "PKGBUILD"], cwd=package, check=True)
+    """Format the PKGBUILD (updpkgsums aligns the checksums its own way) and regenerate .SRCINFO.
+
+    Not an override's PKGBUILD, which keeps Arch Linux's style, updpkgsums' alignment included, so that
+    Arch's updates merge cleanly; the style hooks leave it out as well.
+    """
+    if package.parent.name != "overrides":
+        subprocess.run(["shfmt", "--write", "PKGBUILD"], cwd=package, check=True)
     srcinfo = subprocess.run(
         ["makepkg", "--printsrcinfo"], cwd=package, capture_output=True, text=True, check=True
     )
