@@ -5,13 +5,10 @@ pins --online looks up what every pin should be, and --update rewrites the stale
 """
 
 import io
-import json
 import re
 import subprocess
 import sys
 import tomllib
-import urllib.error
-import urllib.request
 import zipfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -21,7 +18,7 @@ from aur_packages.git import paths
 from aur_packages.repo import Checkout
 from aur_packages.srcinfo import Srcinfo
 from aur_packages.tools import require
-from aur_packages.updates import github_token
+from aur_packages.web import request, request_json
 
 
 def pin_value(pkgbuild: Path, name: str) -> str:
@@ -51,34 +48,6 @@ def set_pin(pkgbuild: Path, name: str, value: str) -> None:
 def short_pin(value: str) -> str:
     """Commits in full are shown as 12 characters."""
     return value[:12] if re.fullmatch(r"[0-9a-f]{40}", value) else value
-
-
-def request(url: str, attempts: int = 3) -> bytes | None:
-    """The body of a URL, None if it fails; GitHub's API with the token of github_token, for its rate
-    limit rather than the 60 requests an hour without one. Gives up on a stalled connection and tries
-    again, instead of waiting forever."""
-    req = urllib.request.Request(url, headers={"User-Agent": "aur-packages"})
-    if url.startswith("https://api.github.com/") and (token := github_token()):
-        req.add_header("Authorization", f"Bearer {token}")
-    for attempt in range(attempts):
-        try:
-            with urllib.request.urlopen(req, timeout=30) as response:
-                body: bytes = response.read()
-                return body
-        except urllib.error.HTTPError:
-            return None
-        except OSError:
-            if attempt == attempts - 1:
-                return None
-    return None
-
-
-def request_json(url: str) -> Any:
-    body = request(url)
-    try:
-        return json.loads(body) if body is not None else None
-    except json.JSONDecodeError:
-        return None
 
 
 def array_first(pkgbuild: str, name: str) -> str:

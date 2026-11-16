@@ -7,7 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from aur_packages import aur, build, checks, hooks, overrides, pins, tray, updates
+from aur_packages import aur, build, checks, hooks, overrides, pins, tray, updates, upstream
 from aur_packages.repo import BUILD_TEMPLATES, Checkout, SelectionError
 from aur_packages.tools import MissingTools
 
@@ -242,6 +242,17 @@ for _command in (
         options=(Option(("--manual",), "also run the checks that only run on request"),),
         arguments="packages",
         run=lambda checkout, args: checks.run_check(checkout, args.arguments, args.manual),
+    ),
+    Command(
+        "upstream",
+        "[PACKAGE...]",
+        "Show the upstream issues, pull requests and commits on GitHub the comments of the PKGBUILDs "
+        "refer to (https://github.com/…/pull/1, owner/repo#1, #1 of the package's own repository, "
+        "owner/repo@commit) with their state, and for a merged pull request or a commit whether the "
+        "upstream version the package builds contains it (its repository at the tag or commit of the "
+        "source, or a git submodule of it), else which release does: what backports one can go then",
+        arguments="packages",
+        run=lambda checkout, args: upstream.run_upstream(checkout, args.arguments),
     ),
     Command(
         "commits",
