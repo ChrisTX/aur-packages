@@ -164,9 +164,25 @@ def summary(current: dict[str, Any]) -> list[str]:
             f"GitHub's rate limit, checked again at {limited['retry']}: {' '.join(limited['packages'])}"
         )
     lines += [f"{n['folder']}: {n['message']}" for n in current.get("maintainers", [])]
+    lines += [f"{n['folder']}: {n['reference']} {n['message']}" for n in current.get("upstream", [])]
     if current["error"]:
         lines.append(f"Error: {current['error']}")
     return lines
+
+
+def upstream_notes(checkout: Checkout, folder: Path, previous: dict[str, Any]) -> list[dict[str, str]]:
+    """The notes on the upstream pull requests the packages refer to (see upstream.notes), with a
+    GitHub token only: about a request per open pull request a day, which the 60 an hour without
+    one don't leave room for. Those of the last check if a request failed."""
+    from aur_packages import upstream
+
+    if not github_token():
+        return []
+    try:
+        found = upstream.notes(checkout, folder / "upstream-cache.json")
+    except Exception:  # noqa: BLE001 (GitHub unreachable, whatever the error)
+        found = None
+    return found if found is not None else previous.get("upstream") or []
 
 
 def run_state(checkout: Checkout, packages: Sequence[str], schedule: bool) -> int:
@@ -194,6 +210,7 @@ def run_state(checkout: Checkout, packages: Sequence[str], schedule: bool) -> in
             )
         except Exception:  # noqa: BLE001 (the AUR unreachable, whatever the error)
             current["maintainers"] = previous.get("maintainers") or []
+        current["upstream"] = upstream_notes(checkout, path.parent, previous)
         # Only one retry is pending, the one for the packages that wait now
         if schedule:
             subprocess.run(

@@ -2,9 +2,10 @@
 
 Shows the state file of `aur-packages updates --state`, which the user unit aur-packages-updates.service
 writes daily: hidden in the tray's overflow (passive) while every package is up to date, shown while
-packages are outdated, or while the check has notes on the maintainers on the AUR (maintainers --aur). The
-menu lists them and checks again on request. A desktop notification announces each new upstream version
-once.
+packages are outdated, or while the check has notes on the maintainers on the AUR (maintainers --aur) or
+on upstream pull requests the packages refer to (upstream: merged ones in the packaged version, closed ones
+not merged), until they're dismissed. The menu lists them and checks again on request. A desktop
+notification announces each new upstream version and each new note on upstream once.
 
 The icon is a StatusNotifierItem with a com.canonical.dbusmenu menu, the protocol of Plasma's tray,
 spoken over D-Bus with Gio: libayatana-appindicator is deprecated, and its successor exports menus as
@@ -34,6 +35,9 @@ STATE_DIR = Path(GLib.get_user_state_dir()) / "aur-packages"
 STATE_FILE = STATE_DIR / "updates.json"
 # The package versions announced so far, so each one is announced once, across restarts as well
 NOTIFIED_FILE = STATE_DIR / "tray-notified.json"
+# The same for the notes on upstream pull requests, and the notes dismissed in the menu
+NOTIFIED_UPSTREAM_FILE = STATE_DIR / "tray-notified-upstream.json"
+DISMISSED_FILE = STATE_DIR / "tray-dismissed.json"
 
 WATCHER = "org.kde.StatusNotifierWatcher"
 ITEM = "org.kde.StatusNotifierItem"
@@ -163,6 +167,19 @@ def format_time(iso: str | None) -> str:
     except ValueError:
         return "never"
     return f"{time:%a} {time.day} {time:%b %Y, %H:%M}"
+
+
+def note_key(note: dict[str, Any]) -> str:
+    """A note on upstream by its package and reference, which dismissing it remembers."""
+    return f"{note.get('folder')} {note.get('reference')}"
+
+
+def open_uri(uri: str) -> None:
+    """Open a page in the default browser."""
+    try:
+        Gio.AppInfo.launch_default_for_uri(uri, None)
+    except GLib.Error as error:
+        print(f"Couldn't open {uri}: {error.message}", file=sys.stderr)
 
 
 def copy_to_clipboard(text: str) -> str | None:
@@ -429,8 +446,39 @@ class Tray(Gio.Application):  # type: ignore[misc]
         state = read_json(STATE_FILE)
         self.state = state if isinstance(state, dict) else {}
         self.notify_new()
+        if "upstream" in self.state:
+            self.notify_upstream()
         self.update()
         return bool(GLib.SOURCE_REMOVE)
+
+    def upstream_notes(self) -> list[dict[str, Any]]:
+        """The notes on upstream pull requests that weren't dismissed in the menu."""
+        dismissed = read_json(DISMISSED_FILE)
+        gone = set(dismissed) if isinstance(dismissed, list) else set()
+        return [n for n in self.state.get("upstream") or [] if note_key(n) not in gone]
+
+    def dismiss(self, note: dict[str, Any]) -> None:
+        dismissed = read_json(DISMISSED_FILE)
+        keys = set(dismissed) if isinstance(dismissed, list) else set()
+        write_json(DISMISSED_FILE, sorted(keys | {note_key(note)}))
+        self.update()
+
+    def notify_upstream(self) -> None:
+        """Announce the notes on upstream pull requests that are new, once each."""
+        notes = self.upstream_notes()
+        notified = read_json(NOTIFIED_UPSTREAM_FILE)
+        known = set(notified) if isinstance(notified, list) else set()
+        new = [n for n in notes if note_key(n) not in known]
+        if new:
+            notification = Gio.Notification.new(
+                "Upstream fix to look at" if len(new) == 1 else f"{len(new)} upstream fixes to look at"
+            )
+            notification.set_body("\n".join(f"{n['folder']}: {n['reference']} {n['message']}" for n in new))
+            notification.set_icon(Gio.ThemedIcon.new(ICON_UPDATES))
+            self.send_notification("upstream", notification)
+        current = {note_key(n) for n in self.state.get("upstream") or []}
+        if current != known:
+            write_json(NOTIFIED_UPSTREAM_FILE, sorted(current))
 
     def notify_new(self) -> None:
         """Announce the package versions that weren't outdated at the last look, once each."""
@@ -469,6 +517,8 @@ class Tray(Gio.Application):  # type: ignore[misc]
             lines.append(rate_limit_line(rate_limited))
         notes = self.state.get("maintainers") or []
         lines += [f"{note['folder']}: {note['message']}" for note in notes]
+        upstream = self.upstream_notes()
+        lines += [f"{n['folder']}: {n['reference']} {n['message']}" for n in upstream]
         self.title = f"AUR packages: {summary.lower() if count else summary}"
         self.tooltip = "\n".join(lines)
         self.icon = ICON_UPDATES if count else ICON_UP_TO_DATE
@@ -476,7 +526,7 @@ class Tray(Gio.Application):  # type: ignore[misc]
             self.emit(ITEM_PATH, ITEM, signal)
         # Passive puts the icon into the tray's overflow; never NeedsAttention. Notes on the maintainers
         # want something done as well, e.g. moving a package adopted on the AUR out of local/
-        status = "Active" if count or notes else "Passive"
+        status = "Active" if count or notes or upstream else "Passive"
         if status != self.status:
             self.status = status
             self.emit(ITEM_PATH, ITEM, "NewStatus", GLib.Variant("(s)", (status,)))
@@ -522,6 +572,15 @@ class Tray(Gio.Application):  # type: ignore[misc]
                     children=[MenuItem(shorten(f"{note['folder']}: {note['message']}")) for note in notes],
                 )
             )
+        upstream = self.upstream_notes()
+        if upstream:
+            count = len(upstream)
+            items.append(
+                MenuItem(
+                    f"{count} note{'s' if count != 1 else ''} on upstream fixes",
+                    children=[self.upstream_item(note) for note in upstream],
+                )
+            )
         items += [
             MenuItem(separator=True),
             MenuItem("Check now", self.on_check, enabled=not self.checking),
@@ -545,6 +604,17 @@ class Tray(Gio.Application):  # type: ignore[misc]
 
         number(self.root)
         self.emit(MENU_PATH, MENU, "LayoutUpdated", GLib.Variant("(ui)", (self.revision, 0)))
+
+    def upstream_item(self, note: dict[str, Any]) -> MenuItem:
+        """A note on an upstream pull request, with its page and dismissing it."""
+        url = str(note.get("url", ""))
+        return MenuItem(
+            shorten(f"{note['folder']}: {note['reference']} {note['message']}"),
+            children=[
+                MenuItem(f"Open {note['reference']}", lambda: open_uri(url), enabled=bool(url)),
+                MenuItem("Dismiss", lambda: self.dismiss(note)),
+            ],
+        )
 
     def on_check(self) -> None:
         # --no-block: the check takes a while, the state file says when it's done

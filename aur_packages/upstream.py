@@ -6,11 +6,13 @@ else which release does. Contained means in the package's own repository at the 
 its source, or in a git submodule of that repository from the other one (SourcePawn in SourceMod).
 """
 
+import json as jsonlib
 import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cache
+from pathlib import Path
 from typing import Any
 
 from aur_packages.repo import Checkout
@@ -71,9 +73,39 @@ def references(pkgbuild: str, own: str) -> list[Reference]:
     return list(dict.fromkeys(found))
 
 
+# For the daily check (notes): the answers that can't change anymore, kept across checks, and the
+# requests that failed in this one
+persistent: dict[str, Any] | None = None
+failed: list[str] = []
+
+
+def final(url: str, data: Any) -> dict[str, Any] | None:
+    """What of an answer of GitHub's API can't change anymore, to keep; None if it can.
+
+    Whether a number is an issue or a pull request, a closed pull request (merged or not), and that a
+    tag or commit contains a commit (the packaged versions are tags or commits).
+    """
+    if not isinstance(data, dict):
+        return None
+    if re.search(r"/issues/[0-9]+$", url):
+        return {"pull_request": data["pull_request"]} if "pull_request" in data else {}
+    if re.search(r"/pulls/[0-9]+$", url) and data.get("state") == "closed":
+        return {key: data.get(key) for key in ("state", "merged", "merge_commit_sha", "draft")}
+    if "/compare/" in url and data.get("status") in ("ahead", "identical"):
+        return {"status": data["status"]}
+    return None
+
+
 @cache
 def json(url: str) -> Any:
-    return request_json(url)
+    if persistent is not None and url in persistent:
+        return persistent[url]
+    data = request_json(url)
+    if data is None:
+        failed.append(url)
+    elif persistent is not None and (kept := final(url, data)) is not None:
+        persistent[url] = kept
+    return data
 
 
 def contains(repository: str, commit: str, ref: str) -> bool | None:
@@ -164,6 +196,45 @@ def state(reference: Reference, own: str, version: str) -> tuple[str, bool]:
     if pull.get("state") == "closed":
         return "closed, not merged", False
     return "open (draft)" if pull.get("draft") else "open", False
+
+
+def notes(checkout: Checkout, cache_file: Path) -> list[dict[str, str]] | None:
+    """What wants something done, for the daily check: merged pull requests the packaged version
+    contains (what backports them can go) and pull requests closed without being merged. None if a
+    request failed, e.g. at GitHub's rate limit, so the notes of the last check stay.
+
+    Asks only about what can still change: the answers that can't are kept in cache_file.
+    """
+    global persistent
+    try:
+        loaded = jsonlib.loads(cache_file.read_text()) if cache_file.exists() else {}
+    except jsonlib.JSONDecodeError:
+        loaded = {}
+    persistent = loaded if isinstance(loaded, dict) else {}
+    failed.clear()
+    json.cache_clear()
+    found = []
+    try:
+        for name in checkout.package_dirs():
+            own, version = source(Srcinfo.load(checkout.root / name))
+            for reference in references((checkout.root / name / "PKGBUILD").read_text(), own):
+                if reference.number is None:
+                    continue
+                text, packaged = state(reference, own, version)
+                if packaged:
+                    message = f"{text}: check whether what backports it can go"
+                elif text == "closed, not merged":
+                    message = "closed without being merged: check what we carry for it"
+                else:
+                    continue
+                url = f"https://github.com/{reference.repository}/issues/{reference.number}"
+                found.append({"folder": name, "reference": str(reference), "url": url, "message": message})
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(jsonlib.dumps(persistent, indent=1, sort_keys=True) + "\n")
+    finally:
+        persistent = None
+        json.cache_clear()
+    return None if failed else found
 
 
 def run_upstream(checkout: Checkout, packages: Sequence[str]) -> int:
