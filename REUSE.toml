@@ -12,6 +12,7 @@ path = [
   "tests/**",
   "pyproject.toml",
   "maintainers.toml",
+  "pins.toml",
   "systemd/**",
   "completions/**",
   ".gitignore",

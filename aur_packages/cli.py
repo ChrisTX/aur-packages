@@ -376,9 +376,9 @@ for _command in (
         "Check that the _commit of a version like git describe's (…r83.g4b8b3d3) is the commit it "
         "names, without the network (run by the pins hook). --online shows, for each package that pins "
         "something, whether its pins are the ones its version names: the upstream commit its pkgver "
-        "was published from (the NuGet nuspec's repository commit, or the PKGBUILD's _commit_lookup), "
-        "and what a PKGBUILD's _pins_lookup prints (submodule commits, branch heads, versions of other "
-        "packages), flagging stale ones; --update rewrites them and refreshes the checksums and .SRCINFO",
+        "was published from (the commit a git describe pkgver names, or the NuGet package's repository "
+        "commit), or what pins.toml says (the VMR's commits, branch heads, values in files of a "
+        "release), flagging stale ones; --update rewrites them and refreshes the checksums and .SRCINFO",
         options=(
             Option(("--online",), "look up what every pin should be"),
             Option(("--update",), "rewrite the stale pins (online)"),

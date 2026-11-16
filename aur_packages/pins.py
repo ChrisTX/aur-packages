@@ -4,73 +4,24 @@ pins (offline, the hook) checks that a _commit is the commit a pkgver like git d
 pins --online looks up what every pin should be, and --update rewrites the stale ones.
 """
 
-import os
+import io
+import json
 import re
 import subprocess
 import sys
+import tomllib
+import urllib.error
+import urllib.request
+import zipfile
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
+from aur_packages.git import paths
 from aur_packages.repo import Checkout
+from aur_packages.srcinfo import Srcinfo
 from aur_packages.tools import require
 from aur_packages.updates import github_token
-
-# The lookups run in bash, as they source the PKGBUILD and may call its _pins_lookup or _commit_lookup.
-# Their requests give up on a stalled connection and try again, instead of waiting forever; those to
-# GitHub's API go with the token ($PINS_GITHUB_TOKEN, on curl's stdin rather than its command line,
-# where other users could read it), so they get its rate limit rather than the 60 requests an hour
-# without one. Prints "NAME VALUE" a line, the value empty if it can't be determined.
-LOOKUP = r"""
-curl() {
-  local arg
-  local -a stall=(--connect-timeout 15 --speed-limit 1024 --speed-time 30 --retry 2)
-  if [[ -n "${PINS_GITHUB_TOKEN:-}" ]]; then
-    for arg; do
-      if [[ "$arg" == https://api.github.com/* ]]; then
-        command curl "${stall[@]}" -K - "$@" <<<"header = \"Authorization: Bearer $PINS_GITHUB_TOKEN\""
-        return
-      fi
-    done
-  fi
-  command curl "${stall[@]}" "$@"
-}
-# The upstream commit the current pkgver was published from, best effort: the <repository commit> of
-# the published NuGet nuspec, by the package's NuGet id (_nugetid, else the first of _packages, else
-# the .nvchecker.toml's packageid), unless the PKGBUILD has a _commit_lookup
-resolve_commit() {
-  local id ver lid base out tmp
-  if declare -F _commit_lookup >/dev/null; then
-    _commit_lookup
-    return
-  fi
-  id=${_nugetid:-}
-  if [[ -z "$id" && -n "${_packages+x}" && ${#_packages[@]} -gt 0 ]]; then id=${_packages[0]}; fi
-  if [[ -z "$id" && -f .nvchecker.toml ]]; then
-    id=$(sed -n -E 's/.*packageid:([^&"]+).*/\1/p' .nvchecker.toml | head -1)
-  fi
-  [[ -n "$id" ]] || return 1
-  ver=$pkgver
-  lid=${id,,}
-  base="https://api.nuget.org/v3-flatcontainer/$lid/$ver"
-  # The flat container serves the nuspec on its own; else from the whole package
-  out=$(curl -fsSL "$base/$lid.nuspec" 2>/dev/null) || out=''
-  if [[ -z "$out" ]]; then
-    tmp=$(mktemp) || return 1
-    if curl -fsSL "$base/$lid.$ver.nupkg" -o "$tmp" 2>/dev/null; then
-      out=$(bsdtar -xOf "$tmp" '*.nuspec' 2>/dev/null)
-    fi
-    rm -f "$tmp"
-  fi
-  printf '%s' "$out" | grep -oiE 'commit="[0-9a-f]{40}"' | grep -oiE '[0-9a-f]{40}' | head -1
-}
-source ./PKGBUILD >/dev/null 2>&1 || exit 1
-if declare -F _pins_lookup >/dev/null; then
-  _pins_lookup
-  exit
-fi
-[[ "${_commit-}" =~ ^[0-9a-f]{7,40}$ ]] || exit 0
-echo "_commit $(resolve_commit)"
-"""
 
 
 def pin_value(pkgbuild: Path, name: str) -> str:
@@ -100,18 +51,173 @@ def short_pin(value: str) -> str:
     return value[:12] if re.fullmatch(r"[0-9a-f]{40}", value) else value
 
 
-def resolve_pins(package: Path) -> list[tuple[str, str]]:
-    """The values a package's pins should have, by the lookups of LOOKUP; none without pins."""
-    env = {**os.environ, "PINS_GITHUB_TOKEN": github_token()}
-    result = subprocess.run(
-        ["bash", "-c", LOOKUP], cwd=package, capture_output=True, text=True, env=env, check=False
+def request(url: str, attempts: int = 3) -> bytes | None:
+    """The body of a URL, None if it fails; GitHub's API with the token of github_token, for its rate
+    limit rather than the 60 requests an hour without one. Gives up on a stalled connection and tries
+    again, instead of waiting forever."""
+    req = urllib.request.Request(url, headers={"User-Agent": "aur-packages"})
+    if url.startswith("https://api.github.com/") and (token := github_token()):
+        req.add_header("Authorization", f"Bearer {token}")
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                body: bytes = response.read()
+                return body
+        except urllib.error.HTTPError:
+            return None
+        except OSError:
+            if attempt == attempts - 1:
+                return None
+    return None
+
+
+def request_json(url: str) -> Any:
+    body = request(url)
+    try:
+        return json.loads(body) if body is not None else None
+    except json.JSONDecodeError:
+        return None
+
+
+def array_first(pkgbuild: str, name: str) -> str:
+    """The first element of an array a PKGBUILD assigns, on one line or several."""
+    if match := re.search(rf"^{re.escape(name)}=\(\s*([^\s)]+)", pkgbuild, re.MULTILINE):
+        return match[1].strip("'\"")
+    return ""
+
+
+def array(pkgbuild: str, name: str) -> list[str]:
+    """The elements of an array a PKGBUILD assigns, without expansions."""
+    if match := re.search(rf"^{re.escape(name)}=\(([^)]*)\)", pkgbuild, re.MULTILINE):
+        return [word.strip("'\"") for word in match[1].split()]
+    return []
+
+
+def github_repository(srcinfo: Srcinfo) -> str:
+    """owner/repository of the first source on GitHub, a git checkout or an archive."""
+    for source in srcinfo.base.get("source", []):
+        if match := re.search(r"github\.com/([^/]+)/([^/#?]+?)(\.git)?([/#?]|$)", source):
+            return f"{match[1]}/{match[2]}"
+    return ""
+
+
+def nuget_commit(package: Path, pkgbuild: str, version: str) -> str:
+    """The upstream commit a version was published from, best effort: the repository commit of the
+    NuGet package's nuspec, by the package's NuGet id (_nugetid, else the first of _packages, else the
+    .nvchecker.toml's packageid)."""
+    nuget_id = pin_value(package / "PKGBUILD", "_nugetid") or array_first(pkgbuild, "_packages")
+    nvchecker = package / ".nvchecker.toml"
+    if (
+        not nuget_id
+        and nvchecker.exists()
+        and (match := re.search(r"packageid:([^&\"]+)", nvchecker.read_text()))
+    ):
+        nuget_id = match[1]
+    if not nuget_id:
+        return ""
+    lower = nuget_id.lower()
+    base = f"https://api.nuget.org/v3-flatcontainer/{lower}/{version}"
+    # The flat container serves the nuspec on its own; else from the whole package
+    nuspec = request(f"{base}/{lower}.nuspec")
+    if nuspec is None and (nupkg := request(f"{base}/{lower}.{version}.nupkg")) is not None:
+        try:
+            with zipfile.ZipFile(io.BytesIO(nupkg)) as archive:
+                name = next((n for n in archive.namelist() if n.endswith(".nuspec")), None)
+                nuspec = archive.read(name) if name else None
+        except zipfile.BadZipFile:
+            nuspec = None
+    match = re.search(r'commit="([0-9a-f]{40})"', (nuspec or b"").decode(errors="replace"), re.IGNORECASE)
+    return match[1] if match else ""
+
+
+def described_commit(srcinfo: Srcinfo, version: str) -> str:
+    """The full commit a pkgver like git describe's names (….r84.g5b0aa72), on GitHub."""
+    match = re.search(r"\.g([0-9a-f]{7,40})$", version)
+    repository = github_repository(srcinfo)
+    if not match or not repository:
+        return ""
+    commit = request_json(f"https://api.github.com/repos/{repository}/commits/{match[1]}")
+    return commit.get("sha", "") if isinstance(commit, dict) else ""
+
+
+def vmr_commit(version: str, path: str) -> str:
+    """The commit of one of the repositories of .NET's VMR (dotnet/dotnet) a release was built from."""
+    manifest = request_json(
+        f"https://raw.githubusercontent.com/dotnet/dotnet/v{version}/src/source-manifest.json"
     )
+    repositories = manifest.get("repositories", []) if isinstance(manifest, dict) else []
+    return next((str(r.get("commitSha", "")) for r in repositories if r.get("path") == path), "")
+
+
+def file_value(url: str, pattern: str) -> str:
+    """The first group of a pattern in a file, e.g. a commit in the CI workflow of a release."""
+    body = request(url)
+    match = re.search(pattern, (body or b"").decode(errors="replace"), re.MULTILINE)
+    return match[1] if match else ""
+
+
+def branch_pins(package: Path, srcinfo: Srcinfo, repository: str) -> list[tuple[str, str]]:
+    """The head of each branch _commit_BRANCH pins (the branches of _sdks), and pkgver from the date of
+    the newest commit, or with only older commits the next pkgrel."""
+    pkgbuild = (package / "PKGBUILD").read_text()
+    remote = subprocess.run(
+        ["git", "ls-remote", "--heads", f"https://github.com/{repository}.git"],
+        capture_output=True, text=True, check=False,
+    ).stdout  # fmt: skip
+    heads = {
+        ref.removeprefix("refs/heads/"): head
+        for head, ref in (line.split("\t") for line in remote.splitlines())
+    }
+    version, pkgver, changed = srcinfo.first("pkgver"), srcinfo.first("pkgver"), False
     pins = []
-    for line in result.stdout.splitlines():
-        name, _, value = line.partition(" ")
-        if name:
-            pins.append((name, "" if value.strip() == "null" else value.strip()))
+    for branch in array(pkgbuild, "_sdks"):
+        head = heads.get(branch, "")
+        pins.append((f"_commit_{branch}", head))
+        if not head or head == pin_value(package / "PKGBUILD", f"_commit_{branch}"):
+            continue
+        changed = True
+        commit = request_json(f"https://api.github.com/repos/{repository}/commits/{head}")
+        date = (
+            str(commit.get("commit", {}).get("committer", {}).get("date", ""))
+            if isinstance(commit, dict)
+            else ""
+        )
+        date = date[:10].replace("-", "")
+        if re.fullmatch(r"[0-9]{8}", date) and int(date) > int(version):
+            version = date
+    pins.append(("pkgver", version))
+    if changed and version == pkgver:
+        pins.append(("pkgrel", str(int(srcinfo.first("pkgrel")) + 1)))
     return pins
+
+
+def settings(checkout: Checkout) -> dict[str, Any]:
+    """pins.toml: the packages whose pins need more than the lookups by their pkgver."""
+    return tomllib.loads((checkout.root / "pins.toml").read_text())
+
+
+def resolve_pins(checkout: Checkout, name: str) -> list[tuple[str, str]]:
+    """The values a package's pins should have, empty where they can't be determined; none without pins.
+
+    As pins.toml says for the package, else the _commit a pkgver like git describe's names, else the
+    commit of the NuGet package of the version.
+    """
+    package = checkout.root / name
+    srcinfo = Srcinfo.load(package)
+    version = srcinfo.first("pkgver")
+    setting = settings(checkout).get(package.name, {})
+    if "branches" in setting:
+        return branch_pins(package, srcinfo, setting["branches"])
+    if "file" in setting:
+        url = setting["file"]["url"].format(pkgver=version)
+        return [(setting["file"]["pin"], file_value(url, setting["file"]["pattern"]))]
+    if not re.fullmatch(r"[0-9a-f]{7,40}", pin_value(package / "PKGBUILD", "_commit")):
+        return []
+    if "vmr" in setting:
+        return [("_commit", vmr_commit(version, setting["vmr"]))]
+    if re.search(r"\.g[0-9a-f]{7,40}$", version):
+        return [("_commit", described_commit(srcinfo, version))]
+    return [("_commit", nuget_commit(package, (package / "PKGBUILD").read_text(), version))]
 
 
 def update_checksums(package: Path) -> None:
@@ -147,7 +253,7 @@ def run_online(checkout: Checkout, packages: Sequence[str], update: bool) -> int
     )
     for name in checkout.select(packages):
         package = checkout.root / name
-        pins = resolve_pins(package)
+        pins = resolve_pins(checkout, name)
         if not pins:
             continue
         changed = False
@@ -214,17 +320,12 @@ def run_upgrade(checkout: Checkout, packages: Sequence[str]) -> int:
     if not checked:
         return 0
     subprocess.run(["pkgctl", "version", "upgrade", *checked], check=False)
-    changed = subprocess.run(
-        ["git", "diff", "--name-only", "--", *(f"{p}/PKGBUILD" for p in checked)],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
+    changed = paths("diff", "--name-only", "--", *(f"{p}/PKGBUILD" for p in checked))
     unresolved = []
     for path in changed:
         name = path.removesuffix("/PKGBUILD")
         package = checkout.root / name
-        pins = resolve_pins(package)
+        pins = resolve_pins(checkout, name)
         for pin, new in pins:
             current = pin_value(package / "PKGBUILD", pin)
             if not new:

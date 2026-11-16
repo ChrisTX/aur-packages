@@ -1,0 +1,23 @@
+# Where ./aur-packages pins --online, --update and upgrade look up the pins of the packages that need
+# more than what their version says. The others need no entry: a _commit with a pkgver like git
+# describe's (….r84.g5b0aa72) is the commit it names, on GitHub (the repository of the first source
+# there); any other _commit is the repository commit of the NuGet package of the version (by
+# _nugetid, else the first of _packages, else the packageid of .nvchecker.toml). By the package's
+# folder name.
+
+[dotnet-source-build-reference-packages]
+# Not on NuGet: the commit of the VMR's (dotnet/dotnet) release of the version
+vmr = "source-build-assets"
+
+[dotnet-system-io-ports-native]
+# The native pack carries no repository commit on NuGet: the VMR's, see above
+vmr = "runtime"
+
+[hl2sdk]
+# The head of each SDK's branch (_commit_<branch> for each of _sdks), and pkgver from the newest
+# commit's date, or with only older commits the next pkgrel
+branches = "alliedmodders/hl2sdk"
+
+[sourcemod-steamworks]
+# The SDK the release's CI builds with
+file = { pin = "_sdkcommit", url = "https://raw.githubusercontent.com/alliedmodders/SM-SteamWorks/v{pkgver}/.github/workflows/ci.yml", pattern = "^ *STEAMWORKS_SDK_COMMIT: *([0-9a-f]{40})" }
