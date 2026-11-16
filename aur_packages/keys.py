@@ -77,12 +77,10 @@ def shipped(folder: Path, fingerprint: str) -> Path:
 def file_fingerprints(path: Path) -> list[str]:
     """The fingerprints of the primary keys in a file, read without a keyring: makepkg compares
     validpgpkeys with the primary key's, also for a signature of a subkey."""
-    result = subprocess.run(
-        ["gpg", "--batch", "--with-colons", "--show-keys", str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    # In a keyring of its own: the hook runs in parallel, and gpgs creating the same new one (e.g.
+    # ~/.gnupg in CI) at once leave some of them without output
+    with tempfile.TemporaryDirectory(prefix="aur-packages-keys.") as home:
+        result = gpg(Path(home), "--with-colons", "--show-keys", str(path))
     # The record right after a primary key's (pub) is its fingerprint: 40 hexadecimal digits in its
     # tenth field; those of the subkeys follow their own records (sub)
     found = []
