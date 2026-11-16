@@ -14,11 +14,12 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-from aur_packages import keys
+from aur_packages import keys, maintainers, overrides
 from aur_packages.repo import BUILD_TEMPLATES, OUTSIDE_AUR, Checkout, SelectionError
 from aur_packages.srcinfo import Srcinfo
 from aur_packages.tools import require
@@ -1222,6 +1223,37 @@ def upgrades(
     return selected, ignore
 
 
+def losing(
+    checkout: Checkout,
+    arch: Callable[[str], tuple[str, str] | None] = overrides.arch_version,
+    aur: Callable[[list[str]], dict[str, dict[str, Any]]] = maintainers.aur_info,
+) -> list[str]:
+    """Our packages that wouldn't win over the package they're there to replace: an override not newer
+    than Arch Linux's package (the version pacman would install), a package of local/ not newer than
+    the AUR's of the same name. Each needs a newer version, or should go."""
+    found = []
+    folders = [f for f in checkout.package_dirs() if f.startswith(OUTSIDE_AUR_PREFIXES)]
+    for folder in (f for f in folders if f.startswith("overrides/")):
+        srcinfo = Srcinfo.load(checkout.root / folder)
+        theirs = arch(srcinfo.pkgbase)
+        if theirs and not newer(srcinfo.version(), theirs[0]):
+            found.append(
+                f"{folder} {srcinfo.version()} doesn't replace Arch Linux's {theirs[0]} ({theirs[1]}): "
+                "give it a newer version, or remove it (overrides remove)"
+            )
+    local = {f: Srcinfo.load(checkout.root / f) for f in folders if f.startswith("local/")}
+    if local:
+        on_aur = aur([name for srcinfo in local.values() for name in srcinfo.pkgnames()])
+        for folder, srcinfo in local.items():
+            package = on_aur.get(srcinfo.pkgbase)
+            if package and not newer(srcinfo.version(), str(package["Version"])):
+                found.append(
+                    f"{folder} {srcinfo.version()} doesn't replace the AUR's {package['Version']}: "
+                    "give it a newer version, or drop it"
+                )
+    return found
+
+
 def run_sysupgrade(
     checkout: Checkout, sign: bool | None, sync_options: Sequence[str], settings: Build | None = None
 ) -> int:
@@ -1246,6 +1278,13 @@ def run_sysupgrade(
         ).stdout.splitlines()
         if " " in line
     )
+    # Ours that are there to replace a package, but wouldn't: told, as the replaced one stays
+    try:
+        problems = losing(checkout)
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+        problems = [f"couldn't compare local/ and overrides/ with what they replace: {error}"]
+    for problem in problems:
+        print(f"warning: {problem}", file=sys.stderr)
     selected, ignore = upgrades(checkout, in_repo, installed)
     if selected:
         settings = settings or Build()

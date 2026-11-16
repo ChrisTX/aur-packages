@@ -259,3 +259,38 @@ def test_upgrades(tmp_path: Path) -> None:
     selected, ignore = build.upgrades(checkout, in_repo, installed)
     assert sorted(selected) == ["local/rework", "ours", "overrides/fwupd", "overrides/ghidra"]
     assert sorted(ignore) == ["current", "fwupd", "ghidra", "notinstalled", "old", "ours", "rework"]
+
+
+def test_losing(tmp_path: Path) -> None:
+    def package(folder: str, name: str, version: str) -> None:
+        (tmp_path / folder).mkdir(parents=True)
+        (tmp_path / folder / "PKGBUILD").write_text("")
+        pkgver, pkgrel = version.split("-")
+        (tmp_path / folder / ".SRCINFO").write_text(
+            f"pkgbase = {name}\n\tpkgver = {pkgver}\n\tpkgrel = {pkgrel}\n\tarch = x86_64\n\npkgname = {name}\n"
+        )
+
+    package("overrides/ahead", "ahead", "2.1.10-1.1")
+    package("overrides/caught", "caught", "2.1.10-1.1")
+    package("overrides/same", "same", "1-1")
+    package("overrides/gone", "gone", "1-1.1")
+    package("local/rework", "rework", "2-1")
+    package("local/behind", "behind", "1-1")
+    package("local/ours", "ours", "1-1")
+    package("top", "top", "0.1-1")
+    arch = {"ahead": ("2.1.10-1", "extra"), "caught": ("2.1.10-2", "extra"), "same": ("1-1", "core")}
+    asked = []
+
+    def aur(names: list[str]) -> dict[str, dict[str, object]]:
+        asked.extend(names)
+        return {"rework": {"Version": "1-3"}, "behind": {"Version": "1.1-1"}}
+
+    found = build.losing(Checkout(tmp_path, tmp_path), lambda name: arch.get(name), aur)
+    # Overrides Arch Linux has caught up with or has the same version of, local/ that the AUR is ahead
+    # of; not one Arch doesn't have, nor one of local/ the AUR doesn't, nor the top level
+    assert [problem.split(" ", 1)[0] for problem in found] == [
+        "overrides/caught",
+        "overrides/same",
+        "local/behind",
+    ]
+    assert sorted(asked) == ["behind", "ours", "rework"]
