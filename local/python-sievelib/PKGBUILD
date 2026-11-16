@@ -7,7 +7,9 @@
 pkgname=python-sievelib
 _name=${pkgname#python-}
 pkgver=1.6.0
-pkgrel=1
+# Above the AUR's 1.6.0-1, which lacks python-typing_extensions: our build, until the
+# AUR's next release
+pkgrel=1.1
 pkgdesc="Client-side Sieve and ManageSieve library"
 arch=(any)
 url="https://github.com/tonioo/$_name"
