@@ -246,6 +246,13 @@ repos:
         files: (^|/)PKGBUILD$
         # Arch Linux's packages in overrides/ keep Arch's style
         exclude: ^overrides/
+      - id: pkgrel
+        name: the AUR's packages have a whole pkgrel
+        language: system
+        entry: ./aur-packages pkgrel
+        files: (^|/)\.SRCINFO$
+        # local/ and overrides/ sit above what they replace with a .1
+        exclude: ^(local|overrides)/
       - id: keys
         name: the PGP keys of validpgpkeys are shipped in keys/pgp
         language: system
