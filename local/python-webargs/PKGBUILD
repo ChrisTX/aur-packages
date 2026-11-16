@@ -7,7 +7,9 @@
 pkgname=python-webargs
 _name=${pkgname#python-}
 pkgver=8.7.1
-pkgrel=1
+# Above the AUR's 8.7.1-1, which doesn't build with flit_core 4: our build, until the
+# AUR's next release
+pkgrel=1.1
 pkgdesc="Declarative parsing and validation of HTTP request objects, with built-in support for popular web frameworks"
 arch=(any)
 url="https://github.com/marshmallow-code/$_name"
