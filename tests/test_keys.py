@@ -17,12 +17,15 @@ PMD = "2EFA55D0785C31F956F2F87EA0B5CA1A4E086838"
 PMD_SUBKEY = "1E046C19ED2873D8C08AF7B8A0632691B78E3422"
 
 
-def package(root: Path, name: str, validpgpkeys: list[str], files: dict[str, str]) -> Path:
+def package(
+    root: Path, name: str, validpgpkeys: list[str], files: dict[str, str], signed: bool = True
+) -> Path:
     folder = root / name
     (folder / "keys" / "pgp").mkdir(parents=True)
     (folder / "PKGBUILD").write_text("")
     lines = "".join(f"\tvalidpgpkeys = {key}\n" for key in validpgpkeys)
-    (folder / ".SRCINFO").write_text(f"pkgbase = {name}\n{lines}\npkgname = {name}\n")
+    source = "\tsource = git+https://example.org/x.git#tag=v1?signed\n" if signed else ""
+    (folder / ".SRCINFO").write_text(f"pkgbase = {name}\n{source}{lines}\npkgname = {name}\n")
     for name_, source in files.items():
         shutil.copy(ROOT / source, folder / "keys" / "pgp" / f"{name_}.asc")
     return folder
@@ -38,6 +41,10 @@ def checkout(tmp_path: Path) -> Checkout:
     package(tmp_path, "wrong", [OTHER], {OTHER: shipped})
     # validpgpkeys with a subkey, which makepkg doesn't accept
     package(tmp_path, "subkey", [PMD_SUBKEY], {PMD_SUBKEY: f"local/pmd/keys/pgp/{PMD}.asc"})
+    # validpgpkeys, but nothing makepkg would verify with them
+    package(tmp_path, "unsigned", [KEY], {KEY: shipped}, signed=False)
+    # A signed source, but no validpgpkeys: only a keyring's trusted keys would do
+    package(tmp_path, "keyless", [], {})
     return Checkout(tmp_path, tmp_path)
 
 
@@ -48,6 +55,8 @@ def test_run_keys(checkout: Checkout, capsys: pytest.CaptureFixture[str]) -> Non
         ("stray", f"keys/pgp/{OTHER}.asc isn't one of validpgpkeys"),
         ("wrong", f"keys/pgp/{OTHER}.asc doesn't have the primary key {OTHER}"),
         ("subkey", f"keys/pgp/{PMD_SUBKEY}.asc doesn't have the primary key {PMD_SUBKEY}"),
+        ("unsigned", "validpgpkeys without a signed source"),
+        ("keyless", "a signed source without validpgpkeys"),
     ]:
         assert keys.run_keys(checkout, [name], fetch=False) == 1
         assert message in capsys.readouterr().out
@@ -62,3 +71,21 @@ def test_prepare_imports_the_shipped_keys(checkout: Checkout, tmp_path: Path) ->
 def test_prepare_stops_with_the_missing_keys(checkout: Checkout, tmp_path: Path) -> None:
     with pytest.raises(keys.MissingKeys, match=f"{KEY}: missing"):
         keys.prepare([checkout.root / "missing"], tmp_path / "keyring", fetch=False)
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        ("git+https://github.com/a/b.git#tag=v1?signed", True),
+        ("b::git+https://github.com/a/b.git#commit=0123abc?signed", True),
+        ("git+https://github.com/a/b.git#tag=v1", False),
+        ("https://example.org/b-1.tar.gz.asc", True),
+        ("b-1.tar.gz.sig::https://example.org/download?file=b-1.tar.gz.sig", True),
+        ("b-1.tar.gz::https://example.org/b-1.tar.gz", False),
+        # ?signed only counts for protocols makepkg can verify
+        ("https://example.org/b-1.tar.gz?signed", False),
+        ("hg+https://example.org/b#tag=1?signed", False),
+    ],
+)
+def test_signed(entry: str, expected: bool) -> None:
+    assert keys.signed(entry) is expected

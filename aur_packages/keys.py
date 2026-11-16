@@ -42,6 +42,34 @@ def needed(folder: Path) -> list[str]:
     return keys
 
 
+# The protocols of makepkg's verify_<protocol>_signature, which verify a source with ?signed
+SIGNED_PROTOCOLS = ("git", "file")
+
+
+def signed(entry: str) -> bool:
+    """Whether makepkg verifies a source's signature, by its source_has_signatures: a file named
+    .sig, .sign or .asc, or ?signed on a source of a protocol it can verify (a git tag or commit)."""
+    name = entry.split("::", 1)[0]
+    if re.search(r"\.(sig|sign|asc)$", name):
+        return True
+    url = entry.split("::", 1)[-1]
+    protocol = url.split("://", 1)[0].split("+", 1)[0] if "://" in url else "local"
+    return protocol in SIGNED_PROTOCOLS and url.partition("?")[2] == "signed"
+
+
+def has_signed_source(folder: Path) -> bool:
+    """Whether a package has a source makepkg verifies, for any architecture: without one, makepkg
+    ignores validpgpkeys and verifies nothing, without saying so."""
+    srcinfo = folder / ".SRCINFO"
+    if not srcinfo.exists():
+        return False
+    for line in srcinfo.read_text().splitlines():
+        key, _, value = line.strip().partition(" = ")
+        if re.fullmatch(r"source(_\w+)?", key) and signed(value):
+            return True
+    return False
+
+
 def shipped(folder: Path, fingerprint: str) -> Path:
     return folder / "keys" / "pgp" / f"{fingerprint}.asc"
 
@@ -157,6 +185,21 @@ def run_keys(checkout: Checkout, paths: Sequence[str], fetch: bool) -> int:
     for name in checkout.select(list(dict.fromkeys(names))):
         folder = checkout.root / name
         keys = needed(folder)
+        # Both directions: makepkg doesn't say either, and the second one builds for whoever trusts
+        # the key in their own keyring, and fails for everyone else
+        verified = has_signed_source(folder)
+        if keys and not verified:
+            print(
+                f"{name}: validpgpkeys without a signed source (?signed, or a .sig, .sign or .asc file): "
+                "makepkg verifies nothing"
+            )
+            status = 1
+        elif verified and not keys:
+            print(
+                f"{name}: a signed source without validpgpkeys: makepkg only accepts the keys a keyring "
+                "trusts, so the build fails for others"
+            )
+            status = 1
         for fingerprint in keys:
             path = shipped(folder, fingerprint)
             if not path.exists() and fetch:
