@@ -1,4 +1,4 @@
-# The maintainers of the packages, for ./aur-packages maintainers (aur-packages-maintainers): every
+# The maintainers of the packages, for ./aur-packages maintainers (aur_packages/maintainers.py): every
 # package has our # Maintainer: line, and one for each other maintainer and co-maintainer it has on the AUR
 
 # Our account on the AUR and our # Maintainer: line

@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from aur_packages import checks, hooks
+from aur_packages import aur, checks, hooks, overrides
 from aur_packages.repo import BUILD_TEMPLATES, Checkout, SelectionError
 from aur_packages.tools import MissingTools
 
@@ -63,6 +63,8 @@ class Command:
     run: Runner | None = None
     # Arguments after -- belong to another program (sysupgrade's aur sync)
     passthrough: bool = False
+    # The subcommand without one given (overrides: check)
+    default: str | None = None
 
     def summary(self) -> str:
         """The first sentence of the help, shortened at a word, for the completions."""
@@ -107,8 +109,8 @@ def run_completion(checkout: Checkout, args: argparse.Namespace) -> int:
     return 0
 
 
-def with_files(args: argparse.Namespace, least: int, most: int, run: Callable[[list[str]], int]) -> int:
-    """Run a command that takes FILE and more positional arguments, or fail with a usage error."""
+def with_arguments(args: argparse.Namespace, least: int, most: int, run: Callable[[list[str]], int]) -> int:
+    """Run a command with a number of positional arguments, or fail with a usage error."""
     given: list[str] = args.arguments
     if not least <= len(given) <= most:
         expected = f"{least} argument" if least == most == 1 else f"{least} to {most} arguments"
@@ -121,24 +123,37 @@ SECTIONS = ("PowerShell", ".NET", "SourceMod", "Other")
 SANITISERS = ("undefined", "address", "address,undefined")
 TARGETS = ("aarch64", "aarch64-native")
 
+DRY_RUN = Option(("-n", "--dry-run"), "only show what would be done")
+
 TABLE = Table()
 for _command in (
-    Command("pull", "", "Pull the packages from the AUR (aurpublish --pull)", arguments="aur-packages"),
+    Command(
+        "pull",
+        "",
+        "Pull the packages from the AUR (aurpublish --pull)",
+        options=(DRY_RUN,),
+        arguments="aur-packages",
+        run=lambda checkout, args: aur.run_pull(checkout, args.arguments, args.dry_run),
+    ),
     Command(
         "push",
         "",
-        "Check, then push the packages to the AUR (aurpublish), or with --nocheck without the checks, "
+        "Check, then push the packages to the AUR (aurpublish), or with --no-check without the checks, "
         "e.g. while a linter isn't installed. Leaves out packages without commits since their last "
         "push (refs/aur-packages/pushed/PACKAGE), which --force pushes anyway. --exclude PACKAGE "
         "leaves a package out (repeatable), e.g. one whose AUR request is still pending. A pushed "
         "package leaves the tray's list of outdated packages once its version is at least the new "
         "one",
         options=(
-            Option(("--nocheck",), "push without running the checks"),
+            Option(("--no-check",), "push without running the checks", aliases=("--nocheck",)),
             Option(("--force",), "also push packages without commits since their last push"),
             Option(("--exclude",), "leave a package out", "PACKAGE", "aur-packages", repeat=True),
+            DRY_RUN,
         ),
         arguments="aur-packages",
+        run=lambda checkout, args: aur.run_push(
+            checkout, args.arguments, args.exclude or [], args.no_check, args.force, args.dry_run
+        ),
     ),
     Command(
         "adopt",
@@ -146,7 +161,9 @@ for _command in (
         "Merge the history the AUR has of packages into their subtrees, keeping their files, so that "
         "push can push on top of it: for a package that was on the AUR before, deleted or taken over "
         "from another maintainer (the AUR only accepts pushes on top of its history)",
+        options=(DRY_RUN,),
         arguments="aur-packages",
+        run=lambda checkout, args: aur.run_adopt(checkout, args.arguments, args.dry_run),
     ),
     Command(
         "publish",
@@ -160,8 +177,12 @@ for _command in (
         options=(
             Option(("--section",), "the table of README.md", "SECTION", SECTIONS),
             Option(("--adopt",), "merge the AUR's history of a package that's ours there now"),
+            DRY_RUN,
         ),
         arguments="local-packages",
+        run=lambda checkout, args: aur.run_publish(
+            checkout, args.arguments, args.section or "Other", args.adopt, args.dry_run
+        ),
     ),
     Command(
         "updates",
@@ -294,7 +315,7 @@ for _command in (
         "FILE",
         "Check a commit message against the convention in CONTRIBUTING.md (run by the commit-msg hook)",
         arguments="files",
-        run=lambda checkout, args: with_files(args, 1, 1, lambda f: hooks.run_commit_msg(checkout, f[0])),
+        run=lambda checkout, args: with_arguments(args, 1, 1, lambda f: hooks.run_commit_msg(checkout, f[0])),
     ),
     Command(
         "prepare-commit-msg",
@@ -303,7 +324,7 @@ for _command in (
         "staged version when they change a package's version, else the scope (run by the "
         "prepare-commit-msg hook)",
         arguments="files",
-        run=lambda checkout, args: with_files(
+        run=lambda checkout, args: with_arguments(
             args, 1, 3, lambda f: hooks.run_prepare_commit_msg(checkout, f[0], f[1] if len(f) > 1 else "")
         ),
     ),
@@ -355,8 +376,11 @@ for _command in (
                 "check",
                 "[PACKAGE...]",
                 "Compare the packages of overrides/ with Arch Linux's repositories, and fail if Arch "
-                "has caught up with one, which then isn't needed any more",
+                "has caught up with one, which then isn't needed any more. Compares with the version "
+                "pacman would install, from the repositories in pacman.conf's order, the testing ones "
+                "included",
                 arguments="overrides",
+                run=lambda checkout, args: overrides.run_check(checkout, args.arguments),
             ),
             Command(
                 "add",
@@ -364,22 +388,33 @@ for _command in (
                 "Import Arch Linux's packaging of a package as overrides/<pkgbase>, a subtree of it, "
                 "and prepare the first commit of the changes: the README.md row, the .gitignore and a "
                 "pkgrel below Arch's next release",
+                options=(DRY_RUN,),
+                arguments="arch-package",
+                run=lambda checkout, args: with_arguments(
+                    args, 1, 1, lambda given: overrides.run_add(checkout, given[0], args.dry_run)
+                ),
             ),
             Command(
                 "pull",
                 "PACKAGE...",
                 "Merge Arch Linux's updates of the overrides' packaging into them",
+                options=(DRY_RUN,),
                 arguments="overrides",
+                run=lambda checkout, args: overrides.run_pull(checkout, args.arguments, args.dry_run),
             ),
             Command(
                 "remove",
                 "[--force] PACKAGE...",
                 "Remove overrides once Arch Linux has caught up with them (or with --force anyway), "
                 "with their README.md rows, and commit",
-                options=(Option(("--force",), "remove it even if Arch Linux hasn't caught up"),),
+                options=(Option(("--force",), "remove it even if Arch Linux hasn't caught up"), DRY_RUN),
                 arguments="overrides",
+                run=lambda checkout, args: overrides.run_remove(
+                    checkout, args.arguments, args.force, args.dry_run
+                ),
             ),
         ),
+        default="check",
     ),
     Command(
         "list",
@@ -453,8 +488,8 @@ def help_text() -> str:
     return "\n".join(lines) + "\n" + "\n".join(entries) + "\n"
 
 
-def command_help(command: Command) -> str:
-    text = f"Usage: aur-packages {command.name} {command.synopsis}".rstrip() + "\n\n"
+def command_help(command: Command, prog: str = "") -> str:
+    text = f"Usage: aur-packages {prog or command.name} {command.synopsis}".rstrip() + "\n\n"
     text += wrap(command.help) + "\n"
     for sub in command.subcommands:
         text += "\n" + entry(sub.name, sub) + "\n"
@@ -476,9 +511,9 @@ def wants_help(args: Sequence[str]) -> bool:
     return False
 
 
-def parser_for(command: Command) -> argparse.ArgumentParser:
+def parser_for(command: Command, prog: str = "") -> argparse.ArgumentParser:
     """The argparse parser of a ported command, from its entry in the table."""
-    parser = argparse.ArgumentParser(prog=f"aur-packages {command.name}", add_help=False)
+    parser = argparse.ArgumentParser(prog=f"aur-packages {prog or command.name}", add_help=False)
     for option in command.options:
         dest = option.dest()
         names = (*option.names, *option.aliases)
@@ -526,13 +561,27 @@ def run(root: Path, cwd: Path, argv: Sequence[str]) -> int:
     if command is None:
         print(f"aur-packages: unknown command: {name} (aur-packages help lists them)", file=sys.stderr)
         return 2
-    if wants_help(args):
+    target, prog = command, command.name
+    if wants_help(args) and not (command.subcommands and args[0] in {s.name for s in command.subcommands}):
         sys.stdout.write(command_help(command))
         return 0
-    if command.run is None:
+    if command.subcommands and any(sub.run for sub in command.subcommands):
+        subs = {sub.name: sub for sub in command.subcommands}
+        if args and args[0] in subs:
+            target = subs[args.pop(0)]
+        elif command.default:
+            target = subs[command.default]
+        else:
+            print(f"aur-packages {name}: expected one of {', '.join(subs)}", file=sys.stderr)
+            return 2
+        prog = f"{name} {target.name}"
+        if wants_help(args):
+            sys.stdout.write(command_help(target, prog))
+            return 0
+    if target.run is None:
         return run_legacy(root, cwd, argv)
     try:
-        return command.run(checkout, parser_for(command).parse_intermixed_args(args))
+        return target.run(checkout, parser_for(target, prog).parse_intermixed_args(args))
     except (SelectionError, MissingTools) as error:
         print(error, file=sys.stderr)
         return 1
