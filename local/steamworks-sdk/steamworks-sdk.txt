@@ -1,0 +1,9 @@
+The Steamworks SDK is Copyright (c) 1996-2026 Valve Corporation, all rights
+reserved. Valve distributes it to Steamworks partners under the Steamworks SDK
+Access Agreement (https://partner.steamgames.com/documentation/sdk_access_agreement),
+for the development of games and other applications for Steam; its files carry
+no license text of their own. The libraries of redistributable_bin may be
+distributed with such applications.
+
+The SDK can only be downloaded with a Steamworks login, so this package is built
+from a copy of the archive downloaded that way, and isn't published.

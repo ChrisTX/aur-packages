@@ -1,0 +1,21 @@
+# Created by https://www.toptal.com/developers/gitignore/api/archlinuxpackages
+# Edit at https://www.toptal.com/developers/gitignore?templates=archlinuxpackages
+
+### ArchLinuxPackages ###
+*.tar
+*.tar.*
+*.jar
+*.exe
+*.msi
+*.zip
+*.tgz
+*.log
+*.log.*
+*.sig
+
+pkg/
+src/
+
+
+# Valve's archive of the SDK, downloaded by hand (it needs a Steamworks login)
+*.zip

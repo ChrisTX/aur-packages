@@ -1,0 +1,42 @@
+# Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>
+# shellcheck disable=SC2034,SC2154
+# shellcheck shell=bash
+
+pkgname=steamworks-sdk
+pkgver=1.65
+pkgrel=1
+pkgdesc="Valve's Steamworks SDK: the headers and libraries of the Steam API, its tools and examples"
+# Libraries for several platforms (redistributable_bin: linux32, linux64, linuxarm64 and others),
+# for the target of what's built with it rather than the host
+arch=(any)
+url='https://partner.steamgames.com/'
+license=(LicenseRef-Steamworks-SDK)
+# For tools of the SDK
+optdepends=(
+  'lib32-glibc: the 32-bit steamcmd of tools/ContentBuilder/builder_linux'
+  'python-pycryptodome: tools/codesigning/build_steam_signatures_file.py'
+)
+options=(!strip !debug)
+# Valve's download needs a Steamworks login (https://partner.steamgames.com/downloads/list), so the
+# archive isn't downloaded: put steamworks_sdk_165.zip next to this PKGBUILD
+source=("steamworks_sdk_${pkgver/./}.zip"
+  steamworks-sdk.txt)
+sha512sums=('19a0a437f0d95a0f4ae8d91412512aad44b3c8fde82a4e35772212d672ccdb4de20cab73f1e4b4423c6fcaae2348fe5724e3557a2e5960f44f5c705fabb6c41b'
+  'fed29b31881f15c69c7c81b663bfee4d0f700e85d857c91bbd52f1979063b63441d54431a0f264fd39a1aff80b67388c597c0f93e86ad699772a69fa2b9f9d74')
+b2sums=('c5d40c9de77d70440c80e3f0803168d90a33e86150ccf37a03647dbaf1e74c6eef9e0d116395adaf807b6510dcb5fae429785a7acf78107d83d2634a6323ad7e'
+  '8c1ec7329efe09ce05fc87f89a6310759f74bfd00e5e05c8be282d7a3e787c316eb95bbc09ba4f185a533849b049dee560515d699fc4e143c5efe96b4ebc337a')
+
+package() {
+  # In /opt/steamworks-sdk, like the AUR's steamworks-sdk, which this replaces with the latest SDK
+  install -d "$pkgdir/opt/steamworks-sdk"
+  cp -r --no-preserve=ownership sdk/. "$pkgdir/opt/steamworks-sdk/"
+  chmod -R u=rwX,go=rX "$pkgdir/opt/steamworks-sdk"
+  # The archive has no Unix permissions: the scripts and programs executable again (steamcmd and
+  # its shell script, the example's), and the libraries like those of the system
+  local file magic
+  while IFS= read -r -d '' file; do
+    magic=$(head -c 4 "$file")
+    if [[ "$magic" == '#!'* || "$magic" == $'\x7fELF' ]]; then chmod 755 "$file"; fi
+  done < <(find "$pkgdir/opt/steamworks-sdk" -type f -print0)
+  install -Dm644 steamworks-sdk.txt -t "$pkgdir/usr/share/licenses/$pkgname"
+}
