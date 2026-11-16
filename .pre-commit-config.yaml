@@ -219,6 +219,12 @@ repos:
         entry: ./aur-packages sync --dry-run
         pass_filenames: false
         always_run: true
+      - id: gitignore
+        name: .gitignore has the archlinuxpackages template
+        language: system
+        entry: ./aur-packages gitignore
+        pass_filenames: false
+        always_run: true
       - id: quoting
         name: quoting of the metadata arrays (shfmt)
         language: system
