@@ -8,7 +8,6 @@ path = [
   "CODE_OF_CONDUCT.md",
   "CLAUDE.md",
   "aur-packages",
-  "aur-packages.sh",
   "aur_packages/**",
   "tests/**",
   "pyproject.toml",

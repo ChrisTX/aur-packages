@@ -1,11 +1,6 @@
-"""The commands of aur-packages: one table, from which the help, the parsing and the completions come.
-
-Commands without a run function aren't ported yet: their arguments go, unparsed, to the bash script
-aur-packages.sh, which keeps their behaviour until they are.
-"""
+"""The commands of aur-packages: one table, from which the help, the parsing and the completions come."""
 
 import argparse
-import os
 import sys
 import textwrap
 from collections.abc import Callable, Sequence
@@ -582,12 +577,6 @@ def parser_for(command: Command, prog: str = "") -> argparse.ArgumentParser:
     return parser
 
 
-def run_legacy(root: Path, cwd: Path, argv: Sequence[str]) -> int:
-    """Hand a command that isn't ported yet to the bash script, unparsed."""
-    os.environ["AUR_PACKAGES_CWD"] = str(cwd)
-    os.execv("/usr/bin/bash", ["bash", str(root / "aur-packages.sh"), *argv])
-
-
 def run(root: Path, cwd: Path, argv: Sequence[str]) -> int:
     """Run the command of argv, the arguments after the program's name."""
     checkout = Checkout(root, cwd)
@@ -629,8 +618,8 @@ def run(root: Path, cwd: Path, argv: Sequence[str]) -> int:
         if wants_help(args):
             sys.stdout.write(command_help(target, prog))
             return 0
-    if target.run is None:
-        return run_legacy(root, cwd, argv)
+    # Only help and the commands with subcommands have none, and they're handled above
+    assert target.run is not None, f"{prog} has nothing to run"
     # The arguments after -- go to another program as they are
     rest: list[str] = []
     if target.passthrough and "--" in args:

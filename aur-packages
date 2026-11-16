@@ -1,8 +1,7 @@
 #!/usr/bin/python3
 """Manages the packages of this repository: ./aur-packages in a checkout, or aur-packages on PATH.
 
-See ./aur-packages help. The commands are in aur_packages/; the ones not ported to Python yet run
-the bash script aur-packages.sh.
+See ./aur-packages help. The commands are in aur_packages/.
 
 The git hooks that ./aur-packages setup installed before the port run this script only if it has
 the lines below, the names of the commands from when they were bash functions:
