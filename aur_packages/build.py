@@ -228,24 +228,34 @@ def alarm_pacman_conf(alarm: Path, repo: tuple[str, Path] | None = None) -> str:
     return text
 
 
+def target_block(conf: str, heading: str, target: str, lines: str) -> str:
+    """A makepkg.conf with the lines of a target's builds at its end, under a comment.
+
+    arch-nspawn copies the makepkg.conf into the root for each build, and the next one starts from
+    the root's: the lines of the earlier builds are cut off first, by the start of their comment, as
+    their end named the command differently before (./aur build).
+    """
+    start = conf.find(f"\n# {heading} (")
+    return (conf if start < 0 else conf[:start]) + (
+        f"\n# {heading} (./aur-packages build --target {target})\n{lines}"
+    )
+
+
 def alarm_makepkg_conf(alarm: Path) -> str:
     """The makepkg.conf of the native aarch64 builds, the root's, with CARCH exported.
 
     arch-nspawn would run setarch for a line starting with CARCH=, which an x86_64 kernel doesn't
-    support for aarch64. arch-nspawn copies this file into the root for each build, so the root's
-    has these lines already from the last one.
+    support for aarch64.
     """
-    marker = "\n# Native aarch64 build under QEMU (./aur-packages build --target aarch64-native)\n"
     text = re.sub(
         r"^CARCH=", "export CARCH=", (alarm / "root" / "etc" / "makepkg.conf").read_text(), flags=re.MULTILINE
     )
-    return (
-        text.partition(marker)[0]
-        + marker
-        + (
-            f'MAKEFLAGS="-j{os.cpu_count()}"\n'
-            "# .NET's W^X double mapping fails under qemu-user\nexport DOTNET_EnableWriteXorExecute=0\n"
-        )
+    return target_block(
+        text,
+        "Native aarch64 build under QEMU",
+        "aarch64-native",
+        f'MAKEFLAGS="-j{os.cpu_count()}"\n'
+        "# .NET's W^X double mapping fails under qemu-user\nexport DOTNET_EnableWriteXorExecute=0\n",
     )
 
 
@@ -271,11 +281,9 @@ def archlinux32_makepkg_conf(root_conf: str) -> str:
     """The makepkg.conf of the i686 builds, the root's.
 
     Its CARCH=i686 line stays: arch-nspawn runs the builds under setarch i686, so uname and the
-    configure scripts that ask it see i686, which an x86_64 kernel runs natively. arch-nspawn copies
-    this file into the root for each build, so the root's has these lines already from the last one.
+    configure scripts that ask it see i686, which an x86_64 kernel runs natively.
     """
-    marker = "\n# Native i686 build (./aur-packages build --target i686)\n"
-    return root_conf.partition(marker)[0] + marker + f'MAKEFLAGS="-j{os.cpu_count()}"\n'
+    return target_block(root_conf, "Native i686 build", "i686", f'MAKEFLAGS="-j{os.cpu_count()}"\n')
 
 
 def repo_filename(database: Path, name: str) -> str:

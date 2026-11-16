@@ -152,6 +152,10 @@ def test_alarm_makepkg_conf(tmp_path: Path) -> None:
     # arch-nspawn copied it into the root for the last build: the lines aren't added again
     root_conf.write_text(text)
     assert build.alarm_makepkg_conf(tmp_path) == text
+    # Nor those of builds from before the rename of ./aur, whose comment ended differently
+    old = "\n# Native aarch64 build under QEMU (./aur build --target aarch64-native)\nMAKEFLAGS=-j2\n"
+    root_conf.write_text('export CARCH="aarch64"\n' + old * 2 + text.partition("\n")[2])
+    assert build.alarm_makepkg_conf(tmp_path) == text
 
 
 def test_archlinux32_makepkg_conf() -> None:
