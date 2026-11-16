@@ -42,6 +42,7 @@ prepare() {
   # longer provides implicitly:
   # https://github.com/marshmallow-code/webargs/commit/b3f55bb47257d1ab9e88e8ecc4621c6f2260e53f,
   # not released yet
+  # upstream: backport marshmallow-code/webargs@b3f55bb4
   patch -Np1 -i "$srcdir/tests-current-loop.patch"
 }
 
