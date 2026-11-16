@@ -180,7 +180,6 @@ def run_maintainers(checkout: Checkout, packages: Sequence[str], aur: bool, as_j
     return 1 if found else 0
 
 
-# The files every package copies from templates/package, so it can be checked on its own
 def gitignore_missing(text: str) -> list[str]:
     """The patterns of the archlinuxpackages template (GITIGNORE) a .gitignore lacks; its comments
     and where a package adds its own lines don't matter."""
@@ -209,6 +208,7 @@ def run_gitignore(checkout: Checkout, packages: Sequence[str]) -> int:
     return status
 
 
+# The files every package copies from templates/package, so it can be checked on its own
 TEMPLATE_FILES = (".editorconfig", ".pre-commit-config.yaml", ".typos.toml")
 
 
