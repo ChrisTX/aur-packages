@@ -54,3 +54,14 @@ def test_reading_the_pkgbuild(checkout: Checkout) -> None:
     assert pins.github_repository(srcinfo) == "owner/described"
     git = Srcinfo.parse("pkgbase = x\n\tsource = git+https://github.com/a/b.git#commit=abc\n")
     assert pins.github_repository(git) == "a/b"
+
+
+def test_set_pin_changes_its_line_only(tmp_path: Path) -> None:
+    pkgbuild = tmp_path / "PKGBUILD"
+    pkgbuild.write_text("pkgver=20261108\npkgrel=3\n_commit_a=aaa\n_commit_b='bbb'\n_commit_c=ccc\n")
+    pins.set_pin(pkgbuild, "_commit_b", "new")
+    pins.set_pin(pkgbuild, "_commit_a", "x")
+    assert pkgbuild.read_text() == "pkgver=20261108\npkgrel=3\n_commit_a=x\n_commit_b='new'\n_commit_c=ccc\n"
+    pins.set_pin(pkgbuild, "pkgver", "20261115")
+    assert pkgbuild.read_text().startswith("pkgver=20261115\npkgrel=1\n_commit_a=x\n")
+    assert pins.pin_value(pkgbuild, "_commit_c") == "ccc"

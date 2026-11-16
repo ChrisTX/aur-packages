@@ -34,16 +34,18 @@ def pin_value(pkgbuild: Path, name: str) -> str:
 
 
 def set_pin(pkgbuild: Path, name: str, value: str) -> None:
-    """Set a pinned variable in a PKGBUILD, and pkgrel to 1 with pkgver."""
-    text = re.sub(
-        rf"^({re.escape(name)}=[\"']?)[^\"']*([\"']?)$",
-        rf"\g<1>{value}\g<2>",
-        pkgbuild.read_text(),
-        flags=re.MULTILINE,
-    )
-    if name == "pkgver":
-        text = re.sub(r"^pkgrel=.*$", "pkgrel=1", text, flags=re.MULTILINE)
-    pkgbuild.write_text(text)
+    """Set a pinned variable in a PKGBUILD, on a line of its own like pin_value reads it, and pkgrel to 1
+    with pkgver."""
+    pattern = re.compile(rf"^({re.escape(name)}=[\"']?)[^\"']*([\"']?)$")
+    lines = []
+    for line in pkgbuild.read_text().splitlines(keepends=True):
+        body = line.rstrip("\n")
+        if pattern.match(body):
+            body = pattern.sub(lambda match: f"{match[1]}{value}{match[2]}", body)
+        elif name == "pkgver" and body.startswith("pkgrel="):
+            body = "pkgrel=1"
+        lines.append(body + line[len(line.rstrip("\n")) :])
+    pkgbuild.write_text("".join(lines))
 
 
 def short_pin(value: str) -> str:
@@ -231,6 +233,21 @@ def update_checksums(package: Path) -> None:
     subprocess.run(["updpkgsums"], cwd=package, check=True)
 
 
+def finish(name: str, package: Path, checksums: bool) -> bool:
+    """updpkgsums (with checksums) and refresh after pins changed; whether they succeeded."""
+    try:
+        if checksums:
+            update_checksums(package)
+        refresh(package)
+    except subprocess.CalledProcessError as error:
+        print(
+            f"{name}: {error.cmd[0]} failed: its pins are updated, but not its checksums or .SRCINFO",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def refresh(package: Path) -> None:
     """Format the PKGBUILD (updpkgsums aligns the checksums its own way) and regenerate .SRCINFO."""
     subprocess.run(["shfmt", "--write", "PKGBUILD"], cwd=package, check=True)
@@ -247,10 +264,9 @@ def run_online(checkout: Checkout, packages: Sequence[str], update: bool) -> int
     (submodule commits, branch heads, versions of other packages); with update, rewrite stale ones
     and refresh the checksums and .SRCINFO.
     """
-    require(
-        "pins --online",
-        [("curl", "curl")] + ([("updpkgsums", "pacman-contrib"), ("shfmt", "shfmt")] if update else []),
-    )
+    if update:
+        require("pins --update", [("updpkgsums", "pacman-contrib"), ("shfmt", "shfmt")])
+    status = 0
     for name in checkout.select(packages):
         package = checkout.root / name
         pins = resolve_pins(checkout, name)
@@ -275,10 +291,9 @@ def run_online(checkout: Checkout, packages: Sequence[str], update: bool) -> int
                 print(f"{name:<38} ok {pins[0][0]} {short_pin(pins[0][1])}")
             else:
                 print(f"{name:<38} ok, {good} pins")
-        if changed:
-            update_checksums(package)
-            refresh(package)
-    return 0
+        if changed and not finish(name, package, checksums=True):
+            status = 1
+    return status
 
 
 def run_pins(checkout: Checkout, packages: Sequence[str]) -> int:
@@ -311,7 +326,6 @@ def run_upgrade(checkout: Checkout, packages: Sequence[str]) -> int:
             ("nvchecker", "nvchecker"),
             ("updpkgsums", "pacman-contrib"),
             ("shfmt", "shfmt"),
-            ("curl", "curl"),
         ],
     )
     from aur_packages.updates import checked_packages
@@ -321,7 +335,7 @@ def run_upgrade(checkout: Checkout, packages: Sequence[str]) -> int:
         return 0
     subprocess.run(["pkgctl", "version", "upgrade", *checked], check=False)
     changed = paths("diff", "--name-only", "--", *(f"{p}/PKGBUILD" for p in checked))
-    unresolved = []
+    unresolved, failed = [], False
     for path in changed:
         name = path.removesuffix("/PKGBUILD")
         package = checkout.root / name
@@ -337,9 +351,9 @@ def run_upgrade(checkout: Checkout, packages: Sequence[str]) -> int:
             elif new != current:
                 set_pin(package / "PKGBUILD", pin, new)
                 print(f"  {pin} {short_pin(current)} -> {short_pin(new)}")
-        if pins:
-            update_checksums(package)
-        refresh(package)
+        if not finish(name, package, checksums=bool(pins)):
+            failed = True
+            continue
         print(f"Upgraded {name}")
     if unresolved:
         print(
@@ -349,5 +363,4 @@ def run_upgrade(checkout: Checkout, packages: Sequence[str]) -> int:
         )
         for entry in unresolved:
             print(f"  {entry}", file=sys.stderr)
-        return 1
-    return 0
+    return 1 if unresolved or failed else 0
