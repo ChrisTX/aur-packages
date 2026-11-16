@@ -241,7 +241,9 @@ def run_package_hooks(packages: Sequence[str], stage: list[str]) -> int:
 
 
 def git_files(packages: Sequence[str]) -> list[str]:
-    return git.paths("ls-files", "--", *packages)
+    """The files of packages, tracked or new, without the ignored ones (downloads, builds): a new
+    package's files are checked before they're added."""
+    return git.paths("ls-files", "--cached", "--others", "--exclude-standard", "--", *packages)
 
 
 def run_check(checkout: Checkout, packages: Sequence[str], manual: bool) -> int:
