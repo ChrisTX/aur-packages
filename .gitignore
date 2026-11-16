@@ -2,6 +2,8 @@
 # Caches of the linters and formatters of ./aur-packages check
 .ruff_cache/
 .rumdl_cache/
+# Python's bytecode of aur_packages/ and tests/ (mypy's and pytest's caches ignore themselves)
+__pycache__/
 # Local files of Claude Code
 .claude/settings.local.json
 .claude/worktrees/
