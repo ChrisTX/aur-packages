@@ -1,5 +1,5 @@
 # The tooling of aur-packages (aur_packages/), not a package to install: ./aur-packages runs it from
-# the checkout.
+# the checkout. ruff's settings are in aur_packages/ruff.toml, so they don't apply to the packages.
 
 [tool.mypy]
 files = ["aur-packages", "aur_packages", "tests"]
@@ -16,5 +16,8 @@ pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.ruff]
-line-length = 110
-target-version = "py314"
+# Only what the launcher needs: other settings would apply to the packages too, which have to be
+# checked as in their own AUR repositories, with ruff's defaults. The tooling's are in
+# aur_packages/ruff.toml. The table also keeps ruff from taking the settings of a checkout around
+# this one, e.g. for a worktree in .claude/worktrees.
+per-file-target-version = { "aur-packages" = "py314" }

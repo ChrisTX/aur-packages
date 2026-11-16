@@ -1,0 +1,2 @@
+# The settings of aur_packages/ruff.toml
+extend = "../aur_packages/ruff.toml"

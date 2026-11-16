@@ -17,7 +17,9 @@ from pathlib import Path
 
 def is_checkout(path: Path) -> bool:
     """A checkout of this repository: a folder with this script and the package template."""
-    return (path / "aur-packages").is_file() and (path / "templates" / "package").is_dir()
+    return (path / "aur-packages").is_file() and (
+        path / "templates" / "package"
+    ).is_dir()
 
 
 def find_checkout(program: str) -> Path | None:
@@ -32,19 +34,26 @@ def find_checkout(program: str) -> Path | None:
     if is_checkout(Path(program).parent):
         return script.parent
     top = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
     ).stdout.strip()
     home = os.environ.get("AUR_PACKAGES_HOME", "")
     if top and is_checkout(Path(top)):
         root = Path(top)
     elif home:
         if not is_checkout(Path(home)):
-            sys.exit(f"aur-packages: AUR_PACKAGES_HOME isn't a checkout of the AUR packages: {home}")
+            sys.exit(
+                f"aur-packages: AUR_PACKAGES_HOME isn't a checkout of the AUR packages: {home}"
+            )
         root = Path(home)
     elif is_checkout(script.parent):
         root = script.parent
     else:
-        sys.exit("aur-packages: not in a checkout of the AUR packages, set AUR_PACKAGES_HOME to one")
+        sys.exit(
+            "aur-packages: not in a checkout of the AUR packages, set AUR_PACKAGES_HOME to one"
+        )
     # Relative paths in the arguments (--repo, commit-msg's file) are relative to where it was called
     os.environ["AUR_PACKAGES_CWD"] = os.getcwd()
     os.execv(root.resolve() / "aur-packages", ["aur-packages", *sys.argv[1:]])

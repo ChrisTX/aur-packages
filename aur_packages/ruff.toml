@@ -1,0 +1,7 @@
+# ruff's settings for the tooling of aur-packages, here rather than in the top-level pyproject.toml:
+# ruff takes the settings of the closest configuration, which for the packages, checked alike in
+# their own AUR repositories, has to be none.
+line-length = 110
+target-version = "py314"
+# The checkout, where the import sorting finds aur_packages as the first-party package
+src = [".."]
