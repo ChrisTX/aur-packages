@@ -122,11 +122,60 @@ def test_alarm_pacman_conf_with_the_private_repository() -> None:
     assert text.index("[aur-build]\nSigLevel = Never\nServer = file:///repo\n") < text.index("[core]")
 
 
+def test_builds_for_and_needs_dotnet(checkout: Checkout) -> None:
+    assert build.builds_for(checkout.root / "app", "aarch64")
+    assert not build.builds_for(checkout.root / "app", "i686")
+    # any builds for every architecture
+    assert build.builds_for(checkout.root / "lone", "i686")
+    # app makedepends on a dotnet-build-deps selector, lib doesn't depend on .NET
+    assert build.needs_dotnet(checkout.root / "app")
+    assert not build.needs_dotnet(checkout.root / "lib")
+
+
+def test_archlinux32_pacman_conf() -> None:
+    text = build.archlinux32_pacman_conf(Path("/a32"), ("aur-build", Path("/repo")))
+    assert "Architecture = i686\n" in text
+    assert "GPGDir" not in text
+    assert text.index("[aur-build]\nSigLevel = Never\nServer = file:///repo\n") < text.index("[core]")
+    assert "Server = https://mirror.archlinux32.org/$arch/$repo\n" in text
+    assert "GPGDir = /a32/gnupg\n" in build.archlinux32_pacman_conf(Path("/a32"), gpgdir=Path("/a32/gnupg"))
+
+
+def test_archlinux32_makepkg_conf() -> None:
+    text = build.archlinux32_makepkg_conf('CARCH="i686"\n')
+    # CARCH stays a plain assignment, which arch-nspawn reads to run the build under setarch i686
+    assert text.startswith('CARCH="i686"\n')
+    assert "\nMAKEFLAGS=" in text
+    # The root's copy from the last build has the lines already: they're not added twice
+    assert build.archlinux32_makepkg_conf(text) == text
+
+
+def test_repo_filename(tmp_path: Path) -> None:
+    database = tmp_path / "core.db"
+    with tarfile.open(database, "w:gz") as archive:
+        for folder, filename in [
+            ("archlinux32-keyring-transition-20220209-1.0", "transition.pkg.tar.zst"),
+            ("archlinux32-keyring-20261017-1.0", "archlinux32-keyring-20261017-1.0-any.pkg.tar.zst"),
+        ]:
+            content = f"%FILENAME%\n{filename}\n\n%NAME%\n".encode()
+            member = tarfile.TarInfo(f"{folder}/desc")
+            member.size = len(content)
+            archive.addfile(member, io.BytesIO(content))
+    assert (
+        build.repo_filename(database, "archlinux32-keyring")
+        == "archlinux32-keyring-20261017-1.0-any.pkg.tar.zst"
+    )
+    with pytest.raises(build.BuildError, match="pacman isn't in"):
+        build.repo_filename(database, "pacman")
+
+
 def test_validate_refuses() -> None:
     with pytest.raises(build.BuildError, match="need a chroot build"):
         build.validate(build.Build(method="local", testing=True))
     with pytest.raises(build.BuildError, match="Unknown target"):
         build.validate(build.Build(target="sparc"))
+    with pytest.raises(build.BuildError, match="i686 builds in Arch Linux 32"):
+        build.validate(build.Build(target="pentium4"))
     with pytest.raises(build.BuildError, match="are for the packages --add adds"):
         # local: CI has makepkg, but not aurutils, which a chroot build requires first
         build.validate(build.Build(method="local", signing=True))

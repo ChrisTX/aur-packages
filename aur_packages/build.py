@@ -29,6 +29,22 @@ DEVTOOLS = Path("/usr/share/devtools")
 MAKEPKG_CONF = DEVTOOLS / "makepkg.conf.d" / "x86_64.conf"
 # The key of the Arch Linux ARM build system, which signs its images
 ALARM_KEY = "68B3537F39A313B3E574D06777193F152BDBE6A6"
+# Arch Linux 32's master keys, the trusted ones of archlinux32-keyring (archlinux32-trusted), which
+# certify its packagers' keys: Erich Eckner, Balló György, Polichronucci, Tyler Dence, Andreas Baumann
+ARCHLINUX32_MASTER_KEYS = (
+    "194E37A47A4C671807BACB37B1117BC1094EA6E9",
+    "CE0BDE71A759A87F23F0F7D8B61DBCE10901C163",
+    "A0B250C0FC9FC079EC04ADB7A50C0F20AEC3AF00",
+    "D92CDDC155BCC8F550B5FCEC30AB721FE7400FCD",
+    "C426F2CED2D759ECEA1FA78A4BA3B2E330891150",
+)
+ARCHLINUX32_MIRROR = "https://mirror.archlinux32.org/$arch/$repo"
+# The targets of build --target: the CARCH their packages are for, and what they do
+TARGETS = {
+    "aarch64": ("aarch64", "cross-builds for aarch64"),
+    "aarch64-native": ("aarch64", "builds in Arch Linux ARM under QEMU"),
+    "i686": ("i686", "builds in Arch Linux 32"),
+}
 # The packages of the commands $AUR_PACMAN_AUTH may name
 AUTH_PACKAGES = {"sudo": "sudo", "sudo-rs": "sudo-rs", "run0": "systemd", "doas": "opendoas"}
 DEPENDS = re.compile(r"^(depends|makedepends|checkdepends)(_\w+)?$")
@@ -228,6 +244,48 @@ def alarm_makepkg_conf(alarm: Path) -> str:
     )
 
 
+def archlinux32_pacman_conf(
+    a32: Path, repo: tuple[str, Path] | None = None, gpgdir: Path | None = None
+) -> str:
+    """The pacman.conf of the Arch Linux 32 root, like alarm_pacman_conf; with gpgdir, the keyring
+    that mkarchroot verifies the packages of the new root with, from the host."""
+    text = (
+        f"[options]\nArchitecture = i686\nCacheDir = {a32}/pkgcache\nHoldPkg = pacman glibc\n"
+        "SigLevel = Required DatabaseOptional\nLocalFileSigLevel = Optional\nParallelDownloads = 5\n"
+    )
+    if gpgdir:
+        text += f"GPGDir = {gpgdir}\n"
+    if repo:
+        text += f"\n[{repo[0]}]\nSigLevel = Never\nServer = file://{repo[1]}\n"
+    for name in ("core", "extra"):
+        text += f"\n[{name}]\nServer = {ARCHLINUX32_MIRROR}\n"
+    return text
+
+
+def archlinux32_makepkg_conf(root_conf: str) -> str:
+    """The makepkg.conf of the i686 builds, the root's.
+
+    Its CARCH=i686 line stays: arch-nspawn runs the builds under setarch i686, so uname and the
+    configure scripts that ask it see i686, which an x86_64 kernel runs natively. arch-nspawn copies
+    this file into the root for each build, so the root's has these lines already from the last one.
+    """
+    marker = "\n# Native i686 build (./aur-packages build --target i686)\n"
+    return root_conf.partition(marker)[0] + marker + f'MAKEFLAGS="-j{os.cpu_count()}"\n'
+
+
+def repo_filename(database: Path, name: str) -> str:
+    """The file name of a package in a repository's database (its desc's %FILENAME%)."""
+    with tarfile.open(database) as archive:
+        for member in archive:
+            # NAME-PKGVER-PKGREL/desc
+            if member.name.endswith("/desc") and member.name.removesuffix("/desc").rsplit("-", 2)[0] == name:
+                content = archive.extractfile(member)
+                desc = content.read().decode() if content else ""
+                if match := re.search(r"^%FILENAME%\n(.+)$", desc, re.MULTILINE):
+                    return match[1]
+    raise BuildError(f"{name} isn't in {database}")
+
+
 def cross_makepkg_conf(alarm: Path) -> str:
     """The makepkg.conf of cross builds for aarch64: devtools' for x86_64 with Arch Linux ARM's flags.
 
@@ -319,6 +377,81 @@ def install_as_root(text: str, target: Path) -> None:
         as_root(["install", "-m", "644", file.name, str(target)])
 
 
+def download_cache(name: str) -> tuple[Path, Path]:
+    """The folder of a root's downloads in the user's cache, and the GNUPGHOME that verifies them."""
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "aur-packages" / name
+    gnupg = cache / "gnupg"
+    gnupg.mkdir(parents=True, exist_ok=True)
+    cache.chmod(0o700)
+    gnupg.chmod(0o700)
+    return cache, gnupg
+
+
+def chroot_version() -> str:
+    """The version of mkarchroot's marker (.arch-chroot), which arch-nspawn checks for."""
+    return subprocess.run(
+        ["bash", "-c", f"source {DEVTOOLS}/lib/archroot.sh && echo $CHROOT_VERSION"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+def archlinux32_root(a32: Path) -> None:
+    """Set up the Arch Linux 32 root in a32/root, unless it's there: the i686 builds run in it,
+    natively. Arch Linux 32 has no current bootstrap tarball, so mkarchroot installs base-devel from
+    its mirror, verified with the keyring of archlinux32-keyring, which a packager signs and the
+    master keys of ARCHLINUX32_MASTER_KEYS have to certify."""
+    if (a32 / "root").is_dir():
+        return
+    cache, gnupg = download_cache("archlinux32")
+    core = ARCHLINUX32_MIRROR.replace("$arch", "i686").replace("$repo", "core")
+    print(">>> Downloading Arch Linux 32's keyring", file=sys.stderr)
+    subprocess.run(["curl", "-fL", "-o", str(cache / "core.db"), f"{core}/core.db"], check=True)
+    package = repo_filename(cache / "core.db", "archlinux32-keyring")
+    for file in (package, f"{package}.sig"):
+        subprocess.run(["curl", "-fL", "-o", str(cache / file), f"{core}/{file}"], check=True)
+    # Its keys, trusted only as far as the pinned master keys certify them
+    keyring = cache / "keyring"
+    shutil.rmtree(keyring, ignore_errors=True)
+    keyring.mkdir()
+    subprocess.run(["bsdtar", "-xf", str(cache / package), "-C", str(keyring), "usr/share/pacman/keyrings"], check=True)  # fmt: skip
+    keyrings = keyring / "usr" / "share" / "pacman" / "keyrings"
+    env = {**os.environ, "GNUPGHOME": str(gnupg)}
+    subprocess.run(["gpg", "--batch", "--quiet", "--import", str(keyrings / "archlinux32.gpg")], env=env, check=True)  # fmt: skip
+    subprocess.run(
+        ["gpg", "--batch", "--import-ownertrust"],
+        input="".join(f"{key}:6:\n" for key in ARCHLINUX32_MASTER_KEYS),
+        text=True,
+        env=env,
+        check=True,
+    )
+    status = subprocess.run(
+        ["gpg", "--batch", "--status-fd", "1", "--verify", str(cache / f"{package}.sig"), str(cache / package)],
+        env=env, capture_output=True, text=True, check=False,
+    ).stdout  # fmt: skip
+    if not re.search(r"^\[GNUPG:\] VALIDSIG ", status, re.MULTILINE) or not re.search(
+        r"^\[GNUPG:\] TRUST_(FULLY|ULTIMATE)\b", status, re.MULTILINE
+    ):
+        raise BuildError(
+            f"The signature of {cache / package} isn't valid, or not by a key Arch Linux 32's master keys certify"
+        )
+    print(f">>> Setting up the Arch Linux 32 root in {a32}/root", file=sys.stderr)
+    as_root(["install", "-d", "-m", "755", str(a32), str(a32 / "pkgcache")])
+    # The keyring mkarchroot verifies the packages with, on the host
+    setup_gpgdir, setup_conf = a32 / "gnupg", a32 / "pacman-setup.conf"
+    as_root(["pacman-key", "--gpgdir", str(setup_gpgdir), "--init"])
+    as_root(["pacman-key", "--gpgdir", str(setup_gpgdir), "--populate-from", str(keyrings), "--populate", "archlinux32"])  # fmt: skip
+    install_as_root(archlinux32_pacman_conf(a32, gpgdir=setup_gpgdir), setup_conf)
+    as_root(["mkarchroot", "-C", str(setup_conf), "-c", str(a32 / "pkgcache"), str(a32 / "root"),
+             "base-devel", "archlinux32-keyring"])  # fmt: skip
+    # And the root's own, for its upgrades
+    conf = a32 / "pacman.conf"
+    install_as_root(archlinux32_pacman_conf(a32), conf)
+    as_root(["arch-nspawn", "-C", str(conf), str(a32 / "root"), "sh", "-c",
+             "pacman-key --init && pacman-key --populate archlinux32"])  # fmt: skip
+
+
 def alarm_root(alarm: Path) -> None:
     """Set up the Arch Linux ARM root in alarm/root, unless it's there: the native builds run in it
     (under QEMU), the cross builds compile against it. From archlinuxarm.org's latest image, checked
@@ -327,11 +460,7 @@ def alarm_root(alarm: Path) -> None:
     if (alarm / "root").is_dir():
         remove_image_user(alarm)
         return
-    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "aur-packages" / "alarm"
-    gnupg = cache / "gnupg"
-    gnupg.mkdir(parents=True, exist_ok=True)
-    cache.chmod(0o700)
-    gnupg.chmod(0o700)
+    cache, gnupg = download_cache("alarm")
     image, url = "ArchLinuxARM-aarch64-latest.tar.gz", "http://os.archlinuxarm.org/os"
     print(">>> Downloading the Arch Linux ARM image", file=sys.stderr)
     subprocess.run(
@@ -371,14 +500,7 @@ def alarm_root(alarm: Path) -> None:
     install_as_root(alarm_pacman_conf(alarm), conf)
     as_root(["systemd-nspawn", "-q", "-D", str(alarm / "root"), "sh", "-c",
              "pacman-key --init && pacman-key --populate archlinuxarm"])  # fmt: skip
-    # The marker of mkarchroot, which arch-nspawn checks for
-    version = subprocess.run(
-        ["bash", "-c", f"source {DEVTOOLS}/lib/archroot.sh && echo $CHROOT_VERSION"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    install_as_root(version, alarm / "root" / ".arch-chroot")
+    install_as_root(chroot_version(), alarm / "root" / ".arch-chroot")
     # -s: arch-nspawn would run setarch aarch64 for the CARCH of the image's makepkg.conf
     as_root(["arch-nspawn", "-s", "-C", str(conf), str(alarm / "root"), "sh", "-c",
              'pacman -Rdd --noconfirm linux-aarch64 $(pacman -Qqs "^linux-firmware") && pacman -Syu --noconfirm --needed base-devel'])  # fmt: skip
@@ -587,6 +709,20 @@ def architectures(package: Path) -> list[str]:
     return [value for key, value in srcinfo_lines(package) if key == "arch"]
 
 
+def builds_for(package: Path, carch: str) -> bool:
+    """Whether a package builds for a CARCH: it's in its arch, or the package is for any."""
+    arches = architectures(package)
+    return carch in arches or "any" in arches
+
+
+def needs_dotnet(package: Path) -> bool:
+    """Whether a package builds or runs with .NET: it depends on a dotnet-* package (the SDK, a
+    runtime, a dotnet-build-deps selector)."""
+    return any(
+        DEPENDS.match(key) and bare(value).startswith("dotnet-") for key, value in srcinfo_lines(package)
+    )
+
+
 def roots(checkout: Checkout, names: Sequence[str]) -> list[str]:
     """Each argument a template, expanded to its root packages, or a package."""
     result: list[str] = []
@@ -604,9 +740,11 @@ def roots(checkout: Checkout, names: Sequence[str]) -> list[str]:
 def validate(build: Build) -> SystemRepo | None:
     """The combinations of options a build can't do, and what --add and --target imply; the system's
     repository for --add."""
-    if build.target not in ("", "aarch64", "aarch64-native"):
+    if build.target and build.target not in TARGETS:
         raise BuildError(
-            f"Unknown target: {build.target} (aarch64 cross-builds, aarch64-native builds under QEMU)"
+            f"Unknown target: {build.target} ("
+            + ", ".join(f"{name} {what}" for name, (_, what) in TARGETS.items())
+            + ")"
         )
     if build.method == "local" and (
         build.dotnet_bin or build.nuget_bin or build.testing or build.target or build.reuse
@@ -620,12 +758,12 @@ def validate(build: Build) -> SystemRepo | None:
     if build.add:
         tools += [("aur", "aurutils"), ("repo-add", "pacman"), ("gpg", "gnupg")]
     if build.target:
-        # And the command that runs the setup of the Arch Linux ARM root as root
+        # And the command that runs the setup of the target's root as root
         command = auth()[0]
         tools += [("curl", "curl"), ("gpg", "gnupg"), (command, AUTH_PACKAGES.get(command, command))]
     require("build", tools)
     # Programs for aarch64 run in the Arch Linux ARM root under QEMU, registered with binfmt_misc
-    if build.target and not Path("/proc/sys/fs/binfmt_misc/qemu-aarch64").exists():
+    if build.target.startswith("aarch64") and not Path("/proc/sys/fs/binfmt_misc/qemu-aarch64").exists():
         raise BuildError(
             "--target needs QEMU for aarch64 programs: qemu-user-static-binfmt, then systemctl restart systemd-binfmt"
         )
@@ -665,7 +803,7 @@ def validate(build: Build) -> SystemRepo | None:
                 "--testing builds against the testing repositories, which the system doesn't use"
             )
     if build.testing and build.target:
-        raise BuildError("--testing is for Arch Linux's testing repositories, Arch Linux ARM has none")
+        raise BuildError("--testing is for Arch Linux's testing repositories, not those of its ports")
     if build.target and os.uname().machine != "x86_64":
         raise BuildError(f"--target is for x86_64 hosts, build natively on {os.uname().machine}")
     if build.target == "aarch64-native" and not build.dotnet_bin:
@@ -674,6 +812,8 @@ def validate(build: Build) -> SystemRepo | None:
             file=sys.stderr,
         )
         build.dotnet_bin = True
+    if build.target == "i686" and (build.dotnet_bin or build.nuget_bin):
+        raise BuildError("--dotnet-bin and --nuget-bin are for .NET, which has no build for i686")
     return system
 
 
@@ -731,7 +871,10 @@ def run_build(checkout: Checkout, names: Sequence[str], build: Build) -> int:
 
 def build_all(checkout: Checkout, names: Sequence[str], build: Build) -> int:
     system = validate(build)
-    native, cross = build.target == "aarch64-native", build.target == "aarch64"
+    # A native build runs everything in the root of the target's port (Arch Linux ARM under QEMU,
+    # Arch Linux 32), a cross build compiles against Arch Linux ARM's
+    native, cross = build.target in ("aarch64-native", "i686"), build.target == "aarch64"
+    carch = TARGETS[build.target][0] if build.target else "x86_64"
     # The containers, apart from aurutils' own (/var/lib/aurbuild); testing ones of their own, as a
     # chroot upgraded to the testing repositories can't go back
     base = Path(os.environ.get("AUR_BUILD_CHROOT", "/var/lib/aur-packages-chroot"))
@@ -739,6 +882,7 @@ def build_all(checkout: Checkout, names: Sequence[str], build: Build) -> int:
     devtools_conf, multilib_conf = f"extra{suffix}.conf", f"multilib{suffix}.conf"
     chroot_dir, multilib_dir = base / f"x86_64{suffix}", base / f"multilib-x86_64{suffix}"
     alarm, cross_dir = base / "aarch64", base / "x86_64-cross-aarch64"
+    native_dir = base / "i686" if build.target == "i686" else alarm
     selectors(checkout, build)
 
     graph = edges(checkout, build.alias)
@@ -751,6 +895,15 @@ def build_all(checkout: Checkout, names: Sequence[str], build: Build) -> int:
             "--target aarch64 cross-builds only PKGBUILDs that build for aarch64 themselves ($CARCH, "
             f"$ROOTFS_DIR), unlike these: {', '.join(unprepared)}. Their aarch64 packages would have "
             "x86_64 programs: build them natively under QEMU with --target aarch64-native instead"
+        )
+    if build.target == "i686" and (
+        dotnet := [
+            p for p in packages if builds_for(checkout.root / p, carch) and needs_dotnet(checkout.root / p)
+        ]
+    ):
+        raise BuildError(
+            "--target i686 can't build packages with .NET, which neither Arch Linux 32 nor Microsoft "
+            f"builds for 32-bit x86: {', '.join(dotnet)}"
         )
     # The dependencies the system's aurutils repository has in their current version come from there
     # (--system-repo), by default for its own packages (--add, sysupgrade)
@@ -769,7 +922,9 @@ def build_all(checkout: Checkout, names: Sequence[str], build: Build) -> int:
     if build.method == "chroot" and build.dry_run:
         repo = Path(build.reuse) if build.reuse else Path("<repo>")
     elif build.method == "chroot":
-        if native or cross:
+        if build.target == "i686":
+            archlinux32_root(native_dir)
+        elif native or cross:
             alarm_root(alarm)
         if build.reuse:
             repo = (checkout.cwd / build.reuse).resolve()
@@ -781,17 +936,19 @@ def build_all(checkout: Checkout, names: Sequence[str], build: Build) -> int:
             temporary = not build.keep
             # Readable by pacman's download user in the chroot (DownloadUser = alpm)
             repo.chmod(0o755)
-            conf_text = (
-                alarm_pacman_conf(alarm, (REPO_NAME, repo))
-                if native
-                else devtools_pacman_conf(devtools_conf, repo, build.system)
-            )
+            if build.target == "i686":
+                conf_text = archlinux32_pacman_conf(native_dir, (REPO_NAME, repo))
+            elif native:
+                conf_text = alarm_pacman_conf(alarm, (REPO_NAME, repo))
+            else:
+                conf_text = devtools_pacman_conf(devtools_conf, repo, build.system)
             (repo / "pacman.conf").write_text(conf_text)
             empty_database(repo, REPO_NAME)
     status = 1
     try:
         status = build_packages(checkout, build, packages, graph, repo, makepkg_conf, system,
-                                chroot_dir, multilib_dir, alarm, cross_dir, multilib_conf, native, cross)  # fmt: skip
+                                chroot_dir, multilib_dir, alarm, cross_dir, multilib_conf, native, cross,
+                                native_dir, carch)  # fmt: skip
         return status
     finally:
         # A failed build keeps what it built, to continue where it stopped
@@ -809,16 +966,22 @@ def build_packages(
     checkout: Checkout, build: Build, packages: list[str], graph: set[tuple[str, str]], repo: Path,
     makepkg_conf: Path, system: SystemRepo | None, chroot_dir: Path, multilib_dir: Path,
     alarm: Path, cross_dir: Path, multilib_conf: str, native: bool, cross: bool,
+    native_dir: Path, carch: str,
 ) -> int:  # fmt: skip
     root, dry = checkout.root, build.dry_run
     conf = repo / "pacman.conf"
     chroot_args: list[str] = []
-    # A native aarch64 build runs everything in the Arch Linux ARM root, under QEMU
+    # A native build runs everything in the root of the target's port: Arch Linux ARM under QEMU,
+    # Arch Linux 32 as it is
     if native:
-        chroot_dir = alarm
-        makepkg_conf = repo / "makepkg-aarch64.conf"
-        if not dry:
+        chroot_dir = native_dir
+        makepkg_conf = repo / f"makepkg-{carch}.conf"
+        if not dry and carch == "aarch64":
             makepkg_conf.write_text(alarm_makepkg_conf(alarm))
+        elif not dry:
+            makepkg_conf.write_text(
+                archlinux32_makepkg_conf((native_dir / "root" / "etc" / "makepkg.conf").read_text())
+            )
         chroot_args += ["--makepkg-conf", str(makepkg_conf)]
     chroot_args += ["--directory", str(chroot_dir)]
     # Test builds with the sanitisers take their flags from a makepkg.conf of their own
@@ -911,8 +1074,8 @@ def build_packages(
     for package in packages:
         folder = root / package
         arches = architectures(folder)
-        if native and "aarch64" not in arches and "any" not in arches:
-            print(f">>> Skipping {package}, it isn't for aarch64", file=sys.stderr)
+        if native and not builds_for(folder, carch):
+            print(f">>> Skipping {package}, it isn't for {carch}", file=sys.stderr)
             continue
         files: list[str] = []
         if build.method == "chroot":

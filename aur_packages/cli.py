@@ -155,7 +155,7 @@ def run_build(checkout: Checkout, args: argparse.Namespace) -> int:
 
 SECTIONS = ("PowerShell", ".NET", "SourceMod", "Other")
 SANITISERS = ("undefined", "address", "address,undefined")
-TARGETS = ("aarch64", "aarch64-native")
+TARGETS = tuple(build.TARGETS)
 
 DRY_RUN = Option(("-n", "--dry-run"), "only show what would be done")
 
@@ -304,14 +304,15 @@ for _command in (
         "the architecture-specific packages for aarch64 against an Arch Linux ARM root, if their "
         "PKGBUILDs build for it ($CARCH, $ROOTFS_DIR), --target "
         "aarch64-native builds everything in that root under QEMU (qemu-user-static-binfmt), with "
-        "Microsoft's .NET. --repo DIR continues in the repo of an earlier --keep, skipping the "
+        "Microsoft's .NET, and --target i686 the packages for i686 in an Arch Linux 32 root, natively, "
+        "without .NET. --repo DIR continues in the repo of an earlier --keep, skipping the "
         "packages already built there. Packages that depend on lib32-* packages build in a multilib "
         "chroot (multilib-devel). --sanitize undefined|address|address,undefined makes test builds "
         "with the sanitisers (their -fsanitize flags in the chroots' makepkg.conf) and keeps their "
         "repo; check() runs on them too. --testing builds against Arch Linux's testing repositories "
         "(devtools' extra-testing and multilib-testing), in chroots of their own, for a system that "
         "uses them. The chroots are in /var/lib/aur-packages-chroot ($AUR_BUILD_CHROOT), next to "
-        "the Arch Linux ARM root (aarch64), not in aurutils' /var/lib/aurbuild. --add adds the "
+        "the Arch Linux ARM root (aarch64) and the Arch Linux 32 root (i686), not in aurutils' /var/lib/aurbuild. --add adds the "
         "packages, their -debug packages and the AUR dependencies built to the system's aurutils "
         "repository (aur repo) once all have been built, and against the testing repositories if "
         "the system uses them; run it as the repository's owner, e.g. the aurutils user. They're "

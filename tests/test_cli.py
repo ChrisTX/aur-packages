@@ -71,7 +71,7 @@ def test_complete_commands(checkout: Checkout) -> None:
 def test_complete_options_and_values(checkout: Checkout) -> None:
     assert "--exclude" in candidates(checkout, "push", "--")
     assert candidates(checkout, "push", "--exclude", "") == ["alpha"]
-    assert candidates(checkout, "build", "--target", "") == ["aarch64", "aarch64-native"]
+    assert candidates(checkout, "build", "--target", "") == ["aarch64", "aarch64-native", "i686"]
     # zsh, fish and PowerShell pass --opt=value as one word, bash as three
     assert candidates(checkout, "build", "--target=aarch64-") == ["--target=aarch64-native"]
     assert candidates(checkout, "build", "--target", "=", "aarch64-") == ["aarch64-native"]
