@@ -12,6 +12,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from aur_packages import checks
 from aur_packages.repo import BUILD_TEMPLATES, Checkout, SelectionError
 from aur_packages.tools import MissingTools
 
@@ -39,6 +40,13 @@ class Option:
     value: str | None = None
     complete: Completer = None
     repeat: bool = False
+    # Spellings still accepted, e.g. by the hooks of the packages, but neither documented nor completed
+    aliases: tuple[str, ...] = ()
+
+    def dest(self) -> str:
+        """The attribute of the parsed arguments: the first long spelling's name."""
+        long = next((name for name in self.names if name.startswith("--")), self.names[0])
+        return long.lstrip("-").replace("-", "_")
 
 
 @dataclass(frozen=True)
@@ -247,9 +255,10 @@ for _command in (
         "sync",
         "",
         "Copy templates/package into the packages and write the configuration at the top level, or "
-        "with --check only report differences",
-        options=(Option(("--check",), "only report differences"),),
+        "with --dry-run only report the files that differ, and fail then",
+        options=(Option(("-n", "--dry-run"), "only report the files that differ", aliases=("--check",)),),
         arguments="packages",
+        run=lambda checkout, args: checks.run_sync(checkout, args.arguments, args.dry_run),
     ),
     Command(
         "setup",
@@ -288,6 +297,7 @@ for _command in (
         "Check the quoting of the metadata arrays (depends, optdepends, …) of the PKGBUILDs against "
         "the convention in CONTRIBUTING.md (run by the quoting hook)",
         arguments="packages",
+        run=lambda checkout, args: checks.run_quoting(checkout, args.arguments),
     ),
     Command(
         "pins",
@@ -295,17 +305,19 @@ for _command in (
         "Check that the _commit of a version like git describe's (…r83.g4b8b3d3) is the commit it "
         "names, without the network (run by the pins hook; commits checks all pins online)",
         arguments="packages",
+        run=lambda checkout, args: checks.run_pins(checkout, args.arguments),
     ),
     Command(
         "readme",
         "",
         "Check README.md's tables of the packages against the packages: a row for each, with its "
         "link, packages and pkgdesc (run by the readme hook)",
+        run=lambda checkout, args: checks.run_readme(checkout),
     ),
     Command(
         "maintainers",
         "[--aur]",
-        "Check the # Maintainer: and # Contributor: lines of the PKGBUILDs (aur-packages-maintainers): "
+        "Check the # Maintainer: and # Contributor: lines of the PKGBUILDs: "
         "the Maintainer lines first, addresses obscured as name at domain dot tld, ours among them "
         "(run by the maintainers hook); --aur compares the Maintainer lines with the maintainers and "
         "co-maintainers on the AUR (maintainers.toml maps their usernames to names), and says when a "
@@ -313,9 +325,10 @@ for _command in (
         "tray. The commit-msg hook checks that the staged PKGBUILDs list the commit's author",
         options=(
             Option(("--aur",), "compare with the maintainers on the AUR"),
-            Option(("--json",), "print the comparison with the AUR as JSON"),
+            Option(("--json",), "print the comparison with the AUR as JSON, with --aur"),
         ),
         arguments="packages",
+        run=lambda checkout, args: checks.run_maintainers(checkout, args.arguments, args.aur, args.json),
     ),
     Command(
         "overrides",
@@ -451,15 +464,14 @@ def parser_for(command: Command) -> argparse.ArgumentParser:
     """The argparse parser of a ported command, from its entry in the table."""
     parser = argparse.ArgumentParser(prog=f"aur-packages {command.name}", add_help=False)
     for option in command.options:
-        dest = option.names[-1].lstrip("-").replace("-", "_")
+        dest = option.dest()
+        names = (*option.names, *option.aliases)
         if option.value is None:
-            parser.add_argument(*option.names, dest=dest, action="store_true")
+            parser.add_argument(*names, dest=dest, action="store_true")
         else:
             choices = option.complete if isinstance(option.complete, tuple) else None
             action = "append" if option.repeat else "store"
-            parser.add_argument(
-                *option.names, dest=dest, metavar=option.value, choices=choices, action=action
-            )
+            parser.add_argument(*names, dest=dest, metavar=option.value, choices=choices, action=action)
     if isinstance(command.arguments, tuple):
         parser.add_argument("choice", choices=command.arguments)
     elif command.arguments is not None:

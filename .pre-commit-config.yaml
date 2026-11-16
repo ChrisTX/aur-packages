@@ -216,11 +216,11 @@ repos:
       - id: templates
         name: package files match templates/package
         language: system
-        entry: ./aur-packages sync --check
+        entry: ./aur-packages sync --dry-run
         pass_filenames: false
         always_run: true
       - id: quoting
-        name: quoting of the metadata arrays (shfmt, jq)
+        name: quoting of the metadata arrays (shfmt)
         language: system
         entry: ./aur-packages quoting
         files: (^|/)PKGBUILD$
