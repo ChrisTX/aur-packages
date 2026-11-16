@@ -12,7 +12,6 @@ path = [
   "aur_packages/**",
   "tests/**",
   "pyproject.toml",
-  "aur-packages-tray",
   "maintainers.toml",
   "systemd/**",
   "completions/**",

@@ -1,5 +1,4 @@
-#!/usr/bin/python3
-"""Tray icon for the update check of the AUR packages (./aur-packages tray install).
+"""Tray icon for the update check of the AUR packages: aur-packages tray run (installed by tray install).
 
 Shows the state file of `aur-packages updates --state`, which the user unit aur-packages-updates.service
 writes daily: hidden in the tray's overflow (passive) while every package is up to date, shown while
@@ -22,6 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from gi.repository import Gio, GLib
 
@@ -123,15 +123,15 @@ INTERFACES = Gio.DBusNodeInfo.new_for_xml("""
 """)
 
 
-def read_json(path: Path) -> dict | list | None:
+def read_json(path: Path) -> Any:
     """The content of a JSON file, or None if it's missing or not JSON (yet)."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
 
 
-def write_json(path: Path, data: dict | list) -> None:
+def write_json(path: Path, data: dict[str, Any] | list[Any]) -> None:
     """Write a JSON file atomically, through a temporary file in the same folder."""
     tmp = path.with_name(f".{path.name}.tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -144,14 +144,16 @@ def shorten(text: str, length: int = 100) -> str:
     return line if len(line) <= length else line[: length - 1] + "…"
 
 
-def rate_limit_line(rate_limited: dict) -> str:
+def rate_limit_line(rate_limited: dict[str, Any]) -> str:
     """The packages waiting for GitHub's rate limit, and when they're checked again."""
     count = len(rate_limited.get("packages", []))
     try:
         retry = f"{datetime.fromisoformat(rate_limited.get('retry') or '').astimezone():%H:%M}"
     except ValueError:
         retry = "later"
-    return f"{count} package{'s' if count != 1 else ''} wait for GitHub's rate limit, checked again at {retry}"
+    return (
+        f"{count} package{'s' if count != 1 else ''} wait for GitHub's rate limit, checked again at {retry}"
+    )
 
 
 def format_time(iso: str | None) -> str:
@@ -197,7 +199,7 @@ class MenuItem:
     command: Callable[[], object] | None = None
     enabled: bool = True
     separator: bool = False
-    children: list["MenuItem"] = field(default_factory=list)
+    children: list[MenuItem] = field(default_factory=list)
     id: int = 0
 
     def properties(self) -> dict[str, GLib.Variant]:
@@ -208,39 +210,31 @@ class MenuItem:
         props = {
             # An underscore marks the access key, a double one is an underscore
             "label": GLib.Variant("s", self.label.replace("_", "__")),
-            "enabled": GLib.Variant(
-                "b", self.enabled and bool(self.command or self.children)
-            ),
+            "enabled": GLib.Variant("b", self.enabled and bool(self.command or self.children)),
         }
         if self.children:
             props["children-display"] = GLib.Variant("s", "submenu")
         return props
 
-    def layout(self, depth: int) -> tuple:
+    def layout(self, depth: int) -> tuple[Any, ...]:
         """The item and its children down to depth levels (-1: all), as GetLayout returns it."""
         children = (
-            [
-                GLib.Variant("(ia{sv}av)", child.layout(depth - 1))
-                for child in self.children
-            ]
-            if depth
-            else []
+            [GLib.Variant("(ia{sv}av)", child.layout(depth - 1)) for child in self.children] if depth else []
         )
         return (self.id, self.properties(), children)
 
 
-class Tray(Gio.Application):
+# GObject has no type stubs here, so mypy takes its classes as Any
+class Tray(Gio.Application):  # type: ignore[misc]
     """The tray icon, one per session: a second start just exits."""
 
     def __init__(self) -> None:
-        super().__init__(
-            application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS
-        )
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.connection: Gio.DBusConnection | None = None
         self.monitor: Gio.FileMonitor | None = None
         self.reload_source = 0
         self.checking = False
-        self.state: dict = {}
+        self.state: dict[str, Any] = {}
         # The name the tray knows the item by, as the specification suggests
         self.bus_name = f"org.kde.StatusNotifierItem-{os.getpid()}-1"
         self.status = "Passive"
@@ -269,9 +263,7 @@ class Tray(Gio.Application):
                 self.on_get_property,
                 None,
             )
-        Gio.bus_own_name_on_connection(
-            self.connection, self.bus_name, Gio.BusNameOwnerFlags.NONE, None, None
-        )
+        Gio.bus_own_name_on_connection(self.connection, self.bus_name, Gio.BusNameOwnerFlags.NONE, None, None)
         # Registered with the tray whenever it (re)appears, e.g. after a restart of plasmashell
         Gio.bus_watch_name_on_connection(
             self.connection,
@@ -292,9 +284,7 @@ class Tray(Gio.Application):
     def do_activate(self) -> None:
         pass
 
-    def on_watcher_appeared(
-        self, connection: Gio.DBusConnection, _name: str, _owner: str
-    ) -> None:
+    def on_watcher_appeared(self, connection: Gio.DBusConnection, _name: str, _owner: str) -> None:
         connection.call(
             WATCHER,
             "/StatusNotifierWatcher",
@@ -337,9 +327,7 @@ class Tray(Gio.Application):
                 "AttentionIconName": GLib.Variant("s", ""),
                 "AttentionIconPixmap": GLib.Variant("a(iiay)", []),
                 "AttentionMovieName": GLib.Variant("s", ""),
-                "ToolTip": GLib.Variant(
-                    "(sa(iiay)ss)", (self.icon, [], self.title, self.tooltip)
-                ),
+                "ToolTip": GLib.Variant("(sa(iiay)ss)", (self.icon, [], self.title, self.tooltip)),
                 # A click opens the menu as well, there's nothing else to activate
                 "ItemIsMenu": GLib.Variant("b", True),
                 "Menu": GLib.Variant("o", MENU_PATH),
@@ -360,39 +348,27 @@ class Tray(Gio.Application):
         try:
             self.handle_method_call(method, parameters.unpack(), invocation)
         except Exception as error:
-            invocation.return_dbus_error(
-                "org.freedesktop.DBus.Error.Failed", str(error)
-            )
+            invocation.return_dbus_error("org.freedesktop.DBus.Error.Failed", str(error))
             raise
 
     def handle_method_call(
-        self, method: str, args: tuple, invocation: Gio.DBusMethodInvocation
+        self, method: str, args: tuple[Any, ...], invocation: Gio.DBusMethodInvocation
     ) -> None:
         reply = None
         if method == "GetLayout":
             parent, depth, _names = args
             item = self.root if parent == 0 else self.items.get(parent)
             if item is None:
-                invocation.return_dbus_error(
-                    f"{MENU}.Error.UnknownId", f"No menu item {parent}"
-                )
+                invocation.return_dbus_error(f"{MENU}.Error.UnknownId", f"No menu item {parent}")
                 return
             reply = GLib.Variant("(u(ia{sv}av))", (self.revision, item.layout(depth)))
         elif method == "GetGroupProperties":
             ids, _names = args
-            found = [
-                (i, self.items[i].properties())
-                for i in ids or self.items
-                if i in self.items
-            ]
+            found = [(i, self.items[i].properties()) for i in ids or self.items if i in self.items]
             reply = GLib.Variant("(a(ia{sv}))", (found,))
         elif method == "GetProperty":
             item_id, name = args
-            value = (
-                self.items[item_id].properties().get(name)
-                if item_id in self.items
-                else None
-            )
+            value = self.items[item_id].properties().get(name) if item_id in self.items else None
             if value is None:
                 invocation.return_dbus_error(
                     f"{MENU}.Error.UnknownId", f"No property {name} of item {item_id}"
@@ -404,15 +380,11 @@ class Tray(Gio.Application):
         elif method == "EventGroup":
             for item_id, event, _data, _timestamp in args[0]:
                 self.on_event(item_id, event)
-            reply = GLib.Variant(
-                "(ai)", ([event[0] for event in args[0] if event[0] not in self.items],)
-            )
+            reply = GLib.Variant("(ai)", ([event[0] for event in args[0] if event[0] not in self.items],))
         elif method == "AboutToShow":
             reply = GLib.Variant("(b)", (False,))
         elif method == "AboutToShowGroup":
-            reply = GLib.Variant(
-                "(aiai)", ([], [i for i in args[0] if i not in self.items])
-            )
+            reply = GLib.Variant("(aiai)", ([], [i for i in args[0] if i not in self.items]))
         # ContextMenu, Activate, SecondaryActivate and Scroll: the tray shows the menu itself
         invocation.return_value(reply)
 
@@ -424,7 +396,7 @@ class Tray(Gio.Application):
             # After the reply: the command may rebuild the menu
             def run() -> bool:
                 command()
-                return GLib.SOURCE_REMOVE
+                return bool(GLib.SOURCE_REMOVE)
 
             GLib.idle_add(run)
 
@@ -435,7 +407,9 @@ class Tray(Gio.Application):
         signal: str,
         parameters: GLib.Variant | None = None,
     ) -> None:
-        self.connection.emit_signal(None, path, interface, signal, parameters)
+        # Before the bus connection, from startup, there's nothing to emit on
+        if self.connection is not None:
+            self.connection.emit_signal(None, path, interface, signal, parameters)
 
     def on_changed(
         self,
@@ -456,7 +430,7 @@ class Tray(Gio.Application):
         self.state = state if isinstance(state, dict) else {}
         self.notify_new()
         self.update()
-        return GLib.SOURCE_REMOVE
+        return bool(GLib.SOURCE_REMOVE)
 
     def notify_new(self) -> None:
         """Announce the package versions that weren't outdated at the last look, once each."""
@@ -465,20 +439,12 @@ class Tray(Gio.Application):
         current = {f"{u['package']} {u['new']}" for u in self.state["updates"]}
         notified = read_json(NOTIFIED_FILE)
         known = set(notified) if isinstance(notified, list) else set()
-        new = [
-            u
-            for u in self.state["updates"]
-            if f"{u['package']} {u['new']}" not in known
-        ]
+        new = [u for u in self.state["updates"] if f"{u['package']} {u['new']}" not in known]
         if new:
             notification = Gio.Notification.new(
-                "AUR package update"
-                if len(new) == 1
-                else f"{len(new)} AUR package updates"
+                "AUR package update" if len(new) == 1 else f"{len(new)} AUR package updates"
             )
-            notification.set_body(
-                "\n".join(f"{u['package']} {u['current']} → {u['new']}" for u in new)
-            )
+            notification.set_body("\n".join(f"{u['package']} {u['current']} → {u['new']}" for u in new))
             notification.set_icon(Gio.ThemedIcon.new(ICON_UPDATES))
             self.send_notification("updates", notification)
         # Only what's outdated now: a version that comes back later is announced again
@@ -517,19 +483,15 @@ class Tray(Gio.Application):
         self.build_menu(summary, updates, self.state.get("failures", []), error)
 
     def build_menu(
-        self, summary: str, updates: list[dict], failures: list[dict], error: str | None
+        self, summary: str, updates: list[dict[str, Any]], failures: list[dict[str, Any]], error: str | None
     ) -> None:
         """Rebuild the menu and tell the tray to read it again."""
         items = [MenuItem(summary)]
-        items += [
-            MenuItem(f"{u['package']}  {u['current']} → {u['new']}") for u in updates
-        ]
+        items += [MenuItem(f"{u['package']}  {u['current']} → {u['new']}") for u in updates]
         items += [
             MenuItem(separator=True),
             MenuItem(
-                "Checking…"
-                if self.checking
-                else f"Last check: {format_time(self.state.get('checked'))}"
+                "Checking…" if self.checking else f"Last check: {format_time(self.state.get('checked'))}"
             ),
         ]
         if error:
@@ -541,11 +503,7 @@ class Tray(Gio.Application):
             items.append(MenuItem(rate_limit_line(rate_limited), children=waiting))
         if failures:
             failed = [
-                MenuItem(
-                    shorten(
-                        f"{failure['package']}: {failure.get('message') or 'failed'}"
-                    )
-                )
+                MenuItem(shorten(f"{failure['package']}: {failure.get('message') or 'failed'}"))
                 for failure in failures
             ]
             count = len(failures)
@@ -561,10 +519,7 @@ class Tray(Gio.Application):
             items.append(
                 MenuItem(
                     f"{count} note{'s' if count != 1 else ''} on the AUR's maintainers",
-                    children=[
-                        MenuItem(shorten(f"{note['folder']}: {note['message']}"))
-                        for note in notes
-                    ],
+                    children=[MenuItem(shorten(f"{note['folder']}: {note['message']}")) for note in notes],
                 )
             )
         items += [
@@ -589,9 +544,7 @@ class Tray(Gio.Application):
                 number(child)
 
         number(self.root)
-        self.emit(
-            MENU_PATH, MENU, "LayoutUpdated", GLib.Variant("(ui)", (self.revision, 0))
-        )
+        self.emit(MENU_PATH, MENU, "LayoutUpdated", GLib.Variant("(ui)", (self.revision, 0)))
 
     def on_check(self) -> None:
         # --no-block: the check takes a while, the state file says when it's done
@@ -602,9 +555,7 @@ class Tray(Gio.Application):
             check=False,
         )
         if result.returncode:
-            self.state["error"] = (
-                result.stderr.strip() or f"systemctl failed with {result.returncode}"
-            )
+            self.state["error"] = result.stderr.strip() or f"systemctl failed with {result.returncode}"
         else:
             self.checking = True
         self.update()
@@ -620,5 +571,6 @@ class Tray(Gio.Application):
             self.send_notification("copy", notification)
 
 
-if __name__ == "__main__":
-    sys.exit(Tray().run(sys.argv))
+def run() -> int:
+    """Run the tray icon until it quits (tray remove does that over D-Bus)."""
+    return int(Tray().run([sys.argv[0]]))

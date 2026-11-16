@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from aur_packages import checks
+from aur_packages import checks, pins
 from aur_packages.repo import Checkout
 from aur_packages.srcinfo import Srcinfo
 
@@ -98,11 +98,11 @@ def test_pins(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     package(tmp_path, "stale", single("stale"), "pkgver=1.0.r3.g4b8b3d3\n_commit='0123456789'\n")
     package(tmp_path, "plain", single("plain"), "pkgver=1.0\n_commit=0123456\n")
     checkout = Checkout(tmp_path, tmp_path)
-    assert checks.run_pins(checkout, ["good", "plain/PKGBUILD"]) == 0
-    assert checks.run_pins(checkout, []) == 1
+    assert pins.run_pins(checkout, ["good", "plain/PKGBUILD"]) == 0
+    assert pins.run_pins(checkout, []) == 1
     assert capsys.readouterr().out == (
         "stale/PKGBUILD: _commit 0123456789 isn't the commit pkgver names, 4b8b3d3: "
-        "./aur-packages commits --update stale\n"
+        "./aur-packages pins --update stale\n"
     )
 
 

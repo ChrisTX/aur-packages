@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from aur_packages import aur, checks, hooks, overrides
+from aur_packages import aur, checks, hooks, overrides, pins, tray, updates
 from aur_packages.repo import BUILD_TEMPLATES, Checkout, SelectionError
 from aur_packages.tools import MissingTools
 
@@ -197,14 +197,16 @@ for _command in (
             Option(("--retry",), "check rate-limited packages again once the limit resets"),
         ),
         arguments="packages",
+        run=lambda checkout, args: updates.run_updates(checkout, args.arguments, args.state, args.retry),
     ),
     Command(
         "upgrade",
         "",
         "Upgrade the packages to their latest upstream version with the .nvchecker.toml of each "
-        "(pkgctl version upgrade), move their pins to it (see commits), then format the PKGBUILDs "
-        "and regenerate .SRCINFO. Fails if a pin couldn't be moved",
+        "(pkgctl version upgrade), move their pins to it (see pins --update), then format the "
+        "PKGBUILDs and regenerate .SRCINFO. Fails if a pin couldn't be moved",
         arguments="packages",
+        run=lambda checkout, args: pins.run_upgrade(checkout, args.arguments),
     ),
     Command(
         "check",
@@ -220,13 +222,11 @@ for _command in (
     Command(
         "commits",
         "",
-        "Show, for each package that pins a _commit, the upstream commit its current pkgver was "
-        "published from (the NuGet nuspec's repository commit, or the PKGBUILD's _commit_lookup), "
-        "and the other pins a PKGBUILD's _pins_lookup prints (submodule commits, branch heads, "
-        "versions of other packages), flagging stale ones; --update rewrites them and refreshes the "
-        "checksums and .SRCINFO",
+        "pins --online, its earlier name",
         options=(Option(("--update",), "rewrite the stale pins"),),
         arguments="packages",
+        hidden=True,
+        run=lambda checkout, args: pins.run_online(checkout, args.arguments, args.update),
     ),
     Command(
         "build",
@@ -303,11 +303,19 @@ for _command in (
         "tray",
         "install|remove",
         "Install a daily update check of this checkout's packages (the systemd user units of "
-        "systemd/, updates --state) and a tray icon (aur-packages-tray, autostarted) that shows the "
-        "outdated packages and announces new versions once; or remove them again",
+        "systemd/, updates --state) and a tray icon (tray run, autostarted) that shows the outdated "
+        "packages and announces new versions once; or remove them again",
         subcommands=(
-            Command("install", "", "Install the update check and the tray icon"),
-            Command("remove", "", "Remove them"),
+            Command(
+                "install",
+                "",
+                "Install the update check and the tray icon",
+                run=lambda c, a: tray.run_install(c),
+            ),
+            Command("remove", "", "Remove them", run=lambda c, a: tray.run_remove(c)),
+            Command(
+                "run", "", "Show the tray icon (needs python-gobject)", run=lambda c, a: tray.run_icon(c)
+            ),
         ),
     ),
     Command(
@@ -338,11 +346,23 @@ for _command in (
     ),
     Command(
         "pins",
-        "",
+        "[--online|--update]",
         "Check that the _commit of a version like git describe's (…r83.g4b8b3d3) is the commit it "
-        "names, without the network (run by the pins hook; commits checks all pins online)",
+        "names, without the network (run by the pins hook). --online shows, for each package that pins "
+        "something, whether its pins are the ones its version names: the upstream commit its pkgver "
+        "was published from (the NuGet nuspec's repository commit, or the PKGBUILD's _commit_lookup), "
+        "and what a PKGBUILD's _pins_lookup prints (submodule commits, branch heads, versions of other "
+        "packages), flagging stale ones; --update rewrites them and refreshes the checksums and .SRCINFO",
+        options=(
+            Option(("--online",), "look up what every pin should be"),
+            Option(("--update",), "rewrite the stale pins (online)"),
+        ),
         arguments="packages",
-        run=lambda checkout, args: checks.run_pins(checkout, args.arguments),
+        run=lambda checkout, args: (
+            pins.run_online(checkout, args.arguments, args.update)
+            if args.online or args.update
+            else pins.run_pins(checkout, args.arguments)
+        ),
     ),
     Command(
         "readme",

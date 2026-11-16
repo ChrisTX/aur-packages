@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from aur_packages import maintainers as maintainer_lines
+from aur_packages import pins
 from aur_packages.repo import Checkout
 from aur_packages.srcinfo import Srcinfo
 from aur_packages.tools import hook_runner, hook_runner_tool, require
@@ -95,35 +96,6 @@ def run_quoting(checkout: Checkout, packages: Sequence[str]) -> int:
     for package in checkout.select(strip_pkgbuild(packages)):
         for finding in quoting_findings(checkout.root / package / "PKGBUILD", f"{package}/PKGBUILD"):
             print(finding, file=sys.stderr)
-            status = 1
-    return status
-
-
-def pin_value(pkgbuild: Path, name: str) -> str:
-    """The value a PKGBUILD assigns to a variable on a line of its own, quoted or not."""
-    pattern = re.compile(rf"^{re.escape(name)}=[\"']?([^\"']*)[\"']?$")
-    for line in pkgbuild.read_text().splitlines():
-        if match := pattern.match(line):
-            return match[1]
-    return ""
-
-
-def short_pin(value: str) -> str:
-    return value[:12] if re.fullmatch(r"[0-9a-f]{40}", value) else value
-
-
-def run_pins(checkout: Checkout, packages: Sequence[str]) -> int:
-    """That a _commit is the commit a pkgver like git describe's (….r83.g4b8b3d3) names, offline."""
-    status = 0
-    for package in checkout.select(strip_pkgbuild(packages)):
-        pkgbuild = checkout.root / package / "PKGBUILD"
-        pkgver, commit = pin_value(pkgbuild, "pkgver"), pin_value(pkgbuild, "_commit")
-        match = re.search(r"\.g([0-9a-f]{7,40})$", pkgver)
-        if match and commit and not commit.startswith(match[1]):
-            print(
-                f"{package}/PKGBUILD: _commit {short_pin(commit)} isn't the commit pkgver names, "
-                f"{match[1]}: ./aur-packages commits --update {package}"
-            )
             status = 1
     return status
 
@@ -301,6 +273,6 @@ def run_check(checkout: Checkout, packages: Sequence[str], manual: bool) -> int:
     ours = [p for p in selected if not p.startswith("overrides/")]
     if ours:
         status |= run_quoting(checkout, ours)
-        status |= run_pins(checkout, ours)
+        status |= pins.run_pins(checkout, ours)
         status |= run_maintainers(checkout, ours, aur=False, as_json=False)
     return 1 if status else 0
