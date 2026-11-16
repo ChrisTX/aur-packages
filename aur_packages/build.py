@@ -232,15 +232,20 @@ def alarm_makepkg_conf(alarm: Path) -> str:
     """The makepkg.conf of the native aarch64 builds, the root's, with CARCH exported.
 
     arch-nspawn would run setarch for a line starting with CARCH=, which an x86_64 kernel doesn't
-    support for aarch64.
+    support for aarch64. arch-nspawn copies this file into the root for each build, so the root's
+    has these lines already from the last one.
     """
+    marker = "\n# Native aarch64 build under QEMU (./aur-packages build --target aarch64-native)\n"
     text = re.sub(
         r"^CARCH=", "export CARCH=", (alarm / "root" / "etc" / "makepkg.conf").read_text(), flags=re.MULTILINE
     )
-    return text + (
-        "\n# Native aarch64 build under QEMU (./aur-packages build --target aarch64-native)\n"
-        f'MAKEFLAGS="-j{os.cpu_count()}"\n'
-        "# .NET's W^X double mapping fails under qemu-user\nexport DOTNET_EnableWriteXorExecute=0\n"
+    return (
+        text.partition(marker)[0]
+        + marker
+        + (
+            f'MAKEFLAGS="-j{os.cpu_count()}"\n'
+            "# .NET's W^X double mapping fails under qemu-user\nexport DOTNET_EnableWriteXorExecute=0\n"
+        )
     )
 
 

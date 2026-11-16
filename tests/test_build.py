@@ -141,6 +141,19 @@ def test_archlinux32_pacman_conf() -> None:
     assert "GPGDir = /a32/gnupg\n" in build.archlinux32_pacman_conf(Path("/a32"), gpgdir=Path("/a32/gnupg"))
 
 
+def test_alarm_makepkg_conf(tmp_path: Path) -> None:
+    root_conf = tmp_path / "root" / "etc" / "makepkg.conf"
+    root_conf.parent.mkdir(parents=True)
+    root_conf.write_text('CARCH="aarch64"\n')
+    text = build.alarm_makepkg_conf(tmp_path)
+    # CARCH exported, so arch-nspawn doesn't run setarch aarch64
+    assert text.startswith('export CARCH="aarch64"\n')
+    assert text.count("\nMAKEFLAGS=") == 1
+    # arch-nspawn copied it into the root for the last build: the lines aren't added again
+    root_conf.write_text(text)
+    assert build.alarm_makepkg_conf(tmp_path) == text
+
+
 def test_archlinux32_makepkg_conf() -> None:
     text = build.archlinux32_makepkg_conf('CARCH="i686"\n')
     # CARCH stays a plain assignment, which arch-nspawn reads to run the build under setarch i686
