@@ -226,3 +226,28 @@ def test_install_as_root_with_aur_pacman_auth(tmp_path: Path, monkeypatch: pytes
     assert (tmp_path / "pacman.conf").read_text() == "[options]\n"
     monkeypatch.setenv("AUR_PACMAN_AUTH", "")
     assert build.auth() == ["sudo"]
+
+
+def test_upgrades(tmp_path: Path) -> None:
+    def package(folder: str, name: str, version: str) -> None:
+        (tmp_path / folder).mkdir(parents=True)
+        (tmp_path / folder / "PKGBUILD").write_text("")
+        pkgver, pkgrel = version.split("-")
+        (tmp_path / folder / ".SRCINFO").write_text(
+            f"pkgbase = {name}\n\tpkgver = {pkgver}\n\tpkgrel = {pkgrel}\n\tarch = x86_64\n\npkgname = {name}\n"
+        )
+
+    package("ours", "ours", "2-1")
+    package("current", "current", "1-1")
+    package("overrides/fwupd", "fwupd", "2.1.10-1.1")
+    package("overrides/ghidra", "ghidra", "12.2-1.1")
+    package("overrides/old", "old", "1-1.1")
+    package("notinstalled", "notinstalled", "1-1")
+    checkout = Checkout(tmp_path, tmp_path)
+    in_repo = {"ours": "1-1", "current": "1-1", "ghidra": "12.2-1"}
+    # fwupd only installed from Arch's repositories, an older override than the installed package,
+    # and a package of the top level that's installed but not in the repository
+    installed = {"fwupd": "2.1.10-1", "old": "1-2", "notinstalled": "0.1-1", "ghidra": "12.2-1"}
+    selected, ignore = build.upgrades(checkout, in_repo, installed)
+    assert sorted(selected) == ["ours", "overrides/fwupd", "overrides/ghidra"]
+    assert sorted(ignore) == ["current", "fwupd", "ghidra", "notinstalled", "old", "ours"]

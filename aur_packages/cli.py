@@ -348,7 +348,8 @@ for _command in (
         "sysupgrade",
         "[--sign|--no-sign] [-- AUR_SYNC_OPTION...]",
         "aur sync -u with our packages first: the packages of the top level, local/ and overrides/ in "
-        "the aurutils repository with a newer version here are built and added (build --add), then "
+        "the aurutils repository with a newer version here, and the overrides newer than the installed "
+        "package they replace, are built and added (build --add), then "
         "aur sync -u updates the rest, leaving all of ours out; both sign as build --add does",
         options=(
             Option(("-S", "--sign"), "sign the packages added"),

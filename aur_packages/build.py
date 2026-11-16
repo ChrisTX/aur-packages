@@ -1181,14 +1181,51 @@ def build_packages(
     return 0
 
 
+def newer(version: str, than: str) -> bool:
+    """Whether a version is newer than another, by pacman's comparison."""
+    return (
+        int(subprocess.run(["vercmp", version, than], capture_output=True, text=True, check=True).stdout) > 0
+    )
+
+
+def upgrades(
+    checkout: Checkout, in_repo: dict[str, str], installed: dict[str, str]
+) -> tuple[list[str], list[str]]:
+    """The folders sysupgrade builds, and the names of all our packages, which aur sync leaves out.
+
+    Ours with a newer version here than the aurutils repository has; and an override (overrides/)
+    with a newer version than the installed package it replaces, which isn't in the repository yet:
+    it's there to replace Arch Linux's package, which sysupgrade would never build otherwise.
+    """
+    selected, ignore = [], []
+    for folder in checkout.package_dirs():
+        srcinfo = Srcinfo.load(checkout.root / folder)
+        names = list(srcinfo.packages)  # every pkgname, also one named -debug
+        ignore += names
+        version = srcinfo.version()
+        for name in names:
+            if name in in_repo:
+                current, where = in_repo[name], "repository"
+            elif folder.startswith("overrides/") and name in installed:
+                current, where = installed[name], "installed"
+            else:
+                continue
+            if newer(version, current):
+                print(f"{folder}: {current} ({where}) -> {version}", file=sys.stderr)
+                selected.append(folder)
+                break
+    return selected, ignore
+
+
 def run_sysupgrade(
     checkout: Checkout, sign: bool | None, sync_options: Sequence[str], settings: Build | None = None
 ) -> int:
     """aur sync -u with our packages first.
 
-    Ours (top level, local/, overrides/) that are in the aurutils repository with a newer version here
-    are built and added (build --add), then aur sync -u updates the rest, leaving all of ours out,
-    which it would replace with the AUR's; both sign as build --add decides.
+    Ours (top level, local/, overrides/) that are in the aurutils repository with a newer version here,
+    and overrides newer than the installed package they replace, are built and added (build --add),
+    then aur sync -u updates the rest, leaving all of ours out, which it would replace with the AUR's;
+    both sign as build --add decides.
     """
     require("sysupgrade", [("aur", "aurutils")])
     system = SystemRepo.find()
@@ -1197,25 +1234,14 @@ def run_sysupgrade(
         ["aur", "repo", "--database", system.name, "--list"], capture_output=True, text=True, check=True
     ).stdout
     in_repo = dict(line.split("\t", 1) for line in listed.splitlines() if "\t" in line)
-    selected, ignore = [], []
-    for folder in checkout.package_dirs():
-        srcinfo = Srcinfo.load(checkout.root / folder)
-        names = list(srcinfo.packages)  # every pkgname, also one named -debug
-        ignore += names
-        version = srcinfo.version()
-        for name in names:
-            if (
-                name in in_repo
-                and int(
-                    subprocess.run(
-                        ["vercmp", version, in_repo[name]], capture_output=True, text=True, check=True
-                    ).stdout
-                )
-                > 0
-            ):
-                print(f"{folder}: {in_repo[name]} -> {version}", file=sys.stderr)
-                selected.append(folder)
-                break
+    installed = dict(
+        line.split(" ", 1)
+        for line in subprocess.run(
+            ["pacman", "-Q"], capture_output=True, text=True, check=True
+        ).stdout.splitlines()
+        if " " in line
+    )
+    selected, ignore = upgrades(checkout, in_repo, installed)
     if selected:
         settings = settings or Build()
         settings.add, settings.signing = True, signing
