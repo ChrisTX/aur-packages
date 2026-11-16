@@ -569,7 +569,7 @@ class Tray(Gio.Application):  # type: ignore[misc]
             items.append(
                 MenuItem(
                     f"{count} note{'s' if count != 1 else ''} on the AUR's maintainers",
-                    children=[MenuItem(shorten(f"{note['folder']}: {note['message']}")) for note in notes],
+                    children=[self.maintainers_item(note) for note in notes],
                 )
             )
         upstream = self.upstream_notes()
@@ -605,6 +605,19 @@ class Tray(Gio.Application):  # type: ignore[misc]
         number(self.root)
         self.emit(MENU_PATH, MENU, "LayoutUpdated", GLib.Variant("(ui)", (self.revision, 0)))
 
+    def maintainers_item(self, note: dict[str, Any]) -> MenuItem:
+        """A note on the AUR's maintainers, with copying the command that does what it asks."""
+        label = shorten(f"{note['folder']}: {note['message']}")
+        command = str(note.get("command") or "")
+        if not command:
+            return MenuItem(label, enabled=False)
+        return MenuItem(
+            label,
+            children=[
+                MenuItem(f"Copy {shorten(command, 60)}", lambda: self.copy_command(command, "the command"))
+            ],
+        )
+
     def upstream_item(self, note: dict[str, Any]) -> MenuItem:
         """A note on an upstream pull request, with its page and dismissing it."""
         url = str(note.get("url", ""))
@@ -632,11 +645,14 @@ class Tray(Gio.Application):  # type: ignore[misc]
 
     def on_copy(self) -> None:
         packages = [update["package"] for update in self.state.get("updates", [])]
+        self.copy_command(f"./aur-packages upgrade {shlex.join(packages)}", "the upgrade command")
+
+    def copy_command(self, command: str, what: str) -> None:
+        """Copy a command of aur-packages, run in the checkout the check ran in."""
         checkout = self.state.get("checkout") or "."
-        command = f"cd {shlex.quote(checkout)} && ./aur-packages upgrade {shlex.join(packages)}"
-        problem = copy_to_clipboard(command)
+        problem = copy_to_clipboard(f"cd {shlex.quote(checkout)} && {command}")
         if problem:
-            notification = Gio.Notification.new("Couldn't copy the upgrade command")
+            notification = Gio.Notification.new(f"Couldn't copy {what}")
             notification.set_body(problem)
             self.send_notification("copy", notification)
 

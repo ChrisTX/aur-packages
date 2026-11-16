@@ -22,6 +22,7 @@ obscured in one way: name at domain dot tld.
 
 import json
 import re
+import shlex
 import sys
 import tomllib
 import urllib.parse
@@ -162,16 +163,21 @@ def notes(directories: list[str]) -> list[dict[str, str]]:
     for directory, base in packages.items():
         package = info.get(base)
 
-        def note(message: str, directory: str = directory, base: str = base) -> None:
-            found.append({"package": base, "folder": directory, "message": message})
+        def note(message: str, command: str = "", directory: str = directory, base: str = base) -> None:
+            # The command that does what the note asks, if there's one, for the tray to copy
+            entry = {"package": base, "folder": directory, "message": message}
+            found.append({**entry, "command": command} if command else entry)
 
         maintainers = [package["Maintainer"], *(package.get("CoMaintainers") or [])] if package else []
         if directory.startswith("local/"):
             if us["user"] in maintainers:
-                note("we maintain it on the AUR now: move it to the top level (and adopt)")
+                note(
+                    "we maintain it on the AUR now: move it to the top level (and adopt)",
+                    f"./aur-packages publish --adopt {shlex.quote(base)}",
+                )
             continue
         if not package:
-            note("not on the AUR yet: push it")
+            note("not on the AUR yet: push it", f"./aur-packages push {shlex.quote(base)}")
             continue
         if us["user"] not in maintainers:
             note(f"we don't maintain it on the AUR: {', '.join(m or '(orphaned)' for m in maintainers)}")
