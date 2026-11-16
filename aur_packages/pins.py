@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from aur_packages import upstream
 from aur_packages.git import paths
 from aur_packages.repo import Checkout
 from aur_packages.srcinfo import Srcinfo
@@ -309,7 +310,7 @@ def run_upgrade(checkout: Checkout, packages: Sequence[str]) -> int:
         return 0
     subprocess.run(["pkgctl", "version", "upgrade", *checked], check=False)
     changed = paths("diff", "--name-only", "--", *(f"{p}/PKGBUILD" for p in checked))
-    unresolved, failed = [], False
+    unresolved, failed, upgraded = [], False, []
     for path in changed:
         name = path.removesuffix("/PKGBUILD")
         package = checkout.root / name
@@ -329,6 +330,12 @@ def run_upgrade(checkout: Checkout, packages: Sequence[str]) -> int:
             failed = True
             continue
         print(f"Upgraded {name}")
+        upgraded.append(name)
+    # What the new versions contain of the fixes the packages refer to, e.g. backports that can go
+    if upgraded:
+        print("\nThe upstream references of the upgraded packages, against their new versions:")
+        sys.stdout.flush()
+        upstream.run_upstream(checkout, upgraded)
     if unresolved:
         print(
             "Pins left at the old version, e.g. after GitHub's rate limit; run ./aur-packages pins --update "

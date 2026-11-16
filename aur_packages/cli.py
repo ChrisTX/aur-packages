@@ -228,7 +228,9 @@ for _command in (
         "",
         "Upgrade the packages to their latest upstream version with the .nvchecker.toml of each "
         "(pkgctl version upgrade), move their pins to it (see pins --update), then format the "
-        "PKGBUILDs and regenerate .SRCINFO. Fails if a pin couldn't be moved",
+        "PKGBUILDs and regenerate .SRCINFO; then show the upstream references of the upgraded "
+        "packages against their new versions (see upstream), e.g. backports they contain now. Fails "
+        "if a pin couldn't be moved",
         arguments="packages",
         run=lambda checkout, args: pins.run_upgrade(checkout, args.arguments),
     ),
