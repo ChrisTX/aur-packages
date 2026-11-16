@@ -322,8 +322,10 @@ def install_as_root(text: str, target: Path) -> None:
 def alarm_root(alarm: Path) -> None:
     """Set up the Arch Linux ARM root in alarm/root, unless it's there: the native builds run in it
     (under QEMU), the cross builds compile against it. From archlinuxarm.org's latest image, checked
-    against its build system's key, without kernel and firmware, and with base-devel."""
+    against its build system's key, without kernel and firmware, with base-devel, and without the
+    image's user."""
     if (alarm / "root").is_dir():
+        remove_image_user(alarm)
         return
     cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "aur-packages" / "alarm"
     gnupg = cache / "gnupg"
@@ -380,6 +382,19 @@ def alarm_root(alarm: Path) -> None:
     # -s: arch-nspawn would run setarch aarch64 for the CARCH of the image's makepkg.conf
     as_root(["arch-nspawn", "-s", "-C", str(conf), str(alarm / "root"), "sh", "-c",
              'pacman -Rdd --noconfirm linux-aarch64 $(pacman -Qqs "^linux-firmware") && pacman -Syu --noconfirm --needed base-devel'])  # fmt: skip
+    remove_image_user(alarm)
+
+
+def remove_image_user(alarm: Path) -> None:
+    """Remove the user of Arch Linux ARM's image, alarm, from the root, which has the uid 1000.
+
+    makechrootpkg adds its builduser with the builder's uid, often 1000 as well: sudo then knows the
+    uid as alarm, so builduser's rule for pacman doesn't apply, and makepkg can't install the
+    makedepends (sudo asks for a password). makechrootpkg copies the root for each build.
+    """
+    if re.search(r"^alarm:", (alarm / "root" / "etc" / "passwd").read_text(), re.MULTILINE):
+        print(f">>> Removing the image's user alarm from {alarm}/root", file=sys.stderr)
+        as_root(["systemd-nspawn", "-q", "-D", str(alarm / "root"), "userdel", "--remove", "alarm"])
 
 
 @dataclass
