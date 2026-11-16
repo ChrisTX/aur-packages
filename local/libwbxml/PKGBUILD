@@ -7,7 +7,9 @@
 
 pkgname=libwbxml
 pkgver=0.11.10
-pkgrel=1
+# Above the AUR's 0.11.10-1, which installs its CMake configuration to /cmake: our build,
+# until the AUR's next release
+pkgrel=1.1
 pkgdesc="Library and tools to parse, encode and handle WBXML documents"
 arch=(x86_64 aarch64)
 url="https://github.com/$pkgname/$pkgname"
