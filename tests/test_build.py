@@ -243,11 +243,19 @@ def test_upgrades(tmp_path: Path) -> None:
     package("overrides/ghidra", "ghidra", "12.2-1.1")
     package("overrides/old", "old", "1-1.1")
     package("notinstalled", "notinstalled", "1-1")
+    package("local/rework", "rework", "2-1")
     checkout = Checkout(tmp_path, tmp_path)
     in_repo = {"ours": "1-1", "current": "1-1", "ghidra": "12.2-1"}
-    # fwupd only installed from Arch's repositories, an older override than the installed package,
-    # and a package of the top level that's installed but not in the repository
-    installed = {"fwupd": "2.1.10-1", "old": "1-2", "notinstalled": "0.1-1", "ghidra": "12.2-1"}
+    # fwupd only installed from Arch's repositories, a rework in local/ of an installed AUR package,
+    # an older override than the installed package, and a package of the top level that's installed
+    # but not in the repository
+    installed = {
+        "fwupd": "2.1.10-1",
+        "old": "1-2",
+        "notinstalled": "0.1-1",
+        "ghidra": "12.2-1",
+        "rework": "1-1",
+    }
     selected, ignore = build.upgrades(checkout, in_repo, installed)
-    assert sorted(selected) == ["ours", "overrides/fwupd", "overrides/ghidra"]
-    assert sorted(ignore) == ["current", "fwupd", "ghidra", "notinstalled", "old", "ours"]
+    assert sorted(selected) == ["local/rework", "ours", "overrides/fwupd", "overrides/ghidra"]
+    assert sorted(ignore) == ["current", "fwupd", "ghidra", "notinstalled", "old", "ours", "rework"]

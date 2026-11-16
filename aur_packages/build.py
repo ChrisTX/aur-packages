@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from aur_packages import keys
-from aur_packages.repo import BUILD_TEMPLATES, Checkout, SelectionError
+from aur_packages.repo import BUILD_TEMPLATES, OUTSIDE_AUR, Checkout, SelectionError
 from aur_packages.srcinfo import Srcinfo
 from aur_packages.tools import require
 
@@ -1181,6 +1181,10 @@ def build_packages(
     return 0
 
 
+# The folders of our packages that replace a package of another source: Arch Linux's, the AUR's
+OUTSIDE_AUR_PREFIXES = tuple(f"{folder}/" for folder in OUTSIDE_AUR)
+
+
 def newer(version: str, than: str) -> bool:
     """Whether a version is newer than another, by pacman's comparison."""
     return (
@@ -1193,9 +1197,10 @@ def upgrades(
 ) -> tuple[list[str], list[str]]:
     """The folders sysupgrade builds, and the names of all our packages, which aur sync leaves out.
 
-    Ours with a newer version here than the aurutils repository has; and an override (overrides/)
+    Ours with a newer version here than the aurutils repository has; and one of overrides/ or local/
     with a newer version than the installed package it replaces, which isn't in the repository yet:
-    it's there to replace Arch Linux's package, which sysupgrade would never build otherwise.
+    an override replaces Arch Linux's package, a package of local/ the AUR's (a rework of it), which
+    sysupgrade would never build otherwise.
     """
     selected, ignore = [], []
     for folder in checkout.package_dirs():
@@ -1206,7 +1211,7 @@ def upgrades(
         for name in names:
             if name in in_repo:
                 current, where = in_repo[name], "repository"
-            elif folder.startswith("overrides/") and name in installed:
+            elif folder.startswith(OUTSIDE_AUR_PREFIXES) and name in installed:
                 current, where = installed[name], "installed"
             else:
                 continue
