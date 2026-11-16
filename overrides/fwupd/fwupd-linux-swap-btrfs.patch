@@ -1,7 +1,7 @@
 From a5519b2533cc939b668d254183333648bc9f174f Mon Sep 17 00:00:00 2001
 From: Christian Pfeiffer <cpfeiffer@rev-crew.info>
 Date: Sun, 15 Nov 2026 06:33:12 +0100
-Subject: [PATCH] linux-swap: Detect encrypted swap files on btrfs
+Subject: [PATCH 1/2] linux-swap: Detect encrypted swap files on btrfs
 
 The subvolumes of a btrfs filesystem have anonymous device numbers that
 have no block device, so neither udisks nor /sys/dev/block can resolve
@@ -31,7 +31,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 plugins/linux-swap/tests/btrfs/sys/fs/btrfs/f1e2d3c4-b5a6-4978-8695-a4b3c2d1e0f9/devices/sdb1/dev
 
 diff --git a/meson.build b/meson.build
-index 8bc03c5..8a8e3fd 100644
+index 8bc03c509..8a8e3fd76 100644
 --- a/meson.build
 +++ b/meson.build
 @@ -634,6 +634,9 @@ endif
@@ -45,7 +45,7 @@ index 8bc03c5..8a8e3fd 100644
    conf.set('HAVE_POLL_H', '1')
  endif
 diff --git a/plugins/linux-swap/fu-linux-swap.c b/plugins/linux-swap/fu-linux-swap.c
-index 2f81b33..3a77bca 100644
+index 2f81b335a..3a77bcae7 100644
 --- a/plugins/linux-swap/fu-linux-swap.c
 +++ b/plugins/linux-swap/fu-linux-swap.c
 @@ -8,8 +8,20 @@
@@ -226,7 +226,7 @@ index 2f81b33..3a77bca 100644
  							name,
  							0,
 diff --git a/plugins/linux-swap/fu-linux-swap.h b/plugins/linux-swap/fu-linux-swap.h
-index 134ce57..d0640c4 100644
+index 134ce57b3..d0640c446 100644
 --- a/plugins/linux-swap/fu-linux-swap.h
 +++ b/plugins/linux-swap/fu-linux-swap.h
 @@ -23,3 +23,8 @@ fu_linux_swap_block_has_crypt_below(FuPathStore *pstore,
@@ -239,7 +239,7 @@ index 134ce57..d0640c4 100644
 +			      gboolean *encrypted,
 +			      GError **error);
 diff --git a/plugins/linux-swap/fu-self-test.c b/plugins/linux-swap/fu-self-test.c
-index da60743..3fb0161 100644
+index da6074323..3fb0161b2 100644
 --- a/plugins/linux-swap/fu-self-test.c
 +++ b/plugins/linux-swap/fu-self-test.c
 @@ -174,6 +174,58 @@ fu_linux_swap_dm_walker_plain_func(void)
@@ -311,32 +311,368 @@ index da60743..3fb0161 100644
  }
 diff --git a/plugins/linux-swap/tests/btrfs/sys/class/block/dm-0/dm/uuid b/plugins/linux-swap/tests/btrfs/sys/class/block/dm-0/dm/uuid
 new file mode 100644
-index 0000000..5808096
+index 000000000..580809647
 --- /dev/null
 +++ b/plugins/linux-swap/tests/btrfs/sys/class/block/dm-0/dm/uuid
 @@ -0,0 +1 @@
 +CRYPT-LUKS2-fakeuuid-fakecryptname
 diff --git a/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/0d2b6c1e-5a4f-4a3b-9c8d-7e6f5a4b3c2d/devices/dm-0/dev b/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/0d2b6c1e-5a4f-4a3b-9c8d-7e6f5a4b3c2d/devices/dm-0/dev
 new file mode 100644
-index 0000000..0cad52a
+index 000000000..0cad52aef
 --- /dev/null
 +++ b/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/0d2b6c1e-5a4f-4a3b-9c8d-7e6f5a4b3c2d/devices/dm-0/dev
 @@ -0,0 +1 @@
 +253:0
 diff --git a/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/f1e2d3c4-b5a6-4978-8695-a4b3c2d1e0f9/devices/dm-0/dev b/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/f1e2d3c4-b5a6-4978-8695-a4b3c2d1e0f9/devices/dm-0/dev
 new file mode 100644
-index 0000000..0cad52a
+index 000000000..0cad52aef
 --- /dev/null
 +++ b/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/f1e2d3c4-b5a6-4978-8695-a4b3c2d1e0f9/devices/dm-0/dev
 @@ -0,0 +1 @@
 +253:0
 diff --git a/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/f1e2d3c4-b5a6-4978-8695-a4b3c2d1e0f9/devices/sdb1/dev b/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/f1e2d3c4-b5a6-4978-8695-a4b3c2d1e0f9/devices/sdb1/dev
 new file mode 100644
-index 0000000..022b1f4
+index 000000000..022b1f47b
 --- /dev/null
 +++ b/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/f1e2d3c4-b5a6-4978-8695-a4b3c2d1e0f9/devices/sdb1/dev
 @@ -0,0 +1 @@
 +8:17
+-- 
+2.56.1
+
+
+From 3c38464ffe772a9b241b440afcf44e60e8273dc7 Mon Sep 17 00:00:00 2001
+From: Christian Pfeiffer <cpfeiffer@rev-crew.info>
+Date: Mon, 16 Nov 2026 07:42:02 +0100
+Subject: [PATCH 2/2] linux-swap: Require a crypt layer on every branch below
+ btrfs devices
+
+A device-mapper or md device can join an encrypted and a plain device,
+e.g. a logical volume on a volume group of a LUKS and a plain physical
+volume, and swap can land on either. The walker of the other routes
+counts such a device as encrypted once it finds one crypt layer below
+it, so the btrfs route now walks the devices with its own walker, which
+requires a crypt layer on every branch.
+
+The dm/uuid check moves to a helper both walkers use; the walker of the
+other routes is unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ plugins/linux-swap/fu-linux-swap.c            | 134 ++++++++++++++----
+ plugins/linux-swap/fu-self-test.c             |  55 +++++++
+ .../tests/btrfs/sys/class/block/dm-3/dm/uuid  |   1 +
+ .../sys/class/block/dm-3/slaves/dm-0/dev      |   1 +
+ .../sys/class/block/dm-3/slaves/sdc1/dev      |   1 +
+ .../tests/btrfs/sys/class/block/dm-4/dm/uuid  |   1 +
+ .../sys/class/block/dm-4/slaves/dm-0/dev      |   1 +
+ .../devices/dm-3/dev                          |   1 +
+ .../devices/dm-4/dev                          |   1 +
+ 9 files changed, 171 insertions(+), 25 deletions(-)
+ create mode 100644 plugins/linux-swap/tests/btrfs/sys/class/block/dm-3/dm/uuid
+ create mode 100644 plugins/linux-swap/tests/btrfs/sys/class/block/dm-3/slaves/dm-0/dev
+ create mode 100644 plugins/linux-swap/tests/btrfs/sys/class/block/dm-3/slaves/sdc1/dev
+ create mode 100644 plugins/linux-swap/tests/btrfs/sys/class/block/dm-4/dm/uuid
+ create mode 100644 plugins/linux-swap/tests/btrfs/sys/class/block/dm-4/slaves/dm-0/dev
+ create mode 100644 plugins/linux-swap/tests/btrfs/sys/fs/btrfs/3a4b5c6d-7e8f-4a1b-9c2d-3e4f5a6b7c8d/devices/dm-3/dev
+ create mode 100644 plugins/linux-swap/tests/btrfs/sys/fs/btrfs/9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b/devices/dm-4/dev
+
+diff --git a/plugins/linux-swap/fu-linux-swap.c b/plugins/linux-swap/fu-linux-swap.c
+index 3a77bcae7..6ede9bf54 100644
+--- a/plugins/linux-swap/fu-linux-swap.c
++++ b/plugins/linux-swap/fu-linux-swap.c
+@@ -43,6 +43,42 @@ fu_linux_swap_strip_spaces(const gchar *line)
+ 	return g_string_free_and_steal(str);
+ }
+ 
++/* whether the device is a dm-crypt device, by its dm/uuid prefix of CRYPT- */
++static gboolean
++fu_linux_swap_block_is_crypt(FuPathStore *pstore,
++			     const gchar *name,
++			     gboolean *is_crypt,
++			     GError **error)
++{
++	g_autofree gchar *uuid = NULL;
++	g_autofree gchar *uuid_path = NULL;
++	g_autoptr(GError) error_local = NULL;
++
++	*is_crypt = FALSE;
++	uuid_path = fu_path_store_build_filename(pstore,
++						 error,
++						 FU_PATH_KIND_SYSFSDIR,
++						 "class",
++						 "block",
++						 name,
++						 "dm",
++						 "uuid",
++						 NULL);
++	if (uuid_path == NULL)
++		return FALSE;
++	if (!g_file_get_contents(uuid_path, &uuid, NULL, &error_local)) {
++		if (g_error_matches(error_local, G_FILE_ERROR, G_FILE_ERROR_NOENT)) {
++			g_debug("no dm/uuid for %s", name);
++			return TRUE;
++		}
++		g_propagate_error(error, g_steal_pointer(&error_local));
++		return FALSE;
++	}
++	g_strstrip(uuid);
++	*is_crypt = g_str_has_prefix(uuid, "CRYPT-");
++	return TRUE;
++}
++
+ /* walk device-mapper dependencies and report encrypted if any layer has a
+  * dm/uuid prefix of CRYPT-; udisks only sees the topmost layer. missing
+  * sysfs paths are treated as "no encryption found" */
+@@ -54,9 +90,8 @@ fu_linux_swap_block_has_crypt_below(FuPathStore *pstore,
+ 				    GError **error)
+ {
+ 	const gchar *child;
++	gboolean is_crypt = FALSE;
+ 	g_autofree gchar *slaves_path = NULL;
+-	g_autofree gchar *uuid = NULL;
+-	g_autofree gchar *uuid_path = NULL;
+ 	g_autoptr(GDir) dir = NULL;
+ 	g_autoptr(GError) error_local = NULL;
+ 
+@@ -69,29 +104,11 @@ fu_linux_swap_block_has_crypt_below(FuPathStore *pstore,
+ 		return TRUE;
+ 	}
+ 
+-	uuid_path = fu_path_store_build_filename(pstore,
+-						 error,
+-						 FU_PATH_KIND_SYSFSDIR,
+-						 "class",
+-						 "block",
+-						 name,
+-						 "dm",
+-						 "uuid",
+-						 NULL);
+-	if (uuid_path == NULL)
+-		return FALSE;
+-	if (g_file_get_contents(uuid_path, &uuid, NULL, &error_local)) {
+-		g_strstrip(uuid);
+-		if (g_str_has_prefix(uuid, "CRYPT-")) {
+-			*encrypted = TRUE;
+-			return TRUE;
+-		}
+-	} else if (g_error_matches(error_local, G_FILE_ERROR, G_FILE_ERROR_NOENT)) {
+-		g_debug("no dm/uuid for %s", name);
+-		g_clear_error(&error_local);
+-	} else {
+-		g_propagate_error(error, g_steal_pointer(&error_local));
++	if (!fu_linux_swap_block_is_crypt(pstore, name, &is_crypt, error))
+ 		return FALSE;
++	if (is_crypt) {
++		*encrypted = TRUE;
++		return TRUE;
+ 	}
+ 
+ 	slaves_path = fu_path_store_build_filename(pstore,
+@@ -150,6 +167,73 @@ fu_linux_swap_block_name_for_devnum(FuPathStore *pstore, guint32 devnum, GError
+ 	return g_path_get_basename(target);
+ }
+ 
++/* like fu_linux_swap_block_has_crypt_below(), but encrypted only if every branch
++ * below the device has a crypt layer, as a device-mapper or md device can join an
++ * encrypted and a plain device, and either can hold swap */
++static gboolean
++fu_linux_swap_block_has_crypt_on_all(FuPathStore *pstore,
++				     const gchar *name,
++				     guint depth,
++				     gboolean *encrypted,
++				     GError **error)
++{
++	const gchar *child;
++	gboolean is_crypt = FALSE;
++	guint children_cnt = 0;
++	g_autofree gchar *slaves_path = NULL;
++	g_autoptr(GDir) dir = NULL;
++	g_autoptr(GError) error_local = NULL;
++
++	*encrypted = FALSE;
++	if (depth > FU_LINUX_SWAP_DM_MAX_DEPTH) {
++		g_debug("sysfs slaves walk hit max depth at %s", name);
++		return TRUE;
++	}
++
++	if (!fu_linux_swap_block_is_crypt(pstore, name, &is_crypt, error))
++		return FALSE;
++	if (is_crypt) {
++		*encrypted = TRUE;
++		return TRUE;
++	}
++
++	slaves_path = fu_path_store_build_filename(pstore,
++						   error,
++						   FU_PATH_KIND_SYSFSDIR,
++						   "class",
++						   "block",
++						   name,
++						   "slaves",
++						   NULL);
++	if (slaves_path == NULL)
++		return FALSE;
++	dir = g_dir_open(slaves_path, 0, &error_local);
++	if (dir == NULL) {
++		if (g_error_matches(error_local, G_FILE_ERROR, G_FILE_ERROR_NOENT)) {
++			g_debug("no slaves dir for %s", name);
++			return TRUE;
++		}
++		g_propagate_error(error, g_steal_pointer(&error_local));
++		return FALSE;
++	}
++	while ((child = g_dir_read_name(dir)) != NULL) {
++		gboolean encrypted_child = FALSE;
++		if (!fu_linux_swap_block_has_crypt_on_all(pstore,
++							  child,
++							  depth + 1,
++							  &encrypted_child,
++							  error))
++			return FALSE;
++		if (!encrypted_child) {
++			g_debug("%s has no crypt layer below %s", name, child);
++			return TRUE;
++		}
++		children_cnt++;
++	}
++	*encrypted = children_cnt > 0;
++	return TRUE;
++}
++
+ /* encrypted only if every device of the btrfs filesystem has a crypt layer below
+  * it, as a filesystem can span several devices and any of them can hold swap */
+ gboolean
+@@ -183,7 +267,7 @@ fu_linux_swap_btrfs_has_crypt(FuPathStore *pstore,
+ 		return FALSE;
+ 	while ((name = g_dir_read_name(dir)) != NULL) {
+ 		gboolean encrypted_below = FALSE;
+-		if (!fu_linux_swap_block_has_crypt_below(pstore, name, 0, &encrypted_below, error))
++		if (!fu_linux_swap_block_has_crypt_on_all(pstore, name, 0, &encrypted_below, error))
+ 			return FALSE;
+ 		if (!encrypted_below) {
+ 			g_debug("btrfs %s device %s is unencrypted", fsid, name);
+diff --git a/plugins/linux-swap/fu-self-test.c b/plugins/linux-swap/fu-self-test.c
+index 3fb0161b2..60c541eb7 100644
+--- a/plugins/linux-swap/fu-self-test.c
++++ b/plugins/linux-swap/fu-self-test.c
+@@ -226,6 +226,59 @@ fu_linux_swap_btrfs_mixed_func(void)
+ 	g_assert_false(encrypted);
+ }
+ 
++/* a btrfs filesystem on LVM on a single dm-crypt device */
++static void
++fu_linux_swap_btrfs_lvm_on_luks_func(void)
++{
++	gboolean encrypted = FALSE;
++	gboolean ret;
++	g_autofree gchar *testdir = NULL;
++	g_autoptr(FuPathStore) pstore = fu_path_store_new();
++	g_autoptr(GError) error = NULL;
++
++	testdir = g_test_build_filename(G_TEST_DIST, "tests", "btrfs", "sys", NULL);
++	if (!g_file_test(testdir, G_FILE_TEST_IS_DIR)) {
++		g_test_skip("missing fake-sysfs fixture");
++		return;
++	}
++	fu_path_store_set_path(pstore, FU_PATH_KIND_SYSFSDIR, testdir);
++
++	ret = fu_linux_swap_btrfs_has_crypt(pstore,
++					    "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b",
++					    &encrypted,
++					    &error);
++	g_assert_no_error(error);
++	g_assert_true(ret);
++	g_assert_true(encrypted);
++}
++
++/* a btrfs filesystem on a device-mapper device joining a dm-crypt device and a
++ * plain partition */
++static void
++fu_linux_swap_btrfs_mixed_below_func(void)
++{
++	gboolean encrypted = TRUE;
++	gboolean ret;
++	g_autofree gchar *testdir = NULL;
++	g_autoptr(FuPathStore) pstore = fu_path_store_new();
++	g_autoptr(GError) error = NULL;
++
++	testdir = g_test_build_filename(G_TEST_DIST, "tests", "btrfs", "sys", NULL);
++	if (!g_file_test(testdir, G_FILE_TEST_IS_DIR)) {
++		g_test_skip("missing fake-sysfs fixture");
++		return;
++	}
++	fu_path_store_set_path(pstore, FU_PATH_KIND_SYSFSDIR, testdir);
++
++	ret = fu_linux_swap_btrfs_has_crypt(pstore,
++					    "3a4b5c6d-7e8f-4a1b-9c2d-3e4f5a6b7c8d",
++					    &encrypted,
++					    &error);
++	g_assert_no_error(error);
++	g_assert_true(ret);
++	g_assert_false(encrypted);
++}
++
+ int
+ main(int argc, char **argv)
+ {
+@@ -241,5 +294,7 @@ main(int argc, char **argv)
+ 	g_test_add_func("/linux-swap/dm-walker/plain", fu_linux_swap_dm_walker_plain_func);
+ 	g_test_add_func("/linux-swap/btrfs/encrypted", fu_linux_swap_btrfs_encrypted_func);
+ 	g_test_add_func("/linux-swap/btrfs/mixed", fu_linux_swap_btrfs_mixed_func);
++	g_test_add_func("/linux-swap/btrfs/lvm-on-luks", fu_linux_swap_btrfs_lvm_on_luks_func);
++	g_test_add_func("/linux-swap/btrfs/mixed-below", fu_linux_swap_btrfs_mixed_below_func);
+ 	return g_test_run();
+ }
+diff --git a/plugins/linux-swap/tests/btrfs/sys/class/block/dm-3/dm/uuid b/plugins/linux-swap/tests/btrfs/sys/class/block/dm-3/dm/uuid
+new file mode 100644
+index 000000000..67273854b
+--- /dev/null
++++ b/plugins/linux-swap/tests/btrfs/sys/class/block/dm-3/dm/uuid
+@@ -0,0 +1 @@
++LVM-fakevguuid-fakelvuuid
+diff --git a/plugins/linux-swap/tests/btrfs/sys/class/block/dm-3/slaves/dm-0/dev b/plugins/linux-swap/tests/btrfs/sys/class/block/dm-3/slaves/dm-0/dev
+new file mode 100644
+index 000000000..0cad52aef
+--- /dev/null
++++ b/plugins/linux-swap/tests/btrfs/sys/class/block/dm-3/slaves/dm-0/dev
+@@ -0,0 +1 @@
++253:0
+diff --git a/plugins/linux-swap/tests/btrfs/sys/class/block/dm-3/slaves/sdc1/dev b/plugins/linux-swap/tests/btrfs/sys/class/block/dm-3/slaves/sdc1/dev
+new file mode 100644
+index 000000000..b95abb52c
+--- /dev/null
++++ b/plugins/linux-swap/tests/btrfs/sys/class/block/dm-3/slaves/sdc1/dev
+@@ -0,0 +1 @@
++8:33
+diff --git a/plugins/linux-swap/tests/btrfs/sys/class/block/dm-4/dm/uuid b/plugins/linux-swap/tests/btrfs/sys/class/block/dm-4/dm/uuid
+new file mode 100644
+index 000000000..55e797d24
+--- /dev/null
++++ b/plugins/linux-swap/tests/btrfs/sys/class/block/dm-4/dm/uuid
+@@ -0,0 +1 @@
++LVM-fakevguuid-otherlvuuid
+diff --git a/plugins/linux-swap/tests/btrfs/sys/class/block/dm-4/slaves/dm-0/dev b/plugins/linux-swap/tests/btrfs/sys/class/block/dm-4/slaves/dm-0/dev
+new file mode 100644
+index 000000000..0cad52aef
+--- /dev/null
++++ b/plugins/linux-swap/tests/btrfs/sys/class/block/dm-4/slaves/dm-0/dev
+@@ -0,0 +1 @@
++253:0
+diff --git a/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/3a4b5c6d-7e8f-4a1b-9c2d-3e4f5a6b7c8d/devices/dm-3/dev b/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/3a4b5c6d-7e8f-4a1b-9c2d-3e4f5a6b7c8d/devices/dm-3/dev
+new file mode 100644
+index 000000000..a7dd78352
+--- /dev/null
++++ b/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/3a4b5c6d-7e8f-4a1b-9c2d-3e4f5a6b7c8d/devices/dm-3/dev
+@@ -0,0 +1 @@
++253:3
+diff --git a/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b/devices/dm-4/dev b/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b/devices/dm-4/dev
+new file mode 100644
+index 000000000..e723ecf7b
+--- /dev/null
++++ b/plugins/linux-swap/tests/btrfs/sys/fs/btrfs/9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b/devices/dm-4/dev
+@@ -0,0 +1 @@
++253:4
 -- 
 2.56.1
 
