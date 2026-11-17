@@ -4,6 +4,12 @@ The packages' .nvchecker.toml files are checked by one nvchecker run, which chec
 and asks for each URL once, instead of pkgctl version check, which runs nvchecker for one package
 after the other: seconds instead of minutes. The results are pkgctl's: its rules for the files, its
 git environment, and its comparison with the pkgver (versions); pkgctl version upgrade stays as it is.
+
+pkgctl doing the same is proposed upstream: archlinux/devtools!354 (issue #279), opened 2026-11-17,
+85 packages in about 6 s instead of 56 s, with the same output. Until a devtools release has it,
+this module replicates pkgctl's rules; once one does, updates can call pkgctl version check again
+and drop config_problem, nvchecker and the comparison, which is what that merge request does.
+https://gitlab.archlinux.org/archlinux/devtools/-/merge_requests/354
 """
 
 import json
