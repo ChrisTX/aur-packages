@@ -25,7 +25,7 @@ jobs:
       - name: Install the tools of the checks
         run: >-
           pacman -Syu --noconfirm --needed git jq prek shfmt shellcheck shellharden ruff biome tombi rumdl typos
-          systemd-lsp editorconfig-checker reuse mypy python-pytest
+          systemd-lsp editorconfig-checker reuse mypy python-pytest bats
       # Mago is an AUR package: its static binary from the release
       - name: Install Mago
         env:
