@@ -1,4 +1,10 @@
-"""The update check: updates (pkgctl version check), and with --state the state file of the tray."""
+"""The update check: updates, and with --state the state file of the tray.
+
+The packages' .nvchecker.toml files are checked by one nvchecker run, which checks them in parallel
+and asks for each URL once, instead of pkgctl version check, which runs nvchecker for one package
+after the other: seconds instead of minutes. The results are pkgctl's: its rules for the files, its
+git environment, and its comparison with the pkgver (versions); pkgctl version upgrade stays as it is.
+"""
 
 import json
 import os
@@ -14,7 +20,9 @@ from pathlib import Path
 from typing import Any
 
 from aur_packages import maintainers, state
+from aur_packages.overrides import vercmp
 from aur_packages.repo import Checkout
+from aur_packages.srcinfo import Srcinfo
 from aur_packages.tools import require
 
 # The transient units of the retries after a rate limit, aur-packages-updates-retry-<time>.timer
@@ -24,6 +32,140 @@ RETRY_UNIT = "aur-packages-updates-retry"
 def checked_packages(checkout: Checkout, packages: Sequence[str]) -> list[str]:
     """The selected packages with an update check (.nvchecker.toml); VCS packages have none."""
     return [p for p in checkout.select(packages) if (checkout.root / p / ".nvchecker.toml").exists()]
+
+
+# Properties pkgctl refuses in a .nvchecker.toml: secrets belong into the keyfile
+RESTRICTED = ("keyfile", "httptoken", "token")
+
+# pkgctl version check's exit statuses
+EXIT_OUT_OF_DATE = 2
+EXIT_FAILURE = 3
+
+
+def config_problem(config: dict[str, Any], pkgbase: str) -> str:
+    """Why pkgctl wouldn't check a package's .nvchecker.toml, empty if it would: only its pkgbase's
+    entry (and pkgbase:… ones), no secrets, and not the cmd source, which runs commands."""
+    for name, entry in config.items():
+        if name != pkgbase and not name.startswith(f"{pkgbase}:"):
+            return f"non-pkgbase section not supported in .nvchecker.toml: [{name}]"
+        if not isinstance(entry, dict):
+            return f"not a section in .nvchecker.toml: {name}"
+        if restricted := [key for key in RESTRICTED if key in entry]:
+            return f"restricted property in .nvchecker.toml: {restricted[0]}"
+        if entry.get("source") == "cmd":
+            return "using the 'cmd' source in .nvchecker.toml is disallowed"
+    if pkgbase not in config:
+        return f"missing pkgbase section in .nvchecker.toml: {pkgbase}"
+    return ""
+
+
+def keyfile() -> Path:
+    """nvchecker's keyfile, which pkgctl passes to it, with the GitHub token."""
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "nvchecker" / "keyfile.toml"
+
+
+def nvchecker(files: Sequence[str]) -> tuple[dict[str, str], dict[str, str], str]:
+    """The upstream versions of the entries, and the errors of those without, from one nvchecker
+    run over the .nvchecker.toml files joined, which config_problem has checked: each has only its
+    pkgbase's sections, so they don't clash. And nvchecker's own error, empty unless it failed as a
+    whole."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="aur-packages-nvchecker.") as folder:
+        file = Path(folder) / "nvchecker.toml"
+        file.write_text("\n".join(files))
+        # As pkgctl: git without the user's configuration, and never asking for credentials
+        environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_GLOBAL": "/dev/null"}
+        environment["GIT_CONFIG_SYSTEM"] = "/dev/null"
+        key = ["--keyfile", str(keyfile())] if keyfile().exists() else []
+        result = subprocess.run(
+            ["nvchecker", "--file", str(file), "--logger", "json", *key],
+            capture_output=True, text=True, env=environment, check=False,
+        )  # fmt: skip
+    found: dict[str, str] = {}
+    errors: dict[str, list[str]] = {}
+    for line in (result.stdout + result.stderr).splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or "name" not in event:
+            continue
+        if event.get("event") == "updated":
+            found[event["name"]] = str(event.get("version"))
+        # As pkgctl's: the errors with a message, each as event: error
+        elif event.get("level") == "error" and event.get("error") is not None:
+            errors.setdefault(event["name"], []).append(f"{event.get('event')}: {event['error']}")
+    failure = ""
+    if result.returncode and not found and not errors:
+        failure = (result.stderr.strip().splitlines() or [f"exit status {result.returncode}"])[-1]
+    return found, {name: "\n".join(lines) for name, lines in errors.items()}, failure
+
+
+def versions(checkout: Checkout, packages: Sequence[str]) -> list[dict[str, Any]] | str:
+    """pkgctl version check --json --verbose of the packages: for each, its pkgbase, status (success,
+    failure), message, out_of_date, local_version (pkgver) and upstream_version; or why nvchecker
+    failed as a whole."""
+    results: dict[str, dict[str, Any]] = {}
+    configs: dict[str, dict[str, Any]] = {}
+    files: list[str] = []
+    pkgvers: dict[str, str] = {}
+    for package in packages:
+        srcinfo = Srcinfo.load(checkout.root / package)
+        pkgbase, pkgver = srcinfo.pkgbase, srcinfo.first("pkgver")
+        pkgvers[pkgbase] = pkgver
+        text = (checkout.root / package / ".nvchecker.toml").read_text()
+        try:
+            config = tomllib.loads(text)
+        except tomllib.TOMLDecodeError as error:
+            problem = f"invalid .nvchecker.toml: {error}"
+        else:
+            problem = config_problem(config, pkgbase)
+        if problem:
+            results[pkgbase] = failure(pkgbase, problem, pkgver)
+        else:
+            configs[pkgbase] = config
+            files.append(text)
+    found, errors, failed = nvchecker(files) if files else ({}, {}, "")
+    if failed:
+        return failed
+    for pkgbase, config in configs.items():
+        pkgver, upstream = pkgvers[pkgbase], found.get(pkgbase)
+        if pkgbase in errors:
+            results[pkgbase] = failure(pkgbase, errors[pkgbase], pkgver)
+            continue
+        if upstream is None:
+            results[pkgbase] = failure(pkgbase, "failed to select pkgbase result from output", pkgver)
+            continue
+        # As pkgctl: the manual source of meta packages is always up to date
+        if upstream == "None" and config[pkgbase].get("source") == "manual":
+            upstream = pkgver
+        try:
+            newer = vercmp(upstream, pkgver)
+        except subprocess.CalledProcessError, ValueError:
+            message = f"failed to compare version {upstream} against {pkgver}"
+            results[pkgbase] = failure(pkgbase, message, pkgver, upstream)
+            continue
+        results[pkgbase] = {
+            "pkgbase": pkgbase,
+            "status": "success" if newer >= 0 else "warning",
+            "message": None if newer >= 0 else "local version is newer than upstream",
+            "out_of_date": newer > 0,
+            "local_version": pkgver,
+            "upstream_version": upstream,
+        }
+    return [results[pkgbase] for pkgbase in pkgvers]
+
+
+def failure(pkgbase: str, message: str, pkgver: str, upstream: str | None = None) -> dict[str, Any]:
+    return {
+        "pkgbase": pkgbase,
+        "status": "failure",
+        "message": message,
+        "out_of_date": False,
+        "local_version": pkgver or None,
+        "upstream_version": upstream,
+    }
 
 
 def github_token() -> str:
@@ -75,18 +217,11 @@ def short(message: str) -> str:
     return message.split("\n", 1)[0].removeprefix("unexpected error happened: ")
 
 
-def check(packages: Sequence[str]) -> dict[str, Any]:
-    """What pkgctl version check finds: the outdated packages, failures, rate limits, an error."""
-    result = subprocess.run(
-        ["pkgctl", "version", "check", "--json", *packages], capture_output=True, text=True, check=False
-    )
-    try:
-        results = json.loads(result.stdout) if result.returncode == 0 else None
-    except json.JSONDecodeError:
-        results = None
-    if not isinstance(results, list):
-        last = (result.stderr.strip().splitlines() or [""])[-1]
-        return {"error": f"pkgctl version check failed: {last}"}
+def check(checkout: Checkout, packages: Sequence[str]) -> dict[str, Any]:
+    """What the check finds: the outdated packages, failures, rate limits, an error."""
+    results = versions(checkout, packages)
+    if isinstance(results, str):
+        return {"error": f"nvchecker failed: {results}"}
     failed = [r for r in results if r.get("status") == "failure"]
     messages = {r["pkgbase"]: r.get("message") or "" for r in failed}
     every_failed = packages and len(failed) == len(packages)
@@ -115,7 +250,7 @@ def merge(new: dict[str, Any], previous: dict[str, Any], names: list[str], check
     """The new state: this check's findings, and the earlier ones of the packages it didn't learn about.
 
     Packages that weren't checked, or whose check failed, keep their entries, so a rate limit or a
-    missing network doesn't make updates disappear. By name (pkgbase), as pkgctl reports them.
+    missing network doesn't make updates disappear. By name (pkgbase), as versions reports them.
     """
     known = [n for n in names if n not in new.get("failed", [])] if new.get("results") else []
     tried = names if new.get("results") else []
@@ -201,7 +336,7 @@ def run_state(checkout: Checkout, packages: Sequence[str], schedule: bool) -> in
         except json.JSONDecodeError:
             previous = {}
         previous = previous if isinstance(previous, dict) else {}
-        new = check(checked)
+        new = check(checkout, checked)
         current = merge(new, previous, [p.rsplit("/", 1)[-1] for p in checked], checkout.root)
         # The notes on the maintainers on the AUR, of all packages; without the AUR's answer, the old ones
         try:
@@ -235,10 +370,37 @@ def run_state(checkout: Checkout, packages: Sequence[str], schedule: bool) -> in
 
 def run_updates(checkout: Checkout, packages: Sequence[str], write_state: bool, retry: bool) -> int:
     """Show which packages have a newer upstream version, or with write_state, write the state file."""
-    require("updates", [("pkgctl", "devtools"), ("nvchecker", "nvchecker")])
+    require("updates", [("nvchecker", "nvchecker"), ("vercmp", "pacman")])
     if write_state:
         return run_state(checkout, packages, retry)
     checked = checked_packages(checkout, packages)
     if not checked:
         return 0
-    return subprocess.run(["pkgctl", "version", "check", *checked], check=False).returncode
+    results = versions(checkout, checked)
+    if isinstance(results, str):
+        print(f"nvchecker failed: {results}", file=sys.stderr)
+        return EXIT_FAILURE
+    for line in report(results):
+        print(line)
+    # As pkgctl version check: failures, else outdated packages
+    if any(r["status"] == "failure" for r in results):
+        return EXIT_FAILURE
+    return EXIT_OUT_OF_DATE if any(r["out_of_date"] for r in results) else 0
+
+
+def report(results: list[dict[str, Any]]) -> list[str]:
+    """pkgctl version check's sections, without its colours: failures, outdated packages, summary."""
+    failed = [r for r in results if r["status"] == "failure"]
+    outdated = [r for r in results if r["out_of_date"]]
+    lines = []
+    if failed:
+        lines += ["Failure"] + [f"  {r['pkgbase']}: {short(r['message'])}" for r in failed]
+    if outdated:
+        lines += ["Out-of-date"] + [
+            f"  {r['pkgbase']}: upgrade from version {r['local_version']} to {r['upstream_version']}"
+            for r in outdated
+        ]
+    current = len(results) - len(failed) - len(outdated)
+    counts = [("Up-to-date", current), ("Failure", len(failed)), ("Out-of-date", len(outdated))]
+    lines.append("Summary: " + ", ".join(f"{name} {count}" for name, count in counts if count))
+    return lines

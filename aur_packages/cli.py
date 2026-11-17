@@ -222,8 +222,9 @@ for _command in (
     Command(
         "updates",
         "",
-        "Show which packages have a newer upstream version with the .nvchecker.toml of each (pkgctl "
-        "version check), without changing anything. --state writes the result to "
+        "Show which packages have a newer upstream version with the .nvchecker.toml of each, without "
+        "changing anything: the results of pkgctl version check (its rules for the files, its exit "
+        "statuses), from one nvchecker run that checks them in parallel. --state writes the result to "
         "~/.local/state/aur-packages/updates.json for the tray icon instead (see tray), keeping the "
         "entries of packages that weren't checked or whose check failed; --state --retry also checks "
         "the packages that hit GitHub's rate limit again once it resets (systemd-run)",
