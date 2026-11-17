@@ -334,3 +334,14 @@ def test_misplaced(tmp_path: Path) -> None:
     assert "nor does the AUR" in notes["overrides/gone"]
     assert "move it to overrides/" in notes["local/promoted"]
     assert "top" not in asked
+
+
+@pytest.mark.parametrize(("line", "signs"), [("BUILDENV+=(sign)", True), ("BUILDENV+=(sign '!sign')", False)])
+def test_makepkg_signs_as_makepkg_reads_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, line: str, signs: bool
+) -> None:
+    # The user's makepkg.conf, after the system's: the last of sign and !sign wins
+    (tmp_path / "pacman").mkdir()
+    (tmp_path / "pacman" / "makepkg.conf").write_text(line + "\n")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert build.makepkg_signs() is signs

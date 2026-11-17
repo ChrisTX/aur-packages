@@ -628,8 +628,9 @@ class SystemRepo:
 
 
 def makepkg_signs() -> bool:
-    """Whether makepkg signs: sign in BUILDENV, from its configuration as makepkg loads it."""
-    script = 'set +u; source /usr/share/makepkg/util.sh; load_makepkg_config; [[ " ${BUILDENV[*]} " == *" sign "* ]]'
+    """Whether makepkg signs: sign in BUILDENV, from its configuration as makepkg loads it, and as
+    makepkg reads it, the last of sign and !sign winning (e.g. BUILDENV+=(sign) in the user's)."""
+    script = "set +u; source /usr/share/makepkg/util.sh; load_makepkg_config; check_buildenv sign y"
     return subprocess.run(["bash", "-c", script], capture_output=True, check=False).returncode == 0
 
 
