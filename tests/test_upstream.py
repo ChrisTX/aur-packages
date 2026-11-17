@@ -137,3 +137,37 @@ def test_sources() -> None:
         "\tsource = git+https://github.com/e/f.git\n"
     )
     assert upstream.sources(srcinfo) == {"a/b": "1.0", "c/d": "0123abc", "e/f": ""}
+
+
+def test_once_asks_once_in_parallel() -> None:
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    calls = []
+
+    @upstream.once
+    def lookup(url: str) -> str:
+        calls.append(url)
+        time.sleep(0.05)
+        return url.upper()
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lookup, ["a"] * 8 + ["b"]))
+    assert results == ["A"] * 8 + ["B"]
+    assert sorted(calls) == ["a", "b"]
+    upstream.forget()
+    assert lookup("a") == "A"
+    assert calls.count("a") == 2
+
+
+def test_once_passes_errors_on() -> None:
+    @upstream.once
+    def broken(url: str) -> str:
+        raise ValueError(url)
+
+    with pytest.raises(ValueError, match="x"):
+        broken("x")
+    # The failure is kept like an answer, until forget
+    with pytest.raises(ValueError, match="x"):
+        broken("x")
+    upstream.forget()

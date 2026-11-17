@@ -9,9 +9,11 @@ its source, or in a git submodule of that repository from the other one (SourceP
 import json as jsonlib
 import re
 import sys
-from collections.abc import Sequence
+import threading
+from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from functools import cache
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,9 @@ from aur_packages.srcinfo import Srcinfo
 from aur_packages.web import request, request_json
 
 API = "https://api.github.com/repos"
+# The references looked up at once: each one's requests follow each other, the references don't.
+# GitHub allows 100 concurrent requests, and 5000 an hour with a token.
+WORKERS = 16
 NAME = r"[A-Za-z0-9_.-]+"
 # https://github.com/owner/repo/pull/1 or /issues/1, owner/repo#1, a bare #1 (the package's own
 # repository), and commits as owner/repo@0e3f7dbc
@@ -155,6 +160,41 @@ def directives(pkgbuild: str, own: str) -> tuple[list[Directive], list[tuple[int
 # requests that failed in this one
 persistent: dict[str, Any] | None = None
 failed: list[str] = []
+# Guards both, and the answers of once, for the lookups in parallel (states)
+lock = threading.Lock()
+# The answers of the functions of once, which forget clears
+caches: list[dict[Any, Any]] = []
+
+
+def once[**P, R](function: Callable[P, R]) -> Callable[P, R]:
+    """functools.cache for the lookups in parallel: a call already running is waited for rather than
+    made again, so each URL is asked for once. forget clears them all."""
+    answers: dict[Any, Future[R]] = {}
+    caches.append(answers)
+
+    @wraps(function)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        key = (args, tuple(sorted(kwargs.items())))
+        with lock:
+            future = answers.get(key)
+            mine = future is None
+            if future is None:
+                future = answers[key] = Future()
+        if not mine:
+            return future.result()
+        try:
+            future.set_result(function(*args, **kwargs))
+        except BaseException as error:  # noqa: BLE001 (passed on to the waiting threads, and raised)
+            future.set_exception(error)
+        return future.result()
+
+    return wrapper
+
+
+def forget() -> None:
+    with lock:
+        for answers in caches:
+            answers.clear()
 
 
 def final(url: str, data: Any) -> dict[str, Any] | None:
@@ -174,15 +214,17 @@ def final(url: str, data: Any) -> dict[str, Any] | None:
     return None
 
 
-@cache
+@once
 def json(url: str) -> Any:
-    if persistent is not None and url in persistent:
-        return persistent[url]
+    with lock:
+        if persistent is not None and url in persistent:
+            return persistent[url]
     data = request_json(url)
-    if data is None:
-        failed.append(url)
-    elif persistent is not None and (kept := final(url, data)) is not None:
-        persistent[url] = kept
+    with lock:
+        if data is None:
+            failed.append(url)
+        elif persistent is not None and (kept := final(url, data)) is not None:
+            persistent[url] = kept
     return data
 
 
@@ -194,7 +236,7 @@ def contains(repository: str, commit: str, ref: str) -> bool | None:
     return comparison.get("status") in ("ahead", "identical")
 
 
-@cache
+@once
 def submodule(repository: str, ref: str, other: str) -> str:
     """The commit a repository's git submodule of another repository has at a ref, empty if none."""
     gitmodules = request(f"https://raw.githubusercontent.com/{repository}/{ref}/.gitmodules")
@@ -212,7 +254,7 @@ def submodule(repository: str, ref: str, other: str) -> str:
     return ""
 
 
-@cache
+@once
 def latest_release(repository: str) -> str:
     """The tag of a repository's newest release, prereleases included, else of its newest tag."""
     releases = json(f"{API}/{repository}/releases?per_page=1")
@@ -291,6 +333,15 @@ def state(
     return "open (draft)" if pull.get("draft") else "open", False
 
 
+Lookup = tuple[Reference, str, str, dict[str, str]]
+
+
+def states(lookups: Iterable[Lookup]) -> list[tuple[str, bool]]:
+    """The states of references (state's arguments), looked up in parallel, in their order."""
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        return list(pool.map(lambda lookup: state(*lookup), lookups))
+
+
 def note(text: str, packaged: bool) -> str | None:
     """What a directive's reference in this state wants done, if anything."""
     if packaged:
@@ -331,23 +382,28 @@ def notes(checkout: Checkout, cache_file: Path) -> list[dict[str, str]] | None:
         loaded = {}
     persistent = loaded if isinstance(loaded, dict) else {}
     failed.clear()
-    json.cache_clear()
+    forget()
     found = []
     try:
+        wanted: list[tuple[str, str, Reference]] = []
+        lookups: list[Lookup] = []
         for name in checkout.package_dirs():
             parsed, own, version, others = package_directives(checkout, name)
             for entry in parsed:
                 for reference in entry.references:
-                    if message := note(*state(reference, own, version, others)):
-                        found.append(
-                            {"folder": name, "reference": str(reference), "url": url(reference),
-                             "message": f"{entry.verb}: {message}"}
-                        )  # fmt: skip
+                    wanted.append((name, entry.verb, reference))
+                    lookups.append((reference, own, version, others))
+        for (name, verb, reference), result in zip(wanted, states(lookups), strict=True):
+            if message := note(*result):
+                found.append(
+                    {"folder": name, "reference": str(reference), "url": url(reference),
+                     "message": f"{verb}: {message}"}
+                )  # fmt: skip
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(jsonlib.dumps(persistent, indent=1, sort_keys=True) + "\n")
     finally:
         persistent = None
-        json.cache_clear()
+        forget()
     return None if failed else found
 
 
@@ -372,15 +428,18 @@ def run_upstream(checkout: Checkout, packages: Sequence[str], check: bool = Fals
     if check:
         return run_check(checkout, packages)
     wanted = []
+    rows: list[tuple[str, Reference, str]] = []
+    lookups: list[Lookup] = []
     for name in checkout.select(packages):
         parsed, own, version, others = package_directives(checkout, name)
         verbs = {reference: entry.verb for entry in parsed for reference in entry.references}
         for reference in references((checkout.root / name / "PKGBUILD").read_text(), own):
-            text, packaged = state(reference, own, version, others)
-            verb = verbs.get(reference, "")
-            print(f"{name:<38} {reference!s:<44} {verb:<10} {text}")
-            if verb and (message := note(text, packaged)):
-                wanted.append(f"{name}: {reference} ({verb}): {message}")
+            rows.append((name, reference, verbs.get(reference, "")))
+            lookups.append((reference, own, version, others))
+    for (name, reference, verb), (text, packaged) in zip(rows, states(lookups), strict=True):
+        print(f"{name:<38} {reference!s:<44} {verb:<10} {text}")
+        if verb and (message := note(text, packaged)):
+            wanted.append(f"{name}: {reference} ({verb}): {message}")
     if wanted:
         sys.stdout.flush()
         print("\nWhat the upstream: directives want done:", file=sys.stderr)
