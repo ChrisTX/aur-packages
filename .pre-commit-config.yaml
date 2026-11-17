@@ -283,6 +283,13 @@ repos:
         entry: pytest -q
         files: ^(aur-packages|aur_packages/.*\.py|tests/.*\.py|pyproject\.toml)$
         pass_filenames: false
+      # The PKGBUILDs' helpers that fail silently when they break, against every copy
+      - id: bats
+        name: tests of the PKGBUILDs' helpers (bats)
+        language: system
+        entry: bats tests/pkgbuild
+        files: ((^|/)PKGBUILD|^tests/pkgbuild/.*\.bats)$
+        pass_filenames: false
       - id: reuse-lint
         name: reuse lint (reuse)
         language: system
