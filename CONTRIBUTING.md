@@ -66,6 +66,19 @@ The dependencies of this repository and of the AUR that the system's repository 
 
 The signatures use the key of `$GPGKEY` in the environment, else gpg's default key, as `aur build --sign` and `repo-add --sign` do; neither reads the `GPGKEY` of makepkg.conf. A user that signs the repository with a key of its own sets it as `default-key` in its `~/.gnupg/gpg.conf`, which works without a login shell as well, and keeps `GPGKEY` out of `/etc/makepkg.conf`, where it would be every user's (makepkg reads `~/.config/pacman/makepkg.conf` per user).
 
+For makepkg to sign as well, which `build --add` and `sysupgrade` then follow, its `~/.config/pacman/makepkg.conf` adds `sign` to `BUILDENV` only with its own keyring. `aur sync -K` runs makepkg with the keyring of the sources' keys (`GNUPGHOME`, see [Building and checking](#building-and-checking)), which doesn't have the signing key, so makepkg would stop with "The key … does not exist in your keyring"; `aur sync -S` signs those packages itself, with the default key. The user's file is bash, sourced after the system's, and the last of `sign` and `!sign` wins:
+
+```bash
+#-- Specify a key to use for package signing
+GPGKEY="<fingerprint>"
+# Sign with the own keyring only: aur sync -K runs makepkg with its keyring
+# for the sources' keys (GNUPGHOME), which doesn't have the signing key;
+# aur sync -S signs those packages itself.
+if [[ ${GNUPGHOME:-$HOME/.gnupg} -ef $HOME/.gnupg ]]; then
+  BUILDENV+=(sign)
+fi
+```
+
 #### Commands run as root
 
 The builds of `build` and `sysupgrade` go through aurutils, which runs its chroot tools as root with `sudo`, or what `$AUR_PACMAN_AUTH` names. A user without a password prompt, like a dedicated aurutils user, needs the sudoers rules of aurutils' manual pages, which change with its releases, so they aren't repeated here:
