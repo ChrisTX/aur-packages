@@ -144,6 +144,7 @@ HOOK_TOOLS = (
     ("reuse", "reuse"),
     ("mypy", "mypy"),
     ("pytest", "python-pytest"),
+    ("bats", "bats"),
     ("mago", "mago"),
     ("pwsh", "powershell"),
 )
