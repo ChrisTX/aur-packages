@@ -1,0 +1,14 @@
+pkgbase = lua-resty-core
+	pkgdesc = The Lua API of OpenResty's ngx_http_lua module, implemented with LuaJIT's FFI
+	pkgver = 0.1.35rc2
+	pkgrel = 1
+	epoch = 1
+	url = https://github.com/openresty/lua-resty-core
+	arch = any
+	license = BSD-2-Clause
+	depends = lua-resty-lrucache
+	source = lua-resty-core-0.1.35rc2.tar.gz::https://github.com/openresty/lua-resty-core/archive/refs/tags/v0.1.35rc2.tar.gz
+	sha512sums = 6c10895c4484628e081b0f4da6d4ab396118cfbb40eba03d15baf9b8c4124e02c6927103b6e3ee60fa7b049483cd76523bf56cd99ffce2f14e3395d0212db3a5
+	b2sums = 95c52593543d06385b2dee49e7dd71ce29fe436d48e22d2df2454e9017af88e2890ff11eabe1699d464ed9bf04bef10ab3732be26bce95e1f9f24cfa47c1fa83
+
+pkgname = lua-resty-core

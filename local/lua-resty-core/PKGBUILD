@@ -1,0 +1,43 @@
+# Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>
+# Contributor: Ahmad Hasan Mubashshir <ahmubashshir at gmail dot com>
+# shellcheck disable=SC2034,SC2154
+# shellcheck shell=bash
+
+pkgname=lua-resty-core
+# The release OpenResty 1.31.8.1 bundles with lua-nginx-module 0.10.32rc7 (nginx-mod-lua), whose
+# exact version it requires; OpenResty's releases take upstream's rc tags
+pkgver=0.1.35rc2
+# Above the AUR's 1:0.1.32R1-1, for lua-nginx-module 0.10.29: our build, for nginx-mod-lua,
+# until the AUR's next release
+pkgrel=1
+# The AUR's epoch, without which our version would be below its
+epoch=1
+pkgdesc="The Lua API of OpenResty's ngx_http_lua module, implemented with LuaJIT's FFI"
+arch=(any)
+url="https://github.com/openresty/lua-resty-core"
+license=(BSD-2-Clause)
+# The Lua half of nginx-mod-lua, which brings OpenResty's LuaJIT and depends on this package;
+# upstream's tests need the module, so they run in its check()
+depends=(lua-resty-lrucache)
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha512sums=('6c10895c4484628e081b0f4da6d4ab396118cfbb40eba03d15baf9b8c4124e02c6927103b6e3ee60fa7b049483cd76523bf56cd99ffce2f14e3395d0212db3a5')
+b2sums=('95c52593543d06385b2dee49e7dd71ce29fe436d48e22d2df2454e9017af88e2890ff11eabe1699d464ed9bf04bef10ab3732be26bce95e1f9f24cfa47c1fa83')
+
+package() {
+  cd "$pkgname-$pkgver/lib" || exit
+  # As upstream's Makefile installs them, for LuaJIT's search path, but not executable
+  local _file
+  while IFS= read -r -d '' _file; do
+    install -Dm644 "$_file" "$pkgdir/usr/share/lua/5.1/$_file"
+  done < <(find . -name '*.lua' -print0)
+  # The API documentation, next to the modules upstream
+  while IFS= read -r -d '' _file; do
+    install -Dm644 "$_file" "$pkgdir/usr/share/doc/$pkgname/$_file"
+  done < <(find . -name '*.md' -print0)
+
+  cd .. || exit
+  install -Dm644 -t "$pkgdir/usr/share/doc/$pkgname" README.markdown
+  # The licence is in the README
+  sed -n '/^Copyright and License$/,/^\[Back to TOC\]/{/^\[Back to TOC\]/d;p}' README.markdown |
+    install -Dm644 /dev/stdin "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
