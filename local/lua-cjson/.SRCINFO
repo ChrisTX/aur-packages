@@ -1,0 +1,18 @@
+pkgbase = lua-cjson
+	pkgdesc = Fast JSON encoding and decoding for LuaJIT: OpenResty's lua-cjson
+	pkgver = 2.1.0.20
+	pkgrel = 1.1
+	url = https://github.com/openresty/lua-cjson
+	arch = x86_64
+	license = MIT
+	checkdepends = perl-ipc-run3
+	checkdepends = perl-test-base
+	checkdepends = perl-test-longstring
+	makedepends = luajit-openresty
+	source = lua-cjson-2.1.0.20.tar.gz::https://github.com/openresty/lua-cjson/archive/refs/tags/2.1.0.20.tar.gz
+	sha512sums = 513451522fa0e1674c51315ac620a47740dd899a22f9fa7208a45b25438053787955948a1a811095f5426356dc66b6e6cfcb00cd4b2b822e0ead1fb838c0eeb8
+	b2sums = 739c90fe7a0d1ca3d37b4c2edd4ca136e1289b814ce412406a29bd7c2d9ee3c2cca9da0d06dc91223ca26cd502ce99542d1c92f6a330cf29ad0adf15dfba08a9
+
+pkgname = lua51-cjson
+	depends = glibc
+	depends = luajit

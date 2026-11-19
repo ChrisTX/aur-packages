@@ -1,0 +1,61 @@
+# Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>
+# Contributor: colophony
+# Contributor: speps
+# shellcheck disable=SC2034,SC2154
+# shellcheck shell=bash
+
+# OpenResty's lua-cjson, for LuaJIT only: the AUR's lua-cjson builds it for each Lua version, its
+# lua51-cjson for LuaJIT's ABI, which this package takes the place of
+pkgbase=lua-cjson
+pkgname=(lua51-cjson)
+# The release OpenResty 1.31.8.1 bundles
+pkgver=2.1.0.20
+# Above the AUR's 2.1.0.20-1: our build, against OpenResty's LuaJIT for nginx-mod-lua, until the
+# AUR's next release
+pkgrel=1.1
+pkgdesc="Fast JSON encoding and decoding for LuaJIT: OpenResty's lua-cjson"
+arch=(x86_64)
+url="https://github.com/openresty/lua-cjson"
+license=(MIT)
+# OpenResty's LuaJIT, whose headers it's built against; the module works with Arch Linux's too
+makedepends=(luajit-openresty)
+# Upstream's tests, besides test.lua: Test::Base, which runs code with luajit
+checkdepends=(
+  perl-ipc-run3
+  perl-test-base
+  perl-test-longstring
+)
+source=("lua-cjson-$pkgver.tar.gz::$url/archive/refs/tags/$pkgver.tar.gz")
+sha512sums=('513451522fa0e1674c51315ac620a47740dd899a22f9fa7208a45b25438053787955948a1a811095f5426356dc66b6e6cfcb00cd4b2b822e0ead1fb838c0eeb8')
+b2sums=('739c90fe7a0d1ca3d37b4c2edd4ca136e1289b814ce412406a29bd7c2d9ee3c2cca9da0d06dc91223ca26cd502ce99542d1c92f6a330cf29ad0adf15dfba08a9')
+
+build() {
+  cd "lua-cjson-$pkgver" || exit
+  # Our flags in place of upstream's (-O3 -Wall -pedantic -g), with its release define
+  make LUA_INCLUDE_DIR=/usr/include/luajit-2.1 CFLAGS="$CFLAGS -DNDEBUG" LDFLAGS="$LDFLAGS"
+}
+
+check() {
+  cd "lua-cjson-$pkgver/tests" || exit
+  # The module just built (../cjson.so) and its Lua helpers (../lua), as runtests.sh does, with
+  # the UTF-8 test data it generates
+  ./genutf8.pl
+  LUA_CPATH='../?.so' LUA_PATH='../lua/?.lua;;' luajit test.lua
+
+  # The Test::Base tests from the source tree's root, as upstream's CI runs them (they load
+  # tests.sort_json), with the module where their TestLua.pm looks for it, the folder above (../?.so)
+  cd .. || exit
+  ln -sf "lua-cjson-$pkgver/cjson.so" "$srcdir/cjson.so"
+  prove -I tests tests
+}
+
+package_lua51-cjson() {
+  depends=(glibc luajit)
+  cd "lua-cjson-$pkgver" || exit
+  install -Dm755 -t "$pkgdir/usr/lib/lua/5.1" cjson.so
+  # Its Lua library cjson.util, as upstream's install-extra installs it. Not its lua2json and
+  # json2lua scripts, which run lua, Lua 5.4 on Arch Linux, which can't load this module
+  install -Dm644 -t "$pkgdir/usr/share/lua/5.1/cjson" lua/cjson/util.lua
+  install -Dm644 -t "$pkgdir/usr/share/doc/${FUNCNAME[0]#package_}" README.md manual.adoc NEWS
+  install -Dm644 -t "$pkgdir/usr/share/licenses/${FUNCNAME[0]#package_}" LICENSE
+}
