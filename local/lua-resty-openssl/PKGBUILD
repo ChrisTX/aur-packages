@@ -1,0 +1,101 @@
+# Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>
+# shellcheck disable=SC2034,SC2154
+# shellcheck shell=bash
+
+pkgname=lua-resty-openssl
+pkgver=1.10.0
+pkgrel=1
+pkgdesc="OpenSSL bindings for LuaJIT and OpenResty's ngx_http_lua module, with LuaJIT's FFI"
+arch=(any)
+url="https://github.com/fffonion/lua-resty-openssl"
+license=(BSD-2-Clause)
+# OpenSSL's libcrypto and libssl through the FFI: those nginx is linked with in nginx, else loaded
+# by name. It recognises OpenSSL up to 4.x. Its LuaJIT is the one nginx-mod-lua brings, like the
+# other lua-resty packages': pacman takes luajit for Arch Linux's package, which conflicts with
+# OpenResty's
+depends=(openssl)
+optdepends=('lua51-cjson: for JWK (resty.openssl.pkey), which needs a JSON library')
+# Upstream's tests, in nginx with the module: Test::Nginx's Perl modules, and cjson and
+# lua-resty-string, which they use
+checkdepends=(
+  lua-resty-string
+  lua51-cjson
+  nginx
+  nginx-mod-lua
+  perl-http-response-encoding
+  perl-ipc-run
+  perl-libwww
+  perl-list-moreutils
+  perl-test-base
+  perl-test-longstring
+  perl-text-diff
+  perl-uri
+)
+# Test::Nginx, upstream's test scaffold, for check()
+_testnginxver=0.32
+source=(
+  "$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/$pkgver.tar.gz"
+  "test-nginx-$_testnginxver.tar.gz::https://github.com/openresty/test-nginx/archive/refs/tags/v$_testnginxver.tar.gz"
+)
+sha512sums=('ce2971276fa5daa9a88d8b38b717277e7df1798fc8b49b778e8f5d99acf405286688377671e18cc66959d33c6fe63c5a056838b7d3b347ec88343b24eb3a929b'
+  'c8ddec5dc21c23ded4ea974f4d6fca01ea498f728e5f8dc87224b1151bf9fcfb1921d971359ee79e3984b23fd6cb2f510259b077f79b867b95a437d28af48b97')
+b2sums=('9c6a365a5784afe7797081953f8b647be832a59c1d44bbfeb85b1775606c9a2c192a8d9d55c0560320168a091f4e5d69c8dcf9eb67c2aedcc701e2459b151f4e'
+  '5b98a9764d2fb322199ecf839feed2d995f4ab3e2c9488eebe698fad00e852c45862b94774232d4d8043e2850018c1699ea055a0da211b88211eddfc26e380ed')
+
+# Leaves out tests of upstream's suite in DIR: a file (NAME) or blocks of it (NAME:N,N,…). A file
+# with blocks left out runs without a plan, as the plans count the tests of every block
+_skip_tests() {
+  local _dir=$1 _entry _file _blocks _before _after
+  shift
+  for _entry; do
+    _file=$_dir/t/${_entry%%:*}.t
+    if [[ $_entry != *:* ]]; then
+      rm "$_file"
+      continue
+    fi
+    _blocks=${_entry#*:}
+    _before=$(grep -c '^--- SKIP$' "$_file" || true)
+    awk -v list=",$_blocks," '
+      /^ *plan *\(? *tests *=>.*; *$/ { sub(/plan.*/, "plan(\"no_plan\");") }
+      { print }
+      /^=== TEST [0-9]+:/ { n = $3; sub(":", "", n); if (index(list, "," n ",")) print "--- SKIP" }
+    ' "$_file" >"$_file.new"
+    mv "$_file.new" "$_file"
+    # Every block given exists: a new version may have renumbered them
+    _after=$(grep -c '^--- SKIP$' "$_file")
+    if ((_after - _before != $(tr ',' '\n' <<<"$_blocks" | wc -l))); then
+      printf '%s: not every block of %s found\n' "$_file" "$_blocks" >&2
+      return 1
+    fi
+  done
+}
+
+prepare() {
+  # ngx.pipe, which needs OpenResty's patch to nginx (socket_cloexec), as nginx-mod-lua's tests do:
+  # the file's only test, so the file, as a file whose tests are all skipped fails (no tests run)
+  _skip_tests "$pkgname-$pkgver" openssl/ssl/ssl_ctx_server
+}
+
+check() {
+  cd "$pkgname-$pkgver" || exit
+  # The installed module, in random ports and server roots, for parallel tests
+  local _modules=/usr/lib/nginx/modules
+  local -x TEST_NGINX_BINARY=/usr/bin/nginx TEST_NGINX_RANDOMIZE=1
+  local -x TEST_NGINX_LOAD_MODULES="$_modules/ndk_http_module.so $_modules/ngx_http_lua_module.so"
+  # Without the nginx modules upstream's CI builds in for some of its tests, the C module of
+  # lua-resty-openssl-aux-module and Kong's lua-kong-nginx-module: their switches, as its CI uses
+  # them. The FIPS tests only run with TEST_NGINX_FIPS, for an OpenSSL with its FIPS provider
+  local -x CI_SKIP_NGINX_C=1 CI_SKIP_KONG_SSL_FUNCS=1
+  prove -I "$srcdir/test-nginx-$_testnginxver/lib" -j "$(nproc)" -r t
+}
+
+package() {
+  cd "$pkgname-$pkgver" || exit
+  # As upstream's Makefile installs them, for LuaJIT's search path, but not executable
+  local _file
+  while IFS= read -r -d '' _file; do
+    install -Dm644 "$_file" "$pkgdir/usr/share/lua/5.1/${_file#lib/}"
+  done < <(find lib -name '*.lua' -print0)
+  install -Dm644 -t "$pkgdir/usr/share/doc/$pkgname" README.md CHANGELOG.md
+  install -Dm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}
