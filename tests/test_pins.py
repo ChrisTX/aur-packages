@@ -65,3 +65,22 @@ def test_set_pin_changes_its_line_only(tmp_path: Path) -> None:
     pins.set_pin(pkgbuild, "pkgver", "20261115")
     assert pkgbuild.read_text().startswith("pkgver=20261115\npkgrel=1\n_commit_a=x\n")
     assert pins.pin_value(pkgbuild, "_commit_c") == "ccc"
+
+
+def test_next_pkgrel() -> None:
+    assert pins.next_pkgrel("3") == "1"
+    # Above another package at the same pkgver (X.1): below that one's release of the new pkgver too
+    assert pins.next_pkgrel("1.1") == "0.1"
+    assert pins.next_pkgrel("0.1") == "0.1"
+
+
+def test_set_version(tmp_path: Path) -> None:
+    pkgbuild = tmp_path / "PKGBUILD"
+    pkgbuild.write_text("pkgname=x\npkgver=1.2\n# why\npkgrel=1.1\n_tag=v1.2\n")
+    assert pins.set_version(pkgbuild, "1.2", "1.3", "0.1") == ""
+    assert pkgbuild.read_text() == "pkgname=x\npkgver=1.3\n# why\npkgrel=0.1\n_tag=v1.2\n"
+    pkgbuild.write_text("_ver=1.2\npkgver=$_ver\npkgrel=1\n")
+    assert "non-standard pkgver" in pins.set_version(pkgbuild, "1.2", "1.3", "1")
+    pkgbuild.write_text("pkgver=1.2\npkgrel=1\npkgver() {\n  echo 1.2\n}\n")
+    assert "pkgver() function" in pins.set_version(pkgbuild, "1.2", "1.3", "1")
+    assert pkgbuild.read_text().startswith("pkgver=1.2\n")

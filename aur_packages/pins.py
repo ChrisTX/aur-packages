@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 from aur_packages import upstream
-from aur_packages.git import paths
 from aur_packages.repo import Checkout
 from aur_packages.srcinfo import Srcinfo
 from aur_packages.tools import require
@@ -287,50 +286,92 @@ def run_pins(checkout: Checkout, packages: Sequence[str]) -> int:
     return status
 
 
-def run_upgrade(checkout: Checkout, packages: Sequence[str]) -> int:
-    """Upgrade packages to their latest upstream version (pkgctl version upgrade), with their pins.
+def next_pkgrel(pkgrel: str) -> str:
+    """The pkgrel of a new pkgver: 1, or 0.1 for one that sits above another package at the same pkgver
+    (X.1, see CONTRIBUTING.md), so that it stays below that one's release of the new pkgver too."""
+    return "1" if re.fullmatch(r"[0-9]+", pkgrel) else "0.1"
 
-    pkgctl bumps pkgver but leaves the pins at the old release, so they move to the new version's
-    before the checksums are taken, so that the sources and sums match the new version. Fails if a
-    pin couldn't be moved, as the package would build the old sources under the new version.
+
+def set_version(pkgbuild: Path, pkgver: str, new: str, pkgrel: str) -> str:
+    """Set pkgver and pkgrel in a PKGBUILD, as pkgctl version upgrade does: only on lines that hold them
+    as they are (pkgver=1.2, not pkgver=$_ver), and not with a pkgver() function, which sets its own.
+    Why it can't, empty if it did."""
+    text = pkgbuild.read_text()
+    if re.search(r"^pkgver\(\)", text, re.MULTILINE):
+        return "it has a pkgver() function"
+    old = re.compile(rf"^pkgver=([\"']?){re.escape(pkgver)}\1$", re.MULTILINE)
+    if len(old.findall(text)) != 1:
+        return f"no pkgver={pkgver} line of its own (non-standard pkgver declaration)"
+    if len(re.findall(r"^pkgrel=[0-9.]+$", text, re.MULTILINE)) != 1:
+        return "no pkgrel= line of its own (non-standard pkgrel declaration)"
+    text = old.sub(lambda match: f"pkgver={match[1]}{new}{match[1]}", text)
+    pkgbuild.write_text(re.sub(r"^pkgrel=[0-9.]+$", f"pkgrel={pkgrel}", text, flags=re.MULTILINE))
+    return ""
+
+
+def run_upgrade(checkout: Checkout, packages: Sequence[str]) -> int:
+    """Upgrade the outdated packages to their latest upstream version, with their pins.
+
+    Which ones are outdated comes from the update check (one nvchecker run, see updates.versions); each
+    then gets the new pkgver and pkgrel 1 (or 0.1, next_pkgrel), as pkgctl version upgrade would, its
+    pins moved to the new version's, its checksums taken, and its .SRCINFO. Fails if a pin couldn't be
+    moved, as the package would build the old sources under the new version.
     """
     require(
         "upgrade",
         [
-            ("pkgctl", "devtools"),
             ("nvchecker", "nvchecker"),
+            ("vercmp", "pacman"),
             ("updpkgsums", "pacman-contrib"),
             ("shfmt", "shfmt"),
         ],
     )
-    from aur_packages.updates import checked_packages
+    from aur_packages import updates
 
-    checked = checked_packages(checkout, packages)
+    checked = updates.checked_packages(checkout, packages)
     if not checked:
         return 0
-    subprocess.run(["pkgctl", "version", "upgrade", *checked], check=False)
-    changed = paths("diff", "--name-only", "--", *(f"{p}/PKGBUILD" for p in checked))
+    results = updates.versions(checkout, checked)
+    if isinstance(results, str):
+        print(f"nvchecker failed: {results}", file=sys.stderr)
+        return updates.EXIT_FAILURE
     unresolved, failed, upgraded = [], False, []
-    for path in changed:
-        name = path.removesuffix("/PKGBUILD")
+    for result in results:
+        if result["status"] == "failure":
+            print(f"{result['pkgbase']}: check failed: {updates.short(result['message'])}", file=sys.stderr)
+            failed = True
+    # versions reports the packages in their order, one each
+    for name, result in zip(checked, results, strict=True):
+        if not result["out_of_date"]:
+            continue
         package = checkout.root / name
-        pins = resolve_pins(checkout, name)
-        for pin, new in pins:
-            current = pin_value(package / "PKGBUILD", pin)
-            if not new:
+        srcinfo = Srcinfo.load(package)
+        current, pkgrel = srcinfo.first("pkgver"), srcinfo.first("pkgrel")
+        new, new_pkgrel = result["upstream_version"], next_pkgrel(srcinfo.first("pkgrel"))
+        if problem := set_version(package / "PKGBUILD", current, new, new_pkgrel):
+            print(f"{name}: can't upgrade to {new}: {problem}", file=sys.stderr)
+            failed = True
+            continue
+        print(f"{name} {current}-{pkgrel} -> {new}-{new_pkgrel}")
+        if new_pkgrel != "1":
+            print(f"  pkgrel {new_pkgrel}, below the next release of what it replaces: check its comment")
+        for pin, value in resolve_pins(checkout, name):
+            old = pin_value(package / "PKGBUILD", pin)
+            if not value:
                 print(
-                    f"  couldn't resolve {pin} of {name}'s new version, left at {short_pin(current)}",
+                    f"  couldn't resolve {pin} of {name}'s new version, left at {short_pin(old)}",
                     file=sys.stderr,
                 )
                 unresolved.append(f"{name} {pin}")
-            elif new != current:
-                set_pin(package / "PKGBUILD", pin, new)
-                print(f"  {pin} {short_pin(current)} -> {short_pin(new)}")
-        if not finish(name, package, checksums=bool(pins)):
+            elif value != old:
+                set_pin(package / "PKGBUILD", pin, value)
+                print(f"  {pin} {short_pin(old)} -> {short_pin(value)}")
+        if not finish(name, package, checksums=True):
             failed = True
             continue
-        print(f"Upgraded {name}")
         upgraded.append(name)
+    if not upgraded and not failed:
+        print("All packages are up to date")
     # What the new versions contain of the fixes the packages refer to, e.g. backports that can go
     if upgraded:
         print("\nThe upstream references of the upgraded packages, against their new versions:")

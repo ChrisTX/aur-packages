@@ -238,9 +238,11 @@ for _command in (
     Command(
         "upgrade",
         "",
-        "Upgrade the packages to their latest upstream version with the .nvchecker.toml of each "
-        "(pkgctl version upgrade), move their pins to it (see pins --update), then format the "
-        "PKGBUILDs and regenerate .SRCINFO; then show the upstream references of the upgraded "
+        "Upgrade the outdated packages to their latest upstream version: the update check finds "
+        "them (see updates), each gets the new pkgver and pkgrel 1, or 0.1 where its pkgrel has a "
+        "fraction (local/, overrides/), as pkgctl version upgrade would, then its pins move to it "
+        "(see pins --update), its checksums are taken, the PKGBUILD formatted and .SRCINFO "
+        "regenerated; then show the upstream references of the upgraded "
         "packages against their new versions (see upstream), e.g. backports they contain now. Fails "
         "if a pin couldn't be moved",
         arguments="packages",
