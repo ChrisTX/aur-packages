@@ -4,12 +4,12 @@
 # shellcheck shell=bash
 
 pkgname=lua-resty-core
-# The release OpenResty 1.31.8.1 bundles with lua-nginx-module 0.10.32rc7 (nginx-mod-lua), whose
-# exact version it requires; OpenResty's releases take upstream's rc tags
+# Upstream's newest release, an rc tag as OpenResty's releases take them (1.31.8.1 bundles rc2),
+# for the newest lua-nginx-module (nginx-mod-lua), whose FFI it declares (see conflicts)
 pkgver=0.1.35rc3
 # Above the AUR's 1:0.1.32R1-1, for lua-nginx-module 0.10.29: our build, for nginx-mod-lua,
 # until the AUR's next release
-pkgrel=1
+pkgrel=2
 # The AUR's epoch, without which our version would be below its
 epoch=1
 pkgdesc="The Lua API of OpenResty's ngx_http_lua module, implemented with LuaJIT's FFI"
@@ -19,6 +19,10 @@ license=(BSD-2-Clause)
 # The Lua half of nginx-mod-lua, which brings OpenResty's LuaJIT and depends on this package;
 # upstream's tests need the module, so they run in its check()
 depends=(lua-resty-lrucache)
+# The FFI of balancer.enable_keepalive() takes a pool size since 0.1.35rc3
+# (openresty/lua-resty-core@16747a5), which the module takes since 0.10.32rc8
+# (openresty/lua-nginx-module@797bacea): an older one takes the pool size for its error pointer
+conflicts=('nginx-mod-lua<1:0.10.32rc8')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha512sums=('989768a37e9818317c1cc0b46d0a2ef0c14eb17a0494f3649e9f406f1a4572bab4dfb635ca749ba18dbd893e16bf6949a3fb26bcbb48bf6c0831de35b827730f')
 b2sums=('fa78bdebd7819a8f304ab87a067c2a1d312d64cecfb4e42d1c090103d3176fb5acf4ac37e29c9c1d2cacebe6ee7df73cc1e143d7f056ddb2b6ca0c8a0f2563cc')
