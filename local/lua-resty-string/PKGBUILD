@@ -1,0 +1,60 @@
+# Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>
+# Contributor: Fijxu <fijxu at nadeko dot net>
+# shellcheck disable=SC2034,SC2154
+# shellcheck shell=bash
+
+pkgname=lua-resty-string
+# The release OpenResty 1.31.8.1 bundles
+pkgver=0.19
+# Above the AUR's 1:0.16-2: our build, for nginx-mod-lua
+pkgrel=1
+# The AUR's epoch, without which our version would be below its
+epoch=1
+pkgdesc="String utilities and common hash functions for OpenResty's ngx_http_lua module"
+arch=(any)
+url="https://github.com/openresty/lua-resty-string"
+license=(BSD-2-Clause)
+# Its functions call nginx's (ngx_hex_dump, ngx_atoi) and OpenSSL's, which nginx is linked with,
+# through LuaJIT's FFI: it only works in nginx with the module
+depends=(nginx-mod-lua)
+# Upstream's tests: Test::Nginx's Perl modules
+checkdepends=(
+  nginx
+  perl-http-response-encoding
+  perl-ipc-run
+  perl-libwww
+  perl-list-moreutils
+  perl-test-base
+  perl-test-longstring
+  perl-text-diff
+  perl-uri
+)
+# Test::Nginx, upstream's test scaffold, for check()
+_testnginxver=0.32
+source=(
+  "$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+  "test-nginx-$_testnginxver.tar.gz::https://github.com/openresty/test-nginx/archive/refs/tags/v$_testnginxver.tar.gz"
+)
+sha512sums=('b68c900931c390afbfdb2d7380dd179850d6ab1911d9dbaed2b707981c35797502a733c191ac48d3a3dc4263188737aa2a18cd210f0cb0bf8fbbcc294a3b188a'
+  'c8ddec5dc21c23ded4ea974f4d6fca01ea498f728e5f8dc87224b1151bf9fcfb1921d971359ee79e3984b23fd6cb2f510259b077f79b867b95a437d28af48b97')
+b2sums=('b40c1894a4ebb3873b9d3cc8ef72e5ea3324c658070d2f7838fa3d8237f4e5a020d719e59355117bc4f9f56db19889715285d8a35d0b66a53b525de861d5b106'
+  '5b98a9764d2fb322199ecf839feed2d995f4ab3e2c9488eebe698fad00e852c45862b94774232d4d8043e2850018c1699ea055a0da211b88211eddfc26e380ed')
+
+check() {
+  cd "$pkgname-$pkgver" || exit
+  # The installed module, in random ports and server roots, for parallel tests
+  local _modules=/usr/lib/nginx/modules
+  local -x TEST_NGINX_BINARY=/usr/bin/nginx TEST_NGINX_RANDOMIZE=1
+  local -x TEST_NGINX_LOAD_MODULES="$_modules/ndk_http_module.so $_modules/ngx_http_lua_module.so"
+  prove -I "$srcdir/test-nginx-$_testnginxver/lib" -j "$(nproc)" -r t
+}
+
+package() {
+  cd "$pkgname-$pkgver" || exit
+  # As upstream's Makefile installs them, for LuaJIT's search path, but not executable
+  install -Dm644 -t "$pkgdir/usr/share/lua/5.1/resty" lib/resty/*.lua
+  install -Dm644 -t "$pkgdir/usr/share/doc/$pkgname" README.markdown
+  # The licence is in the README
+  sed -n '/^Copyright and License$/,/^\[Back to TOC\]/{/^\[Back to TOC\]/d;p}' README.markdown |
+    install -Dm644 /dev/stdin "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

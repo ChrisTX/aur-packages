@@ -1,0 +1,26 @@
+pkgbase = lua-resty-string
+	pkgdesc = String utilities and common hash functions for OpenResty's ngx_http_lua module
+	pkgver = 0.19
+	pkgrel = 1
+	epoch = 1
+	url = https://github.com/openresty/lua-resty-string
+	arch = any
+	license = BSD-2-Clause
+	checkdepends = nginx
+	checkdepends = perl-http-response-encoding
+	checkdepends = perl-ipc-run
+	checkdepends = perl-libwww
+	checkdepends = perl-list-moreutils
+	checkdepends = perl-test-base
+	checkdepends = perl-test-longstring
+	checkdepends = perl-text-diff
+	checkdepends = perl-uri
+	depends = nginx-mod-lua
+	source = lua-resty-string-0.19.tar.gz::https://github.com/openresty/lua-resty-string/archive/refs/tags/v0.19.tar.gz
+	source = test-nginx-0.32.tar.gz::https://github.com/openresty/test-nginx/archive/refs/tags/v0.32.tar.gz
+	sha512sums = b68c900931c390afbfdb2d7380dd179850d6ab1911d9dbaed2b707981c35797502a733c191ac48d3a3dc4263188737aa2a18cd210f0cb0bf8fbbcc294a3b188a
+	sha512sums = c8ddec5dc21c23ded4ea974f4d6fca01ea498f728e5f8dc87224b1151bf9fcfb1921d971359ee79e3984b23fd6cb2f510259b077f79b867b95a437d28af48b97
+	b2sums = b40c1894a4ebb3873b9d3cc8ef72e5ea3324c658070d2f7838fa3d8237f4e5a020d719e59355117bc4f9f56db19889715285d8a35d0b66a53b525de861d5b106
+	b2sums = 5b98a9764d2fb322199ecf839feed2d995f4ab3e2c9488eebe698fad00e852c45862b94774232d4d8043e2850018c1699ea055a0da211b88211eddfc26e380ed
+
+pkgname = lua-resty-string
