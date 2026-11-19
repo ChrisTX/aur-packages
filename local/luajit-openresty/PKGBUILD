@@ -1,0 +1,65 @@
+# Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>
+# Contributor: Caleb Maclennan <caleb at alerque dot com>
+# Contributor: Rui Marques <aur at ruimarques dot xyz>
+# Contributor: Fabio Loli <fabio dot loli at disroot dot org>
+# Contributor: Eduardo Bart <edub4rt at gmail dot com>
+# shellcheck disable=SC2034,SC2154
+# shellcheck shell=bash
+
+pkgname=luajit-openresty
+# Upstream's tag v2.1-<date>, as the AUR's pkgver 2.1.<date>
+pkgver=2.1.20261117
+_tag=v2.1-${pkgver##*.}
+# Its .relver, the commit's time, which LuaJIT 2.1 takes for its version (luajit -v): Arch Linux's
+# luajit is versioned with it, so luajit is provided in that scheme, where it compares with Arch's
+_relver=1794898267
+# Above the AUR's 2.1.20261117-1, which is built without OpenResty's Lua 5.2 extensions (see
+# build()): our build, for nginx-mod-lua, until the AUR's next release
+pkgrel=1.1
+pkgdesc="Just-in-time compiler for Lua 5.1: OpenResty's LuaJIT, built as OpenResty builds it"
+arch=(x86_64)
+url="https://github.com/openresty/luajit2"
+license=(MIT)
+depends=(
+  glibc
+  libgcc
+)
+provides=("luajit=2.1.$_relver")
+conflicts=(luajit)
+# Upstream's tests of its extensions: Test::Base, which runs code with luajit
+checkdepends=(
+  perl-ipc-run3
+  perl-test-base
+  perl-test-longstring
+)
+source=("luajit2-$pkgver.tar.gz::$url/archive/refs/tags/$_tag.tar.gz")
+sha512sums=('082623af2dc1a044b4ffce8133f3ad0703a775e0566ec587ffce40fa9c6b1f355f1a1803d4caf3746e7a6af53575cab108680b5e888e1cebadc649bad82a3cfe')
+b2sums=('cdd8876240f3d15a6b4a5712bc9934aae57c74989bd2788be50ff43c81cd27bd68ef2e8f56d5a800eecdeb7bc5ed97bd7b0e7128e1594d1e1f782952b5632cc4')
+
+build() {
+  cd "luajit2-${_tag#v}" || exit
+  # The Lua 5.2 extensions OpenResty's configure builds its LuaJIT with (unless
+  # --without-luajit-lua52), which code for OpenResty relies on: __pairs, __ipairs and __len, e.g.
+  # lua-resty-openssl's for its X509 names and stacks. Not stripped early, as Arch Linux's luajit
+  make amalg PREFIX=/usr BUILDMODE=dynamic TARGET_STRIP=" @:" XCFLAGS=-DLUAJIT_ENABLE_LUA52COMPAT
+}
+
+check() {
+  cd "luajit2-${_tag#v}" || exit
+  # The release the version is taken from, as Arch Linux's luajit checks it
+  [[ $(<.relver) == "$_relver" ]] || exit
+  # Upstream's tests, with the luajit just built: its library under its soname, which the build
+  # names libluajit.so, and its Lua modules (jit.dump for -jdump) before the installed ones. Their
+  # TestLJ.pm sets LUA_PATH itself, so they're added with LUA_INIT, which luajit runs before its
+  # options
+  mkdir -p "$srcdir/lib"
+  ln -sf "$PWD/src/libluajit.so" "$srcdir/lib/libluajit-5.1.so.2"
+  PATH="$PWD/src:$PATH" LD_LIBRARY_PATH="$srcdir/lib" \
+    LUA_INIT="package.path = '$PWD/src/?.lua;' .. package.path" prove -I . t
+}
+
+package() {
+  cd "luajit2-${_tag#v}" || exit
+  make install DESTDIR="$pkgdir" PREFIX=/usr
+  install -Dm644 -t "$pkgdir/usr/share/licenses/$pkgname" COPYRIGHT
+}

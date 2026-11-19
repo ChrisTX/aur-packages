@@ -1,0 +1,19 @@
+pkgbase = luajit-openresty
+	pkgdesc = Just-in-time compiler for Lua 5.1: OpenResty's LuaJIT, built as OpenResty builds it
+	pkgver = 2.1.20261117
+	pkgrel = 1.1
+	url = https://github.com/openresty/luajit2
+	arch = x86_64
+	license = MIT
+	checkdepends = perl-ipc-run3
+	checkdepends = perl-test-base
+	checkdepends = perl-test-longstring
+	depends = glibc
+	depends = libgcc
+	provides = luajit=2.1.1794898267
+	conflicts = luajit
+	source = luajit2-2.1.20261117.tar.gz::https://github.com/openresty/luajit2/archive/refs/tags/v2.1-20261117.tar.gz
+	sha512sums = 082623af2dc1a044b4ffce8133f3ad0703a775e0566ec587ffce40fa9c6b1f355f1a1803d4caf3746e7a6af53575cab108680b5e888e1cebadc649bad82a3cfe
+	b2sums = cdd8876240f3d15a6b4a5712bc9934aae57c74989bd2788be50ff43c81cd27bd68ef2e8f56d5a800eecdeb7bc5ed97bd7b0e7128e1594d1e1f782952b5632cc4
+
+pkgname = luajit-openresty
