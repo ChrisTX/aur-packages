@@ -6,7 +6,7 @@
 pkgname=lua-resty-core
 # The release OpenResty 1.31.8.1 bundles with lua-nginx-module 0.10.32rc7 (nginx-mod-lua), whose
 # exact version it requires; OpenResty's releases take upstream's rc tags
-pkgver=0.1.35rc2
+pkgver=0.1.35rc3
 # Above the AUR's 1:0.1.32R1-1, for lua-nginx-module 0.10.29: our build, for nginx-mod-lua,
 # until the AUR's next release
 pkgrel=1
@@ -20,8 +20,8 @@ license=(BSD-2-Clause)
 # upstream's tests need the module, so they run in its check()
 depends=(lua-resty-lrucache)
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha512sums=('6c10895c4484628e081b0f4da6d4ab396118cfbb40eba03d15baf9b8c4124e02c6927103b6e3ee60fa7b049483cd76523bf56cd99ffce2f14e3395d0212db3a5')
-b2sums=('95c52593543d06385b2dee49e7dd71ce29fe436d48e22d2df2454e9017af88e2890ff11eabe1699d464ed9bf04bef10ab3732be26bce95e1f9f24cfa47c1fa83')
+sha512sums=('989768a37e9818317c1cc0b46d0a2ef0c14eb17a0494f3649e9f406f1a4572bab4dfb635ca749ba18dbd893e16bf6949a3fb26bcbb48bf6c0831de35b827730f')
+b2sums=('fa78bdebd7819a8f304ab87a067c2a1d312d64cecfb4e42d1c090103d3176fb5acf4ac37e29c9c1d2cacebe6ee7df73cc1e143d7f056ddb2b6ca0c8a0f2563cc')
 
 package() {
   cd "$pkgname-$pkgver/lib" || exit
