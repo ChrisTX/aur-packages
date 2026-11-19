@@ -1,0 +1,8 @@
+# The releases of lua-resty-http, tagged v<version>, without its betas (v0.17.0-beta.1)
+[lua-resty-http]
+source = "git"
+git = "https://github.com/ledgetech/lua-resty-http.git"
+use_max_tag = true
+prefix = "v"
+exclude_regex = ".*-beta.*"
+sort_version_key = "vercmp"

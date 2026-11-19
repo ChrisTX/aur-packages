@@ -1,0 +1,66 @@
+# Maintainer: Christian Pfeiffer <cpfeiffer at rev-crew dot info>
+# Contributor: Fijxu <fijxu at nadeko dot net>
+# shellcheck disable=SC2034,SC2154
+# shellcheck shell=bash
+
+pkgname=lua-resty-http
+pkgver=0.18.0
+# Above the AUR's 1:0.17.2-1: our build, for nginx-mod-lua
+pkgrel=1
+# The AUR's epoch, without which our version would be below its
+epoch=1
+pkgdesc="An HTTP client for OpenResty's ngx_http_lua module, on its cosocket API"
+arch=(any)
+url="https://github.com/ledgetech/lua-resty-http"
+license=(BSD-2-Clause)
+# The cosocket API of the module, lua-resty-string, which resty.http_connect loads for every
+# connection (the client certificate's digest in the pool's key), and lua-resty-openssl for client
+# certificates (mTLS): without it, those fail, and every worker logs a warning when it loads
+depends=(
+  lua-resty-openssl
+  lua-resty-string
+  nginx-mod-lua
+)
+# Upstream's tests: Test::Nginx's Perl modules, and the echo module some use
+checkdepends=(
+  nginx
+  nginx-mod-echo
+  perl-http-response-encoding
+  perl-ipc-run
+  perl-libwww
+  perl-list-moreutils
+  perl-test-base
+  perl-test-longstring
+  perl-text-diff
+  perl-uri
+)
+# Test::Nginx, upstream's test scaffold, for check()
+_testnginxver=0.32
+source=(
+  "$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+  "test-nginx-$_testnginxver.tar.gz::https://github.com/openresty/test-nginx/archive/refs/tags/v$_testnginxver.tar.gz"
+)
+sha512sums=('00d019a39fc1e733b2a3bd08911b2d6601f5c7817fe47cee07e95e68574e60426e94a13deaa22e54e1731c734ecc7ac3a4c3731b7c514796568099ab36826e39'
+  'c8ddec5dc21c23ded4ea974f4d6fca01ea498f728e5f8dc87224b1151bf9fcfb1921d971359ee79e3984b23fd6cb2f510259b077f79b867b95a437d28af48b97')
+b2sums=('3541e997f24ee8e139bdb4994f3c0ad46520f2c0a4a89d78f33591a28709da928ac12cae9838f8fe8f4093eecd3259fbe7707dbf2d9129ef596057b0ef93a49f'
+  '5b98a9764d2fb322199ecf839feed2d995f4ab3e2c9488eebe698fad00e852c45862b94774232d4d8043e2850018c1699ea055a0da211b88211eddfc26e380ed')
+
+check() {
+  cd "$pkgname-$pkgver" || exit
+  # The installed modules, in random ports and server roots, for parallel tests
+  local _modules=/usr/lib/nginx/modules
+  local _load=(
+    "$_modules/ndk_http_module.so"
+    "$_modules/ngx_http_echo_module.so"
+    "$_modules/ngx_http_lua_module.so"
+  )
+  local -x TEST_NGINX_BINARY=/usr/bin/nginx TEST_NGINX_RANDOMIZE=1 TEST_NGINX_LOAD_MODULES="${_load[*]}"
+  prove -I "$srcdir/test-nginx-$_testnginxver/lib" -j "$(nproc)" -r t
+}
+
+package() {
+  cd "$pkgname-$pkgver" || exit
+  install -Dm644 -t "$pkgdir/usr/share/lua/5.1/resty" lib/resty/*.lua
+  install -Dm644 -t "$pkgdir/usr/share/doc/$pkgname" README.md
+  install -Dm644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}
