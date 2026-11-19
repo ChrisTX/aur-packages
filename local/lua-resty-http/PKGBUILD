@@ -47,6 +47,20 @@ b2sums=('3541e997f24ee8e139bdb4994f3c0ad46520f2c0a4a89d78f33591a28709da928ac12ca
 
 check() {
   cd "$pkgname-$pkgver" || exit
+  # Free ports for the servers some tests start on fixed ones (8080, 8081 and 12345): the build
+  # shares the host's network, whose services may have them, and the tests running in parallel
+  # take them from each other. Three for each file, free right now and held together while they
+  # are picked so they differ; 12345 only where it's a port, not a request body. Not Test::Nginx's
+  # $TEST_NGINX_RAND_PORT_<n>, which it doesn't expand in --- error_log, where the tests expect
+  # the port in the Host header
+  local _file _ports
+  for _file in t/*.t; do
+    _ports=$(perl -MIO::Socket::INET -e 'print join(" ", map { $_->sockport }
+      map { IO::Socket::INET->new(Listen => 1) or die "no free port: $!" } 1 .. 3)')
+    PORTS=$_ports perl -pi -e 'BEGIN { @p = split " ", $ENV{PORTS};
+      %n = (8080 => $p[0], 8081 => $p[1], 12345 => $p[2]) }
+      s/(:|tcp_listen: |port = |, *)(8080|8081|12345)\b/$1$n{$2}/g' "$_file"
+  done
   # The installed modules, in random ports and server roots, for parallel tests
   local _modules=/usr/lib/nginx/modules
   local _load=(
