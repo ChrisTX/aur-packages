@@ -111,8 +111,12 @@ def test_sanitise_makepkg_conf(tmp_path: Path) -> None:
     conf.write_text("CFLAGS=-O2\n")
     text = build.sanitise_makepkg_conf(conf, "address,undefined")
     assert text.startswith("CFLAGS=-O2\n")
-    assert 'CFLAGS+=" -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize=' in text
-    assert "-fno-sanitize" not in build.sanitise_makepkg_conf(conf, "address")
+    flags = f"-fsanitize=address,{build.UNDEFINED_CHECKS} -fno-omit-frame-pointer"
+    assert f'CFLAGS+=" {flags}"' in text
+    assert "function" not in text
+    assert 'CFLAGS+=" -fsanitize=address -fno-omit-frame-pointer"' in build.sanitise_makepkg_conf(
+        conf, "address"
+    )
 
 
 def test_alarm_pacman_conf_with_the_private_repository() -> None:

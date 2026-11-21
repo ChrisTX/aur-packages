@@ -324,16 +324,26 @@ def cross_makepkg_conf(alarm: Path) -> str:
     )
 
 
+# The checks of -fsanitize=undefined that both Clang and GCC know, without vptr, function and
+# pointer-overflow (see sanitise_makepkg_conf)
+UNDEFINED_CHECKS = (
+    "alignment,bool,bounds,builtin,enum,float-cast-overflow,integer-divide-by-zero,"
+    "nonnull-attribute,null,object-size,return,returns-nonnull-attribute,shift,"
+    "signed-integer-overflow,unreachable,vla-bound"
+)
+
+
 def sanitise_makepkg_conf(makepkg_conf: Path, sanitisers: str) -> str:
     """The makepkg.conf of test builds with the sanitisers (address, undefined or both).
 
-    Without the checks of undefined that don't work for libraries loaded into closed-source programs,
-    like the plugins of game servers (vptr and function need the whole program's type information),
-    or that LLVM's LTO can't build for 32-bit x86 (pointer-overflow).
+    undefined is spelt out as its checks (UNDEFINED_CHECKS), without those that don't work for
+    libraries loaded into closed-source programs, like the plugins of game servers (vptr and function
+    need the whole program's type information), or that LLVM's LTO can't build for 32-bit x86
+    (pointer-overflow). Taking them out with -fno-sanitize instead fails with GCC, which has no
+    function check and rejects the name, and some packages build with GCC.
     """
-    flags = f"-fsanitize={sanitisers} -fno-omit-frame-pointer"
-    if "undefined" in sanitisers.split(","):
-        flags += " -fno-sanitize=vptr,function,pointer-overflow"
+    checks = [UNDEFINED_CHECKS if name == "undefined" else name for name in sanitisers.split(",")]
+    flags = f"-fsanitize={','.join(checks)} -fno-omit-frame-pointer"
     return makepkg_conf.read_text() + (
         f"\n# ./aur-packages build --sanitize={sanitisers}: test builds with the sanitisers\n"
         f'CFLAGS+=" {flags}"\nCXXFLAGS+=" {flags}"\nLDFLAGS+=" {flags}"\n'
