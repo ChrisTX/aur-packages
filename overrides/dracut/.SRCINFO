@@ -1,7 +1,7 @@
 pkgbase = dracut
 	pkgdesc = An event driven initramfs infrastructure
-	pkgver = 112
-	pkgrel = 1.1
+	pkgver = 113
+	pkgrel = 0.1
 	url = https://github.com/dracut-ng/dracut-ng
 	arch = x86_64
 	license = GPL-2.0-or-later
@@ -76,23 +76,20 @@ pkgbase = dracut
 	optdepends = xz: xz compression
 	provides = initramfs
 	backup = etc/dracut.conf
-	source = dracut-112::git+https://github.com/dracut-ng/dracut-ng#tag=112
+	source = dracut-113::git+https://github.com/dracut-ng/dracut-ng#tag=113
 	source = dracut-install.script
 	source = dracut-remove.script
 	source = 90-dracut-install.hook
 	source = 60-dracut-remove.hook
-	source = dracut-systemd-pcrextend-socket.patch
-	sha512sums = c06703a3685a1ce4edd8bb19beb0a32e4832c08cdcf9427593be6dd02ecc20c37de035e3b31f289a58fc4162e244e0275fe663c72dbfbe0b9df8c2f7d7b646f7
+	sha512sums = d5d4ca9801e6ac4aa82fb32e75f43d1c10bc6a86fe444ffc9d5585d9b24f68f5819fb8c120ae7bbbe1acb781952617d13029d028788df5e2dc9f9805147a8b9a
 	sha512sums = 0f91f0d4378fd9f67f1fd05080aa013b65ce48661aad4ffc07e090dee88ee789daddfa85393c49e8fd5e2ea82bf00ac482fef71523198336750bef59508408d2
 	sha512sums = ed249af85fd15b79299e99b9b587fe962158d803cc1365d903a6202331cc0befaa309e36d4922bd859824295cd023bd75f959f5ad783d230550f6ce371baac67
 	sha512sums = a560fba9fdb66c733e15ff299676747f94a98a6da19b1d01293bb01d7e4a1b227e34c0f6c37e2e6924d1e42c028b0006b2b7a6cb8a5797777c6538fd0923356f
 	sha512sums = 5f8f6f04081061d36cd331737b40a8f523319f0d05d92308c0967de97266c27d3dd901da49ce0850f12c2cd95e5eb19ba6219b5d8a1d075c010420be1900f803
-	sha512sums = b2fd8751866820c75505bccffc1dfda33b3f5047832ef54066d6ed2df7125e90e53c8d80ee9c003ad124ae750aaed512cf392615944a9c2828eca9b172a954dd
-	b2sums = 190892b98d2bfcf00ece2bc2db724bc689886c7dbdacd98c24d62cf6e0cd60b03cd82b0e482999ffa259010476d8d3666397b4403806b378558280c616861352
+	b2sums = d55e582e63ba1ee8412d7756c611a0acb7cadd8e19c45d34d0f6ab0aa4f54c3ffaf0911de3b7a93a2b742ec501bf0d1e0168478a9779bde31057e79c16df6650
 	b2sums = 5468c20cd1d723509bf1d79dd5691d5e81eb19bc2e506c77eb8ee39b1b93ae195a34bb1e24a1db6a844b43999859491a3bf3c84dbef12b19a41d10a10ee8465c
 	b2sums = 06e6ef68f1116d348ce4f11960a9b583af703b93ae0172c5d3d237dcdd4ca4614f2cb0f761ff12079b8c40f349e39d096ed404dee38732d4cc704e8af7ca23f1
 	b2sums = 5e0e702553060dbc94a378a1b3b7caa52590a33f33d78767a4c3ef0a5360d11520084e91f59b941a62bea8abfcd017cd64132c5f3d42d93319683283a22e0875
 	b2sums = a3bc75e55af379ddd3fee1dd7c6855fcb42366f42d9e10c1725b8e38f81c3eee0a4131badcf6ba2c4addf78aae4084528407af38295ab2b7e62ab16e3fe0b599
-	b2sums = cf6cebf33aa0f737b14ff3edd9ece696bed0947955b4758e299af6fe8f9f1be251d5a1d1a7373a153ab2e28f21d08b80375268142e5f9dc916fd25ba54c1939e
 
 pkgname = dracut
