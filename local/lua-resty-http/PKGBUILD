@@ -52,7 +52,8 @@ check() {
   # take them from each other. Three for each file, free right now and held together while they
   # are picked so they differ; 12345 only where it's a port, not a request body. Not Test::Nginx's
   # $TEST_NGINX_RAND_PORT_<n>, which it doesn't expand in --- error_log, where the tests expect
-  # the port in the Host header
+  # the port in the Host header. Upstream's tests take random ports since lua-resty-http#356
+  # upstream: workaround ledgetech/lua-resty-http#356
   local _file _ports
   for _file in t/*.t; do
     _ports=$(perl -MIO::Socket::INET -e 'print join(" ", map { $_->sockport }
