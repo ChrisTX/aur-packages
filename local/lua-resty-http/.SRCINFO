@@ -20,10 +20,10 @@ pkgbase = lua-resty-http
 	depends = lua-resty-string
 	depends = nginx-mod-lua
 	source = lua-resty-http-0.18.0.tar.gz::https://github.com/ledgetech/lua-resty-http/archive/refs/tags/v0.18.0.tar.gz
-	source = test-nginx-0.32.tar.gz::https://github.com/openresty/test-nginx/archive/refs/tags/v0.32.tar.gz
+	source = test-nginx-ee25abdaa38f8506309aafb8a1949aec92873488.tar.gz::https://github.com/openresty/test-nginx/archive/ee25abdaa38f8506309aafb8a1949aec92873488.tar.gz
 	sha512sums = 00d019a39fc1e733b2a3bd08911b2d6601f5c7817fe47cee07e95e68574e60426e94a13deaa22e54e1731c734ecc7ac3a4c3731b7c514796568099ab36826e39
-	sha512sums = c8ddec5dc21c23ded4ea974f4d6fca01ea498f728e5f8dc87224b1151bf9fcfb1921d971359ee79e3984b23fd6cb2f510259b077f79b867b95a437d28af48b97
+	sha512sums = dd56f713f519d054bc18363144c28ceda5ccb126713928538d2e638da57f20549efe33f7837c1ac014060a1290add12fa63e320d1117b7d429c15263c3827abb
 	b2sums = 3541e997f24ee8e139bdb4994f3c0ad46520f2c0a4a89d78f33591a28709da928ac12cae9838f8fe8f4093eecd3259fbe7707dbf2d9129ef596057b0ef93a49f
-	b2sums = 5b98a9764d2fb322199ecf839feed2d995f4ab3e2c9488eebe698fad00e852c45862b94774232d4d8043e2850018c1699ea055a0da211b88211eddfc26e380ed
+	b2sums = 318d73950a599fa4b4f31d9a03b5f5c2828c5fdf9680a9ec197779e4a30b44cef1772be6a938737ba911a1414e4a5cfb4c9bd4bd349efa10cea11bb90215fa04
 
 pkgname = lua-resty-http
