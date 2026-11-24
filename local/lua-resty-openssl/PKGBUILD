@@ -31,16 +31,19 @@ checkdepends=(
   perl-text-diff
   perl-uri
 )
-# Test::Nginx, upstream's test scaffold, for check()
-_testnginxver=0.32
+# Test::Nginx, upstream's test scaffold, for check(): a commit of its master after its release
+# 0.32, whose random ports collide between the test files prove runs in parallel (a port is free
+# between a file's blocks, when another file can take it), which master fixes with lock files
+# (openresty/test-nginx@58cf0d5); back to a release once there's one after 0.32
+_testnginxcommit=ee25abdaa38f8506309aafb8a1949aec92873488
 source=(
   "$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/$pkgver.tar.gz"
-  "test-nginx-$_testnginxver.tar.gz::https://github.com/openresty/test-nginx/archive/refs/tags/v$_testnginxver.tar.gz"
+  "test-nginx-$_testnginxcommit.tar.gz::https://github.com/openresty/test-nginx/archive/$_testnginxcommit.tar.gz"
 )
 sha512sums=('ce2971276fa5daa9a88d8b38b717277e7df1798fc8b49b778e8f5d99acf405286688377671e18cc66959d33c6fe63c5a056838b7d3b347ec88343b24eb3a929b'
-  'c8ddec5dc21c23ded4ea974f4d6fca01ea498f728e5f8dc87224b1151bf9fcfb1921d971359ee79e3984b23fd6cb2f510259b077f79b867b95a437d28af48b97')
+  'dd56f713f519d054bc18363144c28ceda5ccb126713928538d2e638da57f20549efe33f7837c1ac014060a1290add12fa63e320d1117b7d429c15263c3827abb')
 b2sums=('9c6a365a5784afe7797081953f8b647be832a59c1d44bbfeb85b1775606c9a2c192a8d9d55c0560320168a091f4e5d69c8dcf9eb67c2aedcc701e2459b151f4e'
-  '5b98a9764d2fb322199ecf839feed2d995f4ab3e2c9488eebe698fad00e852c45862b94774232d4d8043e2850018c1699ea055a0da211b88211eddfc26e380ed')
+  '318d73950a599fa4b4f31d9a03b5f5c2828c5fdf9680a9ec197779e4a30b44cef1772be6a938737ba911a1414e4a5cfb4c9bd4bd349efa10cea11bb90215fa04')
 
 # Leaves out tests of upstream's suite in DIR: a file (NAME) or blocks of it (NAME:N,N,…). A file
 # with blocks left out runs without a plan, as the plans count the tests of every block
@@ -86,7 +89,7 @@ check() {
   # lua-resty-openssl-aux-module and Kong's lua-kong-nginx-module: their switches, as its CI uses
   # them. The FIPS tests only run with TEST_NGINX_FIPS, for an OpenSSL with its FIPS provider
   local -x CI_SKIP_NGINX_C=1 CI_SKIP_KONG_SSL_FUNCS=1
-  prove -I "$srcdir/test-nginx-$_testnginxver/lib" -j "$(nproc)" -r t
+  prove -I "$srcdir/test-nginx-$_testnginxcommit/lib" -j "$(nproc)" -r t
 }
 
 package() {
