@@ -4,7 +4,7 @@
 # shellcheck shell=bash
 
 pkgname=ghidra-mcp
-pkgver=7.0.0
+pkgver=7.1.0
 # The bridge needs the MCP SDK 1.x: it uses FastMCP and its internals, which the SDK 2.x of
 # python-mcp replaced (MCPServer). The package keeps the last 1.x release in its own folder.
 _mcpver=1.30.0
@@ -35,7 +35,7 @@ depends=(
 makedepends=(
   git
   gradle
-  'java-environment>=21'
+  'java-environment>=25'
   python-build
   python-hatchling
   python-installer
@@ -58,26 +58,15 @@ source=(
   "git+$url.git#tag=v$pkgver"
   "git+https://github.com/modelcontextprotocol/python-sdk.git#tag=v$_mcpver"
   bridge-mcp-ghidra.sh
-  ghidra-12.2.patch
 )
-sha512sums=('61d6d7b03be46bba3afeca4e8b2b054bcb003395af542cfae3a759f53fbdfbb47495767d855002d829c1be8ec4b00ceb465ec5d5570f951ed75a88488854dd68'
+sha512sums=('a879d48b59c6c475f44b125c0d08eb0c5748e1f322f9287566cc7520f4f27093388d3d47f08a4367c4cab2f0f7834470ccd93e8f101197c1352a9ccb9c7ba27f'
   '6c93cba4397ffe0932e5b3379a0c69a4f6c5322ee96c3e761b4168d7b24ce28af2b237b436c7dd5e023d0cfb5e1174feaabe60fbb3ec43e5107ca12112553c0d'
   'f0c9b84f92e4af5d9bfc4c73a947b8e60a20078f492e91b4d05e3941105e40c54718d44fb539f271845b46dbd6c350142a729dacf6116e6638a93d15d9c51481'
   '0a36ae49f3c86637274fcc1f60b6c2c7af2f53067fcc92ae2ae4139e9d11980b19fb10e91c0f9efe14c01b627cf588d5c5d211de54b983b041dcc279b2a45fcf')
-b2sums=('3008c73f11117c38e2dc1b0d78f93af1c22ea51e26b9277ff240f74a5488f685c4b559d279b25a64cedfcc58092a71b636e913ddcadeff5a2243453f336490f1'
+b2sums=('6bcb66568ed4bb1cdbf887423fbd48a1f4ad1c7f8bc5dad791f85104bb4efe895c860ff699a0e93e5a1ac4124918b23946afa24212e5243cb4dbb9d960ae7a3d'
   'f6cc562ac57eab4a4a1748d7c52a9d659432b019303ecf92e95b671af301245861d10488293ce6935df4bb946115b38f0d76e4ae8833528332d29750d2a1429d'
   '46657aee55ce182ad3c5242765f90ecd4a9bc176209239b98cd03343582761bd5bd318c54a9847ac3f9c5a982e860f341461bfcf5d38258892bc7797e6d220fb'
   '0a766b8c303ce2d19dfd3f12541f195db7ba52860e30d2a0aa6cdb32b9bc8d576c7d850a32ca9254761c3296462228e138912231fa7a9bc4cfa7397b43a38094')
-
-prepare() {
-  cd "$pkgname" || exit
-
-  # Ghidra 12.2 support, from upstream's dev branch (bethington/ghidra-mcp@b06c679d, after 7.0.0): it
-  # compiles at the installed Ghidra's Java release, and uses the APIs that moved in 12.2 in a way
-  # that works with 12.1 as well
-  # upstream: backport bethington/ghidra-mcp@b06c679d
-  patch -Np1 -i ../ghidra-12.2.patch
-}
 
 build() {
   cd "$pkgname" || exit
